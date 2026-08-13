@@ -310,5 +310,35 @@ test('the excerpt on a decision row is capped at 160 characters', (t) => {
   submit(store, { owner: OWNER, text: 'x'.repeat(500) });
   const [decision] = listDecisions(store, OWNER);
 
-  assert.ok(decision.input_excerpt.length <= 160, decision.input_excerpt.length.toString());
+  assert.equal([...decision.input_excerpt].length, 160);
+});
+
+test('the excerpt counts characters, and never cuts one in half', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const scripts = [
+    '🌍'.repeat(200), // outside the basic plane, two code units each
+    '柏'.repeat(200),
+    'ی'.repeat(200),
+    'a🌍'.repeat(150), // a cut that lands mid character if you count wrong
+  ];
+
+  for (const text of scripts) {
+    submit(store, { owner: OWNER, text });
+  }
+
+  for (const decision of listDecisions(store, OWNER)) {
+    const characters = [...decision.input_excerpt];
+    assert.equal(characters.length, 160, 'the excerpt should hold 160 characters');
+
+    // A lone half of a surrogate pair is the damage this guards against.
+    for (const character of characters) {
+      const code = character.codePointAt(0) ?? 0;
+      assert.equal(code >= 0xd800 && code <= 0xdfff, false, 'a character was cut in half');
+    }
+
+    // Round tripping through the database has to leave it unchanged.
+    assert.equal(decision.input_excerpt.normalize('NFC'), decision.input_excerpt);
+  }
 });

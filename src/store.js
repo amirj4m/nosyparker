@@ -190,13 +190,21 @@ export function openStore({ file, now }) {
 /**
  * Cut the offered text down to what a decision row is allowed to keep.
  *
+ * Counted in characters, not in the sixteen bit pieces JavaScript stores them
+ * in. `"…".length` lies about anything outside the first sixty five thousand
+ * code points, which is most of the world's writing and every emoji, and
+ * cutting by that count can slice a single character in half and leave an
+ * unpaired surrogate in the log. This counts the same way
+ * `credentialPlaceholder` does.
+ *
  * @param {string} text
  * @returns {string}
  */
 export function excerpt(text) {
   const flattened = text.replace(/\s+/gu, ' ').trim();
-  if (flattened.length <= EXCERPT_LIMIT) return flattened;
-  return flattened.slice(0, EXCERPT_LIMIT - 1) + '…';
+  const characters = [...flattened];
+  if (characters.length <= EXCERPT_LIMIT) return flattened;
+  return characters.slice(0, EXCERPT_LIMIT - 1).join('') + '…';
 }
 
 /**
