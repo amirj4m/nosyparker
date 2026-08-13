@@ -69,7 +69,9 @@ function main(argv) {
   const db = new DatabaseSync(file);
 
   try {
-    db.exec('PRAGMA foreign_keys = OFF');
+    // Left on, so that the database itself refuses to let this script leave a
+    // reference pointing at a row that is gone.
+    db.exec('PRAGMA foreign_keys = ON');
     db.exec('PRAGMA secure_delete = ON');
 
     const memory = db.prepare('SELECT id, text FROM memories WHERE id = ?').get(id);
@@ -82,11 +84,27 @@ function main(argv) {
 
     db.exec('BEGIN IMMEDIATE');
     try {
+      // Everything that points at this memory stops pointing at it first, so
+      // that the delete cannot leave a reference to a row that is not there.
+      // Rows are only ever unlinked here, never removed: the memories keep
+      // their own text and the decisions keep their whole record.
+      db.prepare('UPDATE memories SET supersedes = NULL WHERE supersedes = ?').run(id);
+      db.prepare('UPDATE memories SET superseded_by = NULL WHERE superseded_by = ?').run(id);
+      db.prepare('UPDATE decisions SET memory_id = NULL WHERE memory_id = ?').run(id);
+      db.prepare('UPDATE decisions SET related_memory_id = NULL WHERE related_memory_id = ?').run(id);
+
       db.prepare('DELETE FROM memories WHERE id = ?').run(id);
       db.exec('COMMIT');
     } catch (error) {
       db.exec('ROLLBACK');
       throw error;
+    }
+
+    const broken = db.prepare('PRAGMA foreign_key_check').all();
+    if (broken.length > 0) {
+      throw new Error(
+        `Refusing to finish: the store has ${broken.length} broken references after this delete.`,
+      );
     }
 
     db.exec('VACUUM');
@@ -97,7 +115,8 @@ function main(argv) {
     process.stdout.write(`Memory ${id} is gone from ${file}.\n`);
     process.stdout.write(
       'The decision log still records what happened to it, including a short excerpt ' +
-        'of the text. That log is deliberately left alone.\n',
+        'of the text. That log is deliberately left alone. Anything that pointed at ' +
+        'this memory no longer does.\n',
     );
   } finally {
     db.close();
