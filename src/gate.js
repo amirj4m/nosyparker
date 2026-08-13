@@ -102,9 +102,10 @@ export function submit(store, { owner, text, replaces = null }) {
         };
       }
 
-      // 4. replaces-unknown.
+      // 4. replaces-unknown. The default read is active only, which is exactly
+      // what this rule needs: a replaced or forgotten id is not a valid target.
       const target = replaces === null ? null : getMemory(store, owner, replaces);
-      if (replaces !== null && (target === null || target.state !== 'active')) {
+      if (replaces !== null && target === null) {
         return {
           owner,
           verdict: 'refused',
@@ -192,7 +193,9 @@ export function forget(store, { owner, id, reason }) {
         };
       }
 
-      const memory = getMemory(store, owner, id);
+      // Archived rows included, because forgetting is about the row rather
+      // than about what is on show.
+      const memory = getMemory(store, owner, id, { includeArchived: true });
 
       // 8. forget-unknown.
       if (memory === null) {
@@ -245,7 +248,8 @@ export function forget(store, { owner, id, reason }) {
 export function restore(store, { owner, id }) {
   return asResult(
     recordDecision(store, (db, at) => {
-      const memory = getMemory(store, owner, id);
+      // Archived rows included, since an archived row is the whole point.
+      const memory = getMemory(store, owner, id, { includeArchived: true });
 
       if (memory === null) {
         return {

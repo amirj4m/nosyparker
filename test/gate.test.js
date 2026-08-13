@@ -164,7 +164,8 @@ test('rule 5: replacing a real memory supersedes it and links both ways', (t) =>
   assert.equal(fresh.verdict, 'superseded');
   assert.equal(fresh.rule, 'replaces');
 
-  const oldRow = getMemory(store, OWNER, /** @type {number} */ (old.memory_id));
+  const archived = { includeArchived: true };
+  const oldRow = getMemory(store, OWNER, /** @type {number} */ (old.memory_id), archived);
   const newRow = getMemory(store, OWNER, /** @type {number} */ (fresh.memory_id));
 
   assert.equal(oldRow?.state, 'superseded');
@@ -202,7 +203,9 @@ test('rule 7: forgetting archives the memory and keeps the reason', (t) => {
   assert.equal(result.verdict, 'forgotten');
   assert.equal(result.rule, 'forget');
 
-  const row = getMemory(store, OWNER, /** @type {number} */ (stored.memory_id));
+  const row = getMemory(store, OWNER, /** @type {number} */ (stored.memory_id), {
+    includeArchived: true,
+  });
   assert.equal(row?.state, 'forgotten');
   assert.equal(row?.state_reason, 'I eat fish again');
   assert.equal(listMemories(store, OWNER).length, 0);

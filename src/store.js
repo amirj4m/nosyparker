@@ -269,17 +269,22 @@ export function recordDecision(store, decide) {
 }
 
 /**
- * One memory by id, whatever state it is in.
+ * One memory by id. Active only unless asked otherwise, like every other read
+ * here: seeing what was replaced or forgotten is something a caller opts into.
  *
  * @param {Store} store
  * @param {string} owner
  * @param {number} id
+ * @param {{includeArchived?: boolean}} [options]
  * @returns {Memory|null}
  */
-export function getMemory(store, owner, id) {
-  const row = handleOf(store)
-    .db.prepare('SELECT * FROM memories WHERE id = ? AND owner = ?')
-    .get(id, owner);
+export function getMemory(store, owner, id, options = {}) {
+  const sql =
+    options.includeArchived === true
+      ? 'SELECT * FROM memories WHERE id = ? AND owner = ?'
+      : "SELECT * FROM memories WHERE id = ? AND owner = ? AND state = 'active'";
+
+  const row = handleOf(store).db.prepare(sql).get(id, owner);
   return row ? /** @type {Memory} */ (/** @type {unknown} */ (row)) : null;
 }
 

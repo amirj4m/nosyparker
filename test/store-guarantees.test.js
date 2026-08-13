@@ -9,8 +9,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { submit } from '../src/gate.js';
-import { listDecisions, listMemories, recordDecision } from '../src/store.js';
+import { forget, submit } from '../src/gate.js';
+import {
+  getMemory,
+  listDecisions,
+  listMemories,
+  recordDecision,
+  searchMemories,
+} from '../src/store.js';
 import { OWNER, temporaryStore } from './helpers.js';
 
 test('a store hands out no database handle', (t) => {
@@ -57,6 +63,23 @@ test('the only way in writes its own log row', (t) => {
 
   assert.equal(listMemories(store, OWNER).length, 1);
   assert.equal(listDecisions(store, OWNER).length, 1);
+});
+
+test('every read shows only active memories until asked otherwise', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const stored = submit(store, { owner: OWNER, text: 'I keep Wednesdays clear' });
+  const id = /** @type {number} */ (stored.memory_id);
+  forget(store, { owner: OWNER, id, reason: 'not any more' });
+
+  assert.equal(getMemory(store, OWNER, id), null, 'getMemory should default to active only');
+  assert.equal(listMemories(store, OWNER).length, 0);
+  assert.equal(searchMemories(store, OWNER, 'Wednesdays').length, 0);
+
+  assert.equal(getMemory(store, OWNER, id, { includeArchived: true })?.state, 'forgotten');
+  assert.equal(listMemories(store, OWNER, { includeArchived: true }).length, 1);
+  assert.equal(searchMemories(store, OWNER, 'Wednesdays', { includeArchived: true }).length, 1);
 });
 
 test('a closed store cannot be used again', (t) => {

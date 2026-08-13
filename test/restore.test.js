@@ -79,7 +79,7 @@ test('no memory anywhere points at a memory in a state that contradicts it', (t)
 
   for (const memory of listMemories(store, OWNER, { includeArchived: true })) {
     if (memory.superseded_by !== null) {
-      const replacement = getMemory(store, OWNER, memory.superseded_by);
+      const replacement = getMemory(store, OWNER, memory.superseded_by, { includeArchived: true });
       assert.equal(
         replacement?.supersedes,
         memory.id,
@@ -88,7 +88,7 @@ test('no memory anywhere points at a memory in a state that contradicts it', (t)
       assert.notEqual(memory.state, 'active', `memory ${memory.id} is active and replaced at once`);
     }
     if (memory.supersedes !== null) {
-      const replaced = getMemory(store, OWNER, memory.supersedes);
+      const replaced = getMemory(store, OWNER, memory.supersedes, { includeArchived: true });
       assert.equal(
         replaced?.superseded_by,
         memory.id,
@@ -98,7 +98,11 @@ test('no memory anywhere points at a memory in a state that contradicts it', (t)
   }
 
   // The chain that was left alone is still intact.
-  assert.equal(getMemory(store, OWNER, /** @type {number} */ (first.memory_id))?.superseded_by, second.memory_id);
+  assert.equal(
+    getMemory(store, OWNER, /** @type {number} */ (first.memory_id), { includeArchived: true })
+      ?.superseded_by,
+    second.memory_id,
+  );
   assert.equal(getMemory(store, OWNER, /** @type {number} */ (third.memory_id))?.supersedes, null);
 });
 
