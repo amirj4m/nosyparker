@@ -26,11 +26,12 @@ test('a store hands out no database handle', (t) => {
   assert.equal('db' in store, false);
   assert.deepEqual(Object.keys(store).filter((key) => key === 'db'), []);
 
-  // Nothing reachable from the store, at any depth of its own properties, is
-  // something you could prepare a statement on.
-  for (const value of Object.values(store)) {
+  // Nothing hanging off the store is something you could prepare a statement
+  // on, which is the only shape that would let a caller write without logging.
+  for (const value of Object.values(/** @type {Record<string, unknown>} */ (store))) {
+    const candidate = /** @type {Record<string, unknown>} */ (Object(value));
     assert.equal(
-      typeof (/** @type {Record<string, unknown>} */ (value ?? {}).prepare),
+      typeof candidate.prepare,
       'undefined',
       'a store property exposes something statement shaped',
     );

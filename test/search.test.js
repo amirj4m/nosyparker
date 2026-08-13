@@ -137,6 +137,7 @@ test('two character words are findable, which is most of Chinese and Japanese', 
   submit(store, { owner: OWNER, text: '寿司が好きです' });
   submit(store, { owner: OWNER, text: 'I live in Berlin' });
 
+  /** @type {[string, string|null][]} */
   const cases = [
     ['柏林', '我住在柏林并且喜欢安静的办公室'], // Berlin
     ['东京', null], // simplified form, deliberately not in the store
