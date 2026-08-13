@@ -7,10 +7,13 @@
  * path in this project deletes a row except `scripts/purge.mjs`, which a
  * person runs by hand.
  *
- * The only exported way to change a memory is `recordDecision`, which always
- * writes the decision row in the same transaction as the change. There is no
- * other write function to reach for, so a change without a log entry is not
- * something a caller can express.
+ * The database handle is deliberately not on the Store object. It is held in a
+ * WeakMap in this module, so nothing outside this file can reach it, and the
+ * only exported function that hands it out is `recordDecision`, which writes
+ * the decision row in the same transaction as whatever the caller does with
+ * it. That is what makes "no change without a log entry" a property of the
+ * code rather than a promise in a comment: there is no exported path to a
+ * statement handle that does not also write the log row.
  */
 
 import fs from 'node:fs';
@@ -62,12 +65,39 @@ const MIN_SEARCH_LENGTH = 3;
  */
 
 /**
+ * A store, as seen from outside this module. Note what is not on it: there is
+ * no database handle to borrow.
+ *
  * @typedef {object} Store
- * @property {DatabaseSync} db
  * @property {() => string} now
  * @property {string} file
  * @property {() => void} close
  */
+
+/**
+ * @typedef {object} Handle
+ * @property {DatabaseSync} db
+ * @property {number} depth how many transactions this store is currently inside
+ */
+
+/**
+ * The database handles, kept here and nowhere else.
+ *
+ * @type {WeakMap<Store, Handle>}
+ */
+const handles = new WeakMap();
+
+/**
+ * @param {Store} store
+ * @returns {Handle}
+ */
+function handleOf(store) {
+  const handle = handles.get(store);
+  if (handle === undefined) {
+    throw new TypeError('That is not an open store.');
+  }
+  return handle;
+}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS memories (
@@ -143,14 +173,18 @@ export function openStore({ file, now }) {
   db.exec('PRAGMA busy_timeout = 5000');
   db.exec(SCHEMA);
 
-  return {
-    db,
+  /** @type {Store} */
+  const store = {
     now,
     file,
     close() {
       db.close();
+      handles.delete(store);
     },
   };
+
+  handles.set(store, { db, depth: 0 });
+  return store;
 }
 
 /**
@@ -186,7 +220,7 @@ export function excerpt(text) {
  */
 export function recordDecision(store, plan) {
   const at = store.now();
-  const { db } = store;
+  const { db } = handleOf(store);
 
   db.exec('BEGIN IMMEDIATE');
   try {
@@ -245,8 +279,8 @@ function pickId(fromMutate, fromPlan) {
  * @returns {Memory|null}
  */
 export function getMemory(store, owner, id) {
-  const row = store.db
-    .prepare('SELECT * FROM memories WHERE id = ? AND owner = ?')
+  const row = handleOf(store)
+    .db.prepare('SELECT * FROM memories WHERE id = ? AND owner = ?')
     .get(id, owner);
   return row ? /** @type {Memory} */ (/** @type {unknown} */ (row)) : null;
 }
@@ -264,7 +298,9 @@ export function listMemories(store, owner, options = {}) {
   const sql = includeArchived
     ? 'SELECT * FROM memories WHERE owner = ? ORDER BY id'
     : "SELECT * FROM memories WHERE owner = ? AND state = 'active' ORDER BY id";
-  return /** @type {Memory[]} */ (/** @type {unknown} */ (store.db.prepare(sql).all(owner)));
+  return /** @type {Memory[]} */ (
+    /** @type {unknown} */ (handleOf(store).db.prepare(sql).all(owner))
+  );
 }
 
 /**
@@ -295,7 +331,7 @@ export function searchMemories(store, owner, query, options = {}) {
      LIMIT ?`;
 
   return /** @type {Memory[]} */ (
-    /** @type {unknown} */ (store.db.prepare(sql).all(asPhrase(trimmed), owner, limit))
+    /** @type {unknown} */ (handleOf(store).db.prepare(sql).all(asPhrase(trimmed), owner, limit))
   );
 }
 
@@ -320,8 +356,8 @@ function asPhrase(query) {
  */
 export function listDecisions(store, owner, options = {}) {
   const limit = options.limit ?? 200;
-  const rows = store.db
-    .prepare('SELECT * FROM decisions WHERE owner = ? ORDER BY id DESC LIMIT ?')
+  const rows = handleOf(store)
+    .db.prepare('SELECT * FROM decisions WHERE owner = ? ORDER BY id DESC LIMIT ?')
     .all(owner, limit);
   return /** @type {Decision[]} */ (/** @type {unknown} */ (rows)).reverse();
 }
