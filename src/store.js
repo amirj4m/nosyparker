@@ -311,8 +311,13 @@ export function listMemories(store, owner, options = {}) {
  *
  * @param {Store} store
  * @param {string} owner
+ * There is no limit and no default page size. A search that quietly returned
+ * the first fifty of eighty matches would be worse than useless: the caller
+ * cannot tell a complete answer from a truncated one, and neither can the
+ * person reading it.
+ *
  * @param {string} query
- * @param {{includeArchived?: boolean, limit?: number}} [options]
+ * @param {{includeArchived?: boolean}} [options]
  * @returns {Memory[]}
  */
 export function searchMemories(store, owner, query, options = {}) {
@@ -321,7 +326,6 @@ export function searchMemories(store, owner, query, options = {}) {
   if ([...trimmed].length < MIN_SEARCH_LENGTH) return [];
 
   const includeArchived = options.includeArchived === true;
-  const limit = options.limit ?? 50;
 
   const sql = `
     SELECT m.*
@@ -330,11 +334,10 @@ export function searchMemories(store, owner, query, options = {}) {
      WHERE memories_fts MATCH ?
        AND m.owner = ?
        ${includeArchived ? '' : "AND m.state = 'active'"}
-     ORDER BY rank
-     LIMIT ?`;
+     ORDER BY rank`;
 
   return /** @type {Memory[]} */ (
-    /** @type {unknown} */ (handleOf(store).db.prepare(sql).all(asPhrase(trimmed), owner, limit))
+    /** @type {unknown} */ (handleOf(store).db.prepare(sql).all(asPhrase(trimmed), owner))
   );
 }
 
@@ -350,17 +353,20 @@ function asPhrase(query) {
 }
 
 /**
- * The decision log, newest last so it reads like a diary.
+ * The whole decision log, oldest first so it reads like a diary.
+ *
+ * All of it, always. This is an append only record of everything that was ever
+ * decided, and the oldest entries are the ones a person goes looking for when
+ * something seems wrong. Handing back the most recent two hundred and saying
+ * nothing about the rest would hide exactly the part that matters.
  *
  * @param {Store} store
  * @param {string} owner
- * @param {{limit?: number}} [options]
  * @returns {Decision[]}
  */
-export function listDecisions(store, owner, options = {}) {
-  const limit = options.limit ?? 200;
+export function listDecisions(store, owner) {
   const rows = handleOf(store)
-    .db.prepare('SELECT * FROM decisions WHERE owner = ? ORDER BY id DESC LIMIT ?')
-    .all(owner, limit);
-  return /** @type {Decision[]} */ (/** @type {unknown} */ (rows)).reverse();
+    .db.prepare('SELECT * FROM decisions WHERE owner = ? ORDER BY id')
+    .all(owner);
+  return /** @type {Decision[]} */ (/** @type {unknown} */ (rows));
 }

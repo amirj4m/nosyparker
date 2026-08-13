@@ -82,6 +82,21 @@ test('every read shows only active memories until asked otherwise', (t) => {
   assert.equal(searchMemories(store, OWNER, 'Wednesdays', { includeArchived: true }).length, 1);
 });
 
+test('nothing is quietly held back from a search or from the log', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  for (let index = 0; index < 210; index += 1) {
+    submit(store, { owner: OWNER, text: `memory number ${index} mentions rhubarb` });
+  }
+
+  assert.equal(searchMemories(store, OWNER, 'rhubarb').length, 210, 'search held some back');
+  assert.equal(listDecisions(store, OWNER).length, 210, 'the log held some back');
+
+  // The oldest entry, the one a truncating log would lose first, is there.
+  assert.equal(listDecisions(store, OWNER)[0].input_excerpt, 'memory number 0 mentions rhubarb');
+});
+
 test('a closed store cannot be used again', (t) => {
   const store = temporaryStore();
   submit(store, { owner: OWNER, text: 'something to keep' });
