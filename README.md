@@ -70,8 +70,11 @@ anything, and nothing else can call it.
 ## Tests
 
 ```
-node --test test/
+node --test 'test/*.test.js'
 ```
+
+There is nothing to install first. The tests use Node's own test runner and
+write to a temporary folder, never to your real store.
 
 ## License
 

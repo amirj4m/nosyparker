@@ -1,0 +1,118 @@
+/**
+ * Search has to work in every language, which is the whole reason the index
+ * uses a trigram tokeniser instead of the default one. These are the languages
+ * the default tokeniser would have failed on, plus English as a control.
+ */
+
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { forget, submit } from '../src/gate.js';
+import { searchMemories } from '../src/store.js';
+import { OWNER, temporaryStore } from './helpers.js';
+
+test('search finds Persian, Arabic, Chinese and English', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const sentences = {
+    persian: 'من قهوه را تلخ دوست دارم',
+    arabic: 'أنا أفضل الاجتماعات في الصباح',
+    chinese: '我住在柏林并且喜欢安静的办公室',
+    english: 'I prefer quiet offices and short meetings',
+  };
+
+  for (const sentence of Object.values(sentences)) {
+    submit(store, { owner: OWNER, text: sentence });
+  }
+
+  const cases = [
+    ['قهوه', sentences.persian],
+    ['الاجتماعات', sentences.arabic],
+    ['我住在柏林', sentences.chinese],
+    ['quiet offices', sentences.english],
+  ];
+
+  for (const [query, expected] of cases) {
+    const found = searchMemories(store, OWNER, query);
+    assert.equal(found.length, 1, `no match for ${query}`);
+    assert.equal(found[0].text, expected);
+  }
+});
+
+test('search matches in the middle of a word, which is what trigrams are for', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  submit(store, { owner: OWNER, text: 'I use a standing desk in the afternoons' });
+  submit(store, { owner: OWNER, text: '柏林的天气很冷' });
+
+  assert.equal(searchMemories(store, OWNER, 'ternoon').length, 1);
+  assert.equal(searchMemories(store, OWNER, '的天气').length, 1);
+});
+
+test('search leaves archived memories out unless they are asked for', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const forgotten = submit(store, { owner: OWNER, text: 'I drink coffee after four' });
+  const replaced = submit(store, { owner: OWNER, text: 'I answer email at night' });
+  submit(store, {
+    owner: OWNER,
+    text: 'I answer email in the morning',
+    replaces: /** @type {number} */ (replaced.memory_id),
+  });
+  forget(store, {
+    owner: OWNER,
+    id: /** @type {number} */ (forgotten.memory_id),
+    reason: 'not true any more',
+  });
+
+  assert.equal(searchMemories(store, OWNER, 'coffee').length, 0);
+  assert.equal(searchMemories(store, OWNER, 'at night').length, 0);
+
+  assert.equal(searchMemories(store, OWNER, 'coffee', { includeArchived: true }).length, 1);
+  assert.equal(searchMemories(store, OWNER, 'at night', { includeArchived: true }).length, 1);
+});
+
+test('search only ever returns the owner their own memories', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  submit(store, { owner: 'someone-else', text: 'a secret preference for pineapple' });
+  assert.equal(searchMemories(store, OWNER, 'pineapple').length, 0);
+  assert.equal(searchMemories(store, 'someone-else', 'pineapple').length, 1);
+});
+
+test('the index follows a memory that changes state', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const stored = submit(store, { owner: OWNER, text: 'I bike to the office' });
+  forget(store, {
+    owner: OWNER,
+    id: /** @type {number} */ (stored.memory_id),
+    reason: 'moved further away',
+  });
+
+  assert.equal(searchMemories(store, OWNER, 'bike').length, 0);
+  assert.equal(searchMemories(store, OWNER, 'bike', { includeArchived: true }).length, 1);
+});
+
+test('a query shorter than a trigram returns nothing rather than failing', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  submit(store, { owner: OWNER, text: '我住在柏林' });
+  assert.deepEqual(searchMemories(store, OWNER, '柏林'), []);
+});
+
+test('punctuation in a query is treated as text to look for, not as syntax', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  submit(store, { owner: OWNER, text: 'I use the "long form" version of my name' });
+
+  assert.equal(searchMemories(store, OWNER, '"long form"').length, 1);
+  assert.doesNotThrow(() => searchMemories(store, OWNER, 'NEAR(a b) OR *'));
+});

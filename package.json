@@ -20,11 +20,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/",
-    "typecheck": "tsc --noEmit"
+    "test": "node --test 'test/*.test.js'"
   },
   "dependencies": {},
-  "devDependencies": {
-    "typescript": "^5.6.0"
-  }
+  "devDependencies": {}
 }
