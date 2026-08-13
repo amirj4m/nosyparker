@@ -353,9 +353,11 @@ export function listMemories(store, owner, options = {}) {
  * @returns {Memory[]}
  */
 export function searchMemories(store, owner, query, options = {}) {
-  const trimmed = query.trim();
+  const terms = query.trim().split(/\s+/u).filter((term) => term !== '');
+  if (terms.length === 0) return [];
+
   // A trigram index has nothing to match on below three characters.
-  if ([...trimmed].length < MIN_SEARCH_LENGTH) return [];
+  if (terms.some((term) => [...term].length < MIN_SEARCH_LENGTH)) return [];
 
   const includeArchived = options.includeArchived === true;
 
@@ -369,19 +371,25 @@ export function searchMemories(store, owner, query, options = {}) {
      ORDER BY rank`;
 
   return /** @type {Memory[]} */ (
-    /** @type {unknown} */ (handleOf(store).db.prepare(sql).all(asPhrase(trimmed), owner))
+    /** @type {unknown} */ (handleOf(store).db.prepare(sql).all(asMatch(terms), owner))
   );
 }
 
 /**
- * Wrap a query as a single FTS5 phrase so that whatever the user typed is
- * treated as text to look for, not as query syntax.
+ * Turn what somebody typed into an FTS5 query that looks for all of it.
  *
- * @param {string} query
+ * Each word becomes a quoted phrase, and the phrases are joined with AND. Two
+ * things follow from that. Searching for "coffee morning" finds a memory that
+ * says "coffee in the morning", which is what a person expects and what a
+ * single quoted phrase would have refused to do. And a word like OR or NEAR(
+ * is inside quotes, so it is text to look for rather than an instruction to
+ * carry out.
+ *
+ * @param {string[]} terms
  * @returns {string}
  */
-function asPhrase(query) {
-  return '"' + query.replaceAll('"', '""') + '"';
+function asMatch(terms) {
+  return terms.map((term) => '"' + term.replaceAll('"', '""') + '"').join(' AND ');
 }
 
 /**

@@ -51,6 +51,35 @@ test('search matches in the middle of a word, which is what trigrams are for', (
   assert.equal(searchMemories(store, OWNER, '的天气').length, 1);
 });
 
+test('several words are all looked for, not required to be next to each other', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  submit(store, { owner: OWNER, text: 'I drink coffee in the morning and never after four' });
+  submit(store, { owner: OWNER, text: 'I drink tea in the evening' });
+
+  assert.equal(searchMemories(store, OWNER, 'coffee morning').length, 1);
+  assert.equal(searchMemories(store, OWNER, 'morning coffee').length, 1, 'order should not matter');
+  assert.equal(searchMemories(store, OWNER, 'coffee evening').length, 0, 'both words are required');
+
+  // Still works when the words really are next to each other.
+  assert.equal(searchMemories(store, OWNER, 'drink coffee').length, 1);
+});
+
+test('an FTS5 operator in a query is looked for rather than carried out', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  submit(store, { owner: OWNER, text: 'I prefer cats' });
+  submit(store, { owner: OWNER, text: 'I tolerate dogs' });
+
+  // If OR were carried out this would match both memories.
+  assert.equal(searchMemories(store, OWNER, 'cats OR dogs').length, 0);
+  assert.doesNotThrow(() => searchMemories(store, OWNER, 'NEAR(cats dogs)'));
+  assert.doesNotThrow(() => searchMemories(store, OWNER, 'cats*'));
+  assert.doesNotThrow(() => searchMemories(store, OWNER, '"unbalanced quote'));
+});
+
 test('search leaves archived memories out unless they are asked for', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
@@ -69,10 +98,10 @@ test('search leaves archived memories out unless they are asked for', (t) => {
   });
 
   assert.equal(searchMemories(store, OWNER, 'coffee').length, 0);
-  assert.equal(searchMemories(store, OWNER, 'at night').length, 0);
+  assert.equal(searchMemories(store, OWNER, 'night').length, 0);
 
   assert.equal(searchMemories(store, OWNER, 'coffee', { includeArchived: true }).length, 1);
-  assert.equal(searchMemories(store, OWNER, 'at night', { includeArchived: true }).length, 1);
+  assert.equal(searchMemories(store, OWNER, 'night', { includeArchived: true }).length, 1);
 });
 
 test('search only ever returns the owner their own memories', (t) => {
