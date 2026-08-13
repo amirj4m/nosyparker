@@ -23,7 +23,9 @@ test('restoring a forgotten memory brings it back to the active list', (t) => {
 
   assert.equal(result.verdict, 'restored');
   assert.equal(getMemory(store, OWNER, id)?.state, 'active');
-  assert.equal(getMemory(store, OWNER, id)?.state_reason, null);
+  // The reason it was put away is kept. It was true, and it is the only
+  // account of it that anyone reads off the row.
+  assert.equal(getMemory(store, OWNER, id)?.state_reason, 'thought I had grown out of it');
   assert.deepEqual(
     listMemories(store, OWNER).map((memory) => memory.id),
     [id],
@@ -104,6 +106,57 @@ test('no memory anywhere points at a memory in a state that contradicts it', (t)
     second.memory_id,
   );
   assert.equal(getMemory(store, OWNER, /** @type {number} */ (third.memory_id))?.supersedes, null);
+});
+
+test('forgetting something already put away changes nothing and keeps the first reason', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const stored = submit(store, { owner: OWNER, text: 'I am allergic to walnuts' });
+  const id = /** @type {number} */ (stored.memory_id);
+  forget(store, { owner: OWNER, id, reason: 'one' });
+
+  const again = forget(store, { owner: OWNER, id, reason: 'two' });
+
+  assert.equal(again.verdict, 'refused');
+  assert.equal(again.rule, 'already-archived');
+  assert.equal(
+    getMemory(store, OWNER, id, { includeArchived: true })?.state_reason,
+    'one',
+    'the first reason should survive the second attempt',
+  );
+});
+
+test('forgetting something that was replaced changes nothing', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const old = submit(store, { owner: OWNER, text: 'I live in Tehran' });
+  const oldId = /** @type {number} */ (old.memory_id);
+  submit(store, { owner: OWNER, text: 'I live in Berlin', replaces: oldId });
+
+  const result = forget(store, { owner: OWNER, id: oldId, reason: 'moved' });
+  const row = getMemory(store, OWNER, oldId, { includeArchived: true });
+
+  assert.equal(result.rule, 'already-archived');
+  assert.equal(row?.state, 'superseded');
+  assert.equal(row?.state_reason, 'Replaced by memory 2');
+});
+
+test('restoring something already being shown changes nothing', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const stored = submit(store, { owner: OWNER, text: 'I keep Sundays free' });
+  const id = /** @type {number} */ (stored.memory_id);
+  const before = getMemory(store, OWNER, id);
+
+  const result = restore(store, { owner: OWNER, id });
+
+  assert.equal(result.verdict, 'refused');
+  assert.equal(result.rule, 'already-active');
+  assert.deepEqual(getMemory(store, OWNER, id), before, 'the row should be untouched');
+  assert.equal(listDecisions(store, OWNER).length, 2, 'and it is still written down');
 });
 
 test('restoring is written to the log like everything else', (t) => {
