@@ -37,21 +37,22 @@ test('the only way in writes its own log row', (t) => {
 
   // recordDecision is the exported door, and it takes the handle in rather
   // than giving it out. Using it at all produces a decision row.
-  recordDecision(store, {
-    owner: OWNER,
-    verdict: 'stored',
-    rule: 'keep',
-    explanation: 'written directly through the exported door',
-    input_excerpt: 'direct',
-    mutate(db, at) {
-      const written = db
-        .prepare(
-          `INSERT INTO memories (owner, text, created_at, state, state_at)
-           VALUES (?, ?, ?, 'active', ?)`,
-        )
-        .run(OWNER, 'direct', at, at);
-      return { memory_id: Number(written.lastInsertRowid) };
-    },
+  recordDecision(store, (db, at) => {
+    const written = db
+      .prepare(
+        `INSERT INTO memories (owner, text, created_at, state, state_at)
+         VALUES (?, ?, ?, 'active', ?)`,
+      )
+      .run(OWNER, 'direct', at, at);
+
+    return {
+      owner: OWNER,
+      verdict: 'stored',
+      rule: 'keep',
+      explanation: 'written directly through the exported door',
+      input_excerpt: 'direct',
+      memory_id: Number(written.lastInsertRowid),
+    };
   });
 
   assert.equal(listMemories(store, OWNER).length, 1);

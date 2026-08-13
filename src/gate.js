@@ -5,6 +5,11 @@
  * whether or not anything was stored. Every path through this file ends in a
  * single call to `recordDecision`, which is the only way to change a memory.
  *
+ * Everything each rule looks at is read inside the transaction that writes the
+ * result. Several agents writing at the same time is the ordinary case for
+ * this tool, not an edge case, so a rule that decided on a read taken before
+ * the write lock would be a rule that two agents can both pass at once.
+ *
  * The rules are tried top to bottom and the first one that applies wins. The
  * order is part of the design, not an implementation detail:
  *
@@ -31,6 +36,7 @@ import { isBlank, normaliseForComparison } from './text.js';
 /**
  * @typedef {import('./store.js').Store} Store
  * @typedef {import('./store.js').Memory} Memory
+ * @typedef {import('node:sqlite').DatabaseSync} DatabaseSync
  */
 
 /**
@@ -54,72 +60,65 @@ import { isBlank, normaliseForComparison } from './text.js';
  * @returns {GateResult}
  */
 export function submit(store, { owner, text, replaces = null }) {
-  // 1. credential. This branch runs before anything else touches the text,
-  // and it is the only branch that replaces the excerpt with a placeholder.
-  const credential = detectCredential(text);
-  if (credential) {
-    return decide(store, {
-      owner,
-      verdict: 'refused',
-      rule: 'credential',
-      explanation: credentialExplanation(credential),
-      input_excerpt: credentialPlaceholder(credential, text),
-    });
-  }
+  return asResult(
+    recordDecision(store, (db, at) => {
+      // 1. credential. This runs before anything else touches the text, and it
+      // is the only branch that replaces the excerpt with a placeholder.
+      const credential = detectCredential(text);
+      if (credential) {
+        return {
+          owner,
+          verdict: 'refused',
+          rule: 'credential',
+          explanation: credentialExplanation(credential),
+          input_excerpt: credentialPlaceholder(credential, text),
+        };
+      }
 
-  // 2. empty.
-  if (isBlank(text)) {
-    return decide(store, {
-      owner,
-      verdict: 'refused',
-      rule: 'empty',
-      explanation: 'There was nothing to store. The text was empty or only spaces.',
-      input_excerpt: '',
-    });
-  }
+      // 2. empty.
+      if (isBlank(text)) {
+        return {
+          owner,
+          verdict: 'refused',
+          rule: 'empty',
+          explanation: 'There was nothing to store. The text was empty or only spaces.',
+          input_excerpt: '',
+        };
+      }
 
-  // 3. already-stored.
-  const duplicate = findDuplicate(store, owner, text);
-  if (duplicate) {
-    return decide(store, {
-      owner,
-      verdict: 'refused',
-      rule: 'already-stored',
-      explanation:
-        `This is already stored as memory ${duplicate.id}, word for word. ` +
-        'Nothing was added, and the memory you already have is unchanged.',
-      input_excerpt: excerpt(text),
-      related_memory_id: duplicate.id,
-    });
-  }
+      // 3. already-stored. Read here, inside the lock, so that two identical
+      // submissions arriving together cannot both find nothing.
+      const duplicate = findDuplicate(store, owner, text);
+      if (duplicate) {
+        return {
+          owner,
+          verdict: 'refused',
+          rule: 'already-stored',
+          explanation:
+            `This is already stored as memory ${duplicate.id}, word for word. ` +
+            'Nothing was added, and the memory you already have is unchanged.',
+          input_excerpt: excerpt(text),
+          related_memory_id: duplicate.id,
+        };
+      }
 
-  // 4. replaces-unknown.
-  const target = replaces === null ? null : getMemory(store, owner, replaces);
-  if (replaces !== null && (target === null || target.state !== 'active')) {
-    return decide(store, {
-      owner,
-      verdict: 'refused',
-      rule: 'replaces-unknown',
-      explanation:
-        `Nothing was stored, because memory ${replaces} is not one of your active memories. ` +
-        'Check the id and try again. Refusing here means a mistyped id cannot quietly ' +
-        'retire a memory you meant to keep.',
-      input_excerpt: excerpt(text),
-    });
-  }
+      // 4. replaces-unknown.
+      const target = replaces === null ? null : getMemory(store, owner, replaces);
+      if (replaces !== null && (target === null || target.state !== 'active')) {
+        return {
+          owner,
+          verdict: 'refused',
+          rule: 'replaces-unknown',
+          explanation:
+            `Nothing was stored, because memory ${replaces} is not one of your active memories. ` +
+            'Check the id and try again. Refusing here means a mistyped id cannot quietly ' +
+            'retire a memory you meant to keep.',
+          input_excerpt: excerpt(text),
+        };
+      }
 
-  // 5. replaces.
-  if (target !== null) {
-    return decide(store, {
-      owner,
-      verdict: 'superseded',
-      rule: 'replaces',
-      explanation:
-        `Stored, and memory ${target.id} was retired in its favour. ` +
-        'The old one is still in the file and can be brought back.',
-      input_excerpt: excerpt(text),
-      related_memory_id: target.id,
-      mutate(db, at) {
+      // 5. replaces.
+      if (target !== null) {
         const newId = insertMemory(db, { owner, text, at, supersedes: target.id });
         db.prepare(
           `UPDATE memories
@@ -129,22 +128,31 @@ export function submit(store, { owner, text, replaces = null }) {
                   superseded_by = ?
             WHERE id = ? AND owner = ?`,
         ).run(`Replaced by memory ${newId}`, at, newId, target.id, owner);
-        return { memory_id: newId, related_memory_id: target.id };
-      },
-    });
-  }
 
-  // 6. keep.
-  return decide(store, {
-    owner,
-    verdict: 'stored',
-    rule: 'keep',
-    explanation: 'Stored.',
-    input_excerpt: excerpt(text),
-    mutate(db, at) {
-      return { memory_id: insertMemory(db, { owner, text, at, supersedes: null }) };
-    },
-  });
+        return {
+          owner,
+          verdict: 'superseded',
+          rule: 'replaces',
+          explanation:
+            `Stored, and memory ${target.id} was retired in its favour. ` +
+            'The old one is still in the file and can be brought back.',
+          input_excerpt: excerpt(text),
+          memory_id: newId,
+          related_memory_id: target.id,
+        };
+      }
+
+      // 6. keep.
+      return {
+        owner,
+        verdict: 'stored',
+        rule: 'keep',
+        explanation: 'Stored.',
+        input_excerpt: excerpt(text),
+        memory_id: insertMemory(db, { owner, text, at, supersedes: null }),
+      };
+    }),
+  );
 }
 
 /**
@@ -161,38 +169,40 @@ export function submit(store, { owner, text, replaces = null }) {
  * @returns {GateResult}
  */
 export function forget(store, { owner, id, reason }) {
-  const memory = getMemory(store, owner, id);
+  return asResult(
+    recordDecision(store, (db, at) => {
+      const memory = getMemory(store, owner, id);
 
-  // 8. forget-unknown.
-  if (memory === null) {
-    return decide(store, {
-      owner,
-      verdict: 'refused',
-      rule: 'forget-unknown',
-      explanation: `There is no memory ${id} belonging to you, so nothing was changed.`,
-      input_excerpt: excerpt(reason),
-    });
-  }
+      // 8. forget-unknown.
+      if (memory === null) {
+        return {
+          owner,
+          verdict: 'refused',
+          rule: 'forget-unknown',
+          explanation: `There is no memory ${id} belonging to you, so nothing was changed.`,
+          input_excerpt: excerpt(reason),
+        };
+      }
 
-  // 7. forget.
-  return decide(store, {
-    owner,
-    verdict: 'forgotten',
-    rule: 'forget',
-    explanation:
-      `Memory ${id} will not be shown any more. It is still in the file and ` +
-      'can be brought back with restore.',
-    input_excerpt: excerpt(reason),
-    memory_id: id,
-    mutate(db, at) {
+      // 7. forget.
       db.prepare(
         `UPDATE memories
             SET state = 'forgotten', state_reason = ?, state_at = ?
           WHERE id = ? AND owner = ?`,
       ).run(reason, at, id, owner);
-      return { memory_id: id };
-    },
-  });
+
+      return {
+        owner,
+        verdict: 'forgotten',
+        rule: 'forget',
+        explanation:
+          `Memory ${id} will not be shown any more. It is still in the file and ` +
+          'can be brought back with restore.',
+        input_excerpt: excerpt(reason),
+        memory_id: id,
+      };
+    }),
+  );
 }
 
 /**
@@ -209,33 +219,22 @@ export function forget(store, { owner, id, reason }) {
  * @returns {GateResult}
  */
 export function restore(store, { owner, id }) {
-  const memory = getMemory(store, owner, id);
+  return asResult(
+    recordDecision(store, (db, at) => {
+      const memory = getMemory(store, owner, id);
 
-  if (memory === null) {
-    return decide(store, {
-      owner,
-      verdict: 'refused',
-      rule: 'restore-unknown',
-      explanation: `There is no memory ${id} belonging to you, so nothing was changed.`,
-      input_excerpt: '',
-    });
-  }
+      if (memory === null) {
+        return {
+          owner,
+          verdict: 'refused',
+          rule: 'restore-unknown',
+          explanation: `There is no memory ${id} belonging to you, so nothing was changed.`,
+          input_excerpt: '',
+        };
+      }
 
-  const replacedBy = memory.superseded_by;
+      const replacedBy = memory.superseded_by;
 
-  return decide(store, {
-    owner,
-    verdict: 'restored',
-    rule: 'restore',
-    explanation:
-      replacedBy === null
-        ? `Memory ${id} is being shown again.`
-        : `Memory ${id} is being shown again, and memory ${replacedBy} no longer claims to ` +
-          'have replaced it.',
-    input_excerpt: '',
-    memory_id: id,
-    related_memory_id: replacedBy,
-    mutate(db, at) {
       db.prepare(
         `UPDATE memories
             SET state = 'active', state_reason = NULL, state_at = ?, superseded_by = NULL
@@ -252,9 +251,21 @@ export function restore(store, { owner, id }) {
         ).run(replacedBy, owner, id);
       }
 
-      return { memory_id: id, related_memory_id: replacedBy };
-    },
-  });
+      return {
+        owner,
+        verdict: 'restored',
+        rule: 'restore',
+        explanation:
+          replacedBy === null
+            ? `Memory ${id} is being shown again.`
+            : `Memory ${id} is being shown again, and memory ${replacedBy} no longer claims to ` +
+              'have replaced it.',
+        input_excerpt: '',
+        memory_id: id,
+        related_memory_id: replacedBy,
+      };
+    }),
+  );
 }
 
 /**
@@ -274,7 +285,7 @@ function findDuplicate(store, owner, text) {
 }
 
 /**
- * @param {import('node:sqlite').DatabaseSync} db
+ * @param {DatabaseSync} db
  * @param {{owner: string, text: string, at: string, supersedes: number|null}} row
  * @returns {number}
  */
@@ -289,18 +300,14 @@ function insertMemory(db, { owner, text, at, supersedes }) {
 }
 
 /**
- * Write the decision, and whatever change it carries, in one transaction.
- *
- * @param {Store} store
- * @param {Parameters<typeof recordDecision>[1]} plan
+ * @param {ReturnType<typeof recordDecision>} written
  * @returns {GateResult}
  */
-function decide(store, plan) {
-  const written = recordDecision(store, plan);
+function asResult(written) {
   return {
-    verdict: /** @type {GateResult['verdict']} */ (plan.verdict),
-    rule: plan.rule,
-    explanation: plan.explanation,
+    verdict: /** @type {GateResult['verdict']} */ (written.plan.verdict),
+    rule: written.plan.rule,
+    explanation: written.plan.explanation,
     memory_id: written.memory_id,
     related_memory_id: written.related_memory_id,
     decision_id: written.decision_id,

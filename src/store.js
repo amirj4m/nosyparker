@@ -200,34 +200,42 @@ export function excerpt(text) {
 }
 
 /**
- * Apply a decision: write the log row, and any change to memories, together.
+ * @typedef {object} DecisionPlan
+ * @property {string} owner
+ * @property {string} verdict one of VERDICTS
+ * @property {string} rule the rule that fired
+ * @property {string} explanation plain language, meant to be read by a person
+ * @property {string} input_excerpt already trimmed and, for secrets, already replaced
+ * @property {number|null} [memory_id]
+ * @property {number|null} [related_memory_id]
+ */
+
+/**
+ * Take a decision and write it down, both inside one transaction.
  *
- * The transaction is what makes the log trustworthy. If the change fails the
- * log row is rolled back with it, and if the log row fails the change is
- * rolled back with it. One gate call produces exactly one decision row.
+ * The caller's function runs inside `BEGIN IMMEDIATE`, which means the reads it
+ * makes to decide are covered by the same write lock as the writes it makes
+ * afterwards. That is deliberate: deciding outside the lock and writing inside
+ * it is how two agents submitting the same sentence at the same moment both
+ * conclude it is new. Everything the decision depends on has to be read in
+ * here.
+ *
+ * If anything throws, the change and the log row roll back together.
  *
  * @param {Store} store
- * @param {object} plan
- * @param {string} plan.owner
- * @param {string} plan.verdict one of VERDICTS
- * @param {string} plan.rule the rule that fired
- * @param {string} plan.explanation plain language, meant to be read by a person
- * @param {string} plan.input_excerpt already trimmed and, for secrets, already replaced
- * @param {number|null} [plan.memory_id] filled in by `mutate` when it creates a row
- * @param {number|null} [plan.related_memory_id]
- * @param {(db: DatabaseSync, at: string) => {memory_id?: number|null, related_memory_id?: number|null}|void} [plan.mutate]
- * @returns {{decision_id: number, memory_id: number|null, related_memory_id: number|null}}
+ * @param {(db: DatabaseSync, at: string) => DecisionPlan} decide
+ * @returns {{decision_id: number, memory_id: number|null, related_memory_id: number|null, plan: DecisionPlan}}
  */
-export function recordDecision(store, plan) {
+export function recordDecision(store, decide) {
   const at = store.now();
   const { db } = handleOf(store);
 
   db.exec('BEGIN IMMEDIATE');
   try {
-    const changed = plan.mutate ? plan.mutate(db, at) || {} : {};
+    const plan = decide(db, at);
 
-    const memoryId = pickId(changed.memory_id, plan.memory_id);
-    const relatedId = pickId(changed.related_memory_id, plan.related_memory_id);
+    const memoryId = plan.memory_id ?? null;
+    const relatedId = plan.related_memory_id ?? null;
 
     const written = db
       .prepare(
@@ -252,22 +260,12 @@ export function recordDecision(store, plan) {
       decision_id: Number(written.lastInsertRowid),
       memory_id: memoryId,
       related_memory_id: relatedId,
+      plan,
     };
   } catch (error) {
     db.exec('ROLLBACK');
     throw error;
   }
-}
-
-/**
- * @param {number|null|undefined} fromMutate
- * @param {number|null|undefined} fromPlan
- * @returns {number|null}
- */
-function pickId(fromMutate, fromPlan) {
-  if (fromMutate !== undefined && fromMutate !== null) return fromMutate;
-  if (fromPlan !== undefined && fromPlan !== null) return fromPlan;
-  return null;
 }
 
 /**
