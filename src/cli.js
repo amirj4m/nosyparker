@@ -71,18 +71,30 @@ function main(argv) {
  * @param {string[]} args
  */
 function runAdd(store, args) {
-  const flagIndex = args.indexOf('--replaces');
+  /** @type {number|null} */
   let replaces = null;
+  /** @type {string[]} */
+  const words = [];
 
-  if (flagIndex !== -1) {
-    const raw = args[flagIndex + 1];
+  // Walked once from the front, so that a flag given twice is noticed rather
+  // than half removed. Removing arguments by index after the fact went wrong
+  // the moment there were two of them.
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] !== '--replaces') {
+      words.push(args[index]);
+      continue;
+    }
+
+    if (replaces !== null) fail('--replaces was given more than once. Give it once.');
+
+    const raw = args[index + 1];
     if (raw === undefined) fail('--replaces needs the id of the memory being replaced.');
     replaces = toId(raw);
-    args = args.filter((_, index) => index !== flagIndex && index !== flagIndex + 1);
+    index += 1;
   }
 
-  const text = args.join(' ');
-  if (args.length === 0) fail('Say what you want to store: nosyparker add "<text>"');
+  const text = words.join(' ');
+  if (words.length === 0) fail('Say what you want to store: nosyparker add "<text>"');
 
   const result = submit(store, { owner: LOCAL_OWNER, text, replaces });
   printOutcome(result);
