@@ -177,6 +177,21 @@ export function submit(store, { owner, text, replaces = null }) {
 export function forget(store, { owner, id, reason }) {
   return asResult(
     recordDecision(store, (db, at) => {
+      // 1. credential. A reason is free text from a caller like any other, and
+      // it is written to the row as well as to the log, so it is guarded the
+      // same way. This comes first here for the same reason it comes first in
+      // submit: nothing else may touch the text before it has been checked.
+      const credential = detectCredential(reason);
+      if (credential) {
+        return {
+          owner,
+          verdict: 'refused',
+          rule: 'credential',
+          explanation: credentialExplanation(credential),
+          input_excerpt: credentialPlaceholder(credential, reason),
+        };
+      }
+
       const memory = getMemory(store, owner, id);
 
       // 8. forget-unknown.

@@ -11,8 +11,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-import { submit } from '../src/gate.js';
-import { listDecisions } from '../src/store.js';
+import { forget, submit } from '../src/gate.js';
+import { getMemory, listDecisions } from '../src/store.js';
 import { OWNER, temporaryStore } from './helpers.js';
 
 // Invented, and assembled at runtime so that this file does not itself hold a
@@ -50,6 +50,34 @@ test('a refused credential appears in neither the database file nor the write ah
     assert.equal(contains(database, secret), false, `${secret} was found in the database file`);
     assert.equal(contains(wal, secret), false, `${secret} was found in the write ahead log`);
   }
+});
+
+test('a credential in a reason for forgetting is refused too', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const stored = submit(store, { owner: OWNER, text: 'I use the staging server on Fridays' });
+  const id = /** @type {number} */ (stored.memory_id);
+  const leak = ['AKIA', 'LEAKLEAKLEAKLEAK'].join('');
+
+  const result = forget(store, { owner: OWNER, id, reason: `rotating ${leak}` });
+
+  assert.equal(result.verdict, 'refused');
+  assert.equal(result.rule, 'credential');
+
+  // The memory was left alone, because the call was refused before it acted.
+  const row = getMemory(store, OWNER, id);
+  assert.equal(row?.state, 'active');
+  assert.equal(row?.state_reason, null);
+
+  const [, decision] = listDecisions(store, OWNER);
+  assert.equal(decision.input_excerpt.includes(leak), false);
+  assert.match(decision.input_excerpt, /^\[not recorded: recognised as an AWS access key,/u);
+
+  const database = fs.readFileSync(store.file);
+  const wal = fs.readFileSync(`${store.file}-wal`);
+  assert.equal(contains(database, leak), false, 'the reason reached the database file');
+  assert.equal(contains(wal, leak), false, 'the reason reached the write ahead log');
 });
 
 test('the log records that something was refused without recording what it was', (t) => {
