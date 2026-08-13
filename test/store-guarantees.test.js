@@ -97,6 +97,26 @@ test('nothing is quietly held back from a search or from the log', (t) => {
   assert.equal(listDecisions(store, OWNER)[0].input_excerpt, 'memory number 0 mentions rhubarb');
 });
 
+test('a failure inside a decision is the error that comes back', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  assert.throws(
+    () =>
+      recordDecision(store, () => {
+        throw new Error('the real problem');
+      }),
+    /the real problem/u,
+    'the original failure should not be replaced by a rollback failure',
+  );
+
+  // And the store is still usable afterwards, with nothing half written.
+  assert.equal(listDecisions(store, OWNER).length, 0);
+  assert.equal(listMemories(store, OWNER).length, 0);
+  submit(store, { owner: OWNER, text: 'still works' });
+  assert.equal(listMemories(store, OWNER).length, 1);
+});
+
 test('a closed store cannot be used again', (t) => {
   const store = temporaryStore();
   submit(store, { owner: OWNER, text: 'something to keep' });

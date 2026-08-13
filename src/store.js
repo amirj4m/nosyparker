@@ -271,7 +271,16 @@ export function recordDecision(store, decide) {
       plan,
     };
   } catch (error) {
-    db.exec('ROLLBACK');
+    // If COMMIT itself is what failed there is no transaction left to roll
+    // back, and asking for one throws. That second error must not be allowed
+    // to stand in front of the first: the first one says what actually went
+    // wrong.
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Nothing to undo, or nothing that can be undone. Either way the
+      // original failure below is the one worth reporting.
+    }
     throw error;
   }
 }
