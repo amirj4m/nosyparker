@@ -168,9 +168,15 @@ export function openStore({ file, now }) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
 
   const db = new DatabaseSync(file);
+
+  // busy_timeout comes first, and that order matters. Setting the journal mode
+  // takes a lock, and so does creating the tables. With several agents opening
+  // the same store at the same moment, whichever one arrives second fails
+  // outright with "database is locked" unless it has already been told to wait.
+  // Every statement after this line waits its turn instead of giving up.
+  db.exec('PRAGMA busy_timeout = 5000');
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA foreign_keys = ON');
-  db.exec('PRAGMA busy_timeout = 5000');
   db.exec(SCHEMA);
 
   /** @type {Store} */
