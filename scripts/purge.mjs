@@ -86,8 +86,15 @@ function main(argv) {
     try {
       // Everything that points at this memory stops pointing at it first, so
       // that the delete cannot leave a reference to a row that is not there.
-      // Rows are only ever unlinked here, never removed: the memories keep
-      // their own text and the decisions keep their whole record.
+      // Rows are only ever unlinked here, never removed.
+      //
+      // The decision log is deliberately not scrubbed, and `input_excerpt`
+      // keeps the short piece of text it always held. This is the owner's
+      // decision, not an oversight: if something is ever wrong, he wants to be
+      // able to see what was removed. A purge that also erased the record of
+      // the purge would leave him with a store that had quietly changed and no
+      // way to find out how. Please do not "fix" this later by deleting or
+      // blanking these rows.
       db.prepare('UPDATE memories SET supersedes = NULL WHERE supersedes = ?').run(id);
       db.prepare('UPDATE memories SET superseded_by = NULL WHERE superseded_by = ?').run(id);
       db.prepare('UPDATE decisions SET memory_id = NULL WHERE memory_id = ?').run(id);
