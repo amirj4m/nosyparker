@@ -356,10 +356,15 @@ export function searchMemories(store, owner, query, options = {}) {
   const terms = query.trim().split(/\s+/u).filter((term) => term !== '');
   if (terms.length === 0) return [];
 
-  // A trigram index has nothing to match on below three characters.
-  if (terms.some((term) => [...term].length < MIN_SEARCH_LENGTH)) return [];
-
   const includeArchived = options.includeArchived === true;
+
+  // A trigram index has nothing to match on below three characters, and plenty
+  // of real words are shorter than that: 柏林 is Berlin, 東京 is Tokyo. Falling
+  // back to looking through the text is slower, and on a personal store that
+  // does not matter nearly as much as being able to find your own words.
+  if (terms.some((term) => [...term].length < MIN_SEARCH_LENGTH)) {
+    return searchBySubstring(store, owner, terms, includeArchived);
+  }
 
   const sql = `
     SELECT m.*
@@ -372,6 +377,40 @@ export function searchMemories(store, owner, query, options = {}) {
 
   return /** @type {Memory[]} */ (
     /** @type {unknown} */ (handleOf(store).db.prepare(sql).all(asMatch(terms), owner))
+  );
+}
+
+/**
+ * The path for queries the trigram index cannot answer.
+ *
+ * Uses `instr` rather than `LIKE`, which settles the wildcard question by not
+ * having any: to `instr`, `%` and `_` are two ordinary characters that a
+ * person might well have in a memory, and they are looked for as themselves.
+ *
+ * `lower` in SQLite only folds the ASCII letters. That is the one way this
+ * differs from the trigram path, and it costs nothing in the scripts that
+ * needed this fallback in the first place, since none of them have letter case
+ * at all.
+ *
+ * @param {Store} store
+ * @param {string} owner
+ * @param {string[]} terms
+ * @param {boolean} includeArchived
+ * @returns {Memory[]}
+ */
+function searchBySubstring(store, owner, terms, includeArchived) {
+  const conditions = terms.map(() => 'instr(lower(text), lower(?)) > 0').join(' AND ');
+
+  const sql = `
+    SELECT *
+      FROM memories
+     WHERE owner = ?
+       ${includeArchived ? '' : "AND state = 'active'"}
+       AND ${conditions}
+     ORDER BY id`;
+
+  return /** @type {Memory[]} */ (
+    /** @type {unknown} */ (handleOf(store).db.prepare(sql).all(owner, ...terms))
   );
 }
 

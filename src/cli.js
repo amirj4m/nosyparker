@@ -109,13 +109,6 @@ function runSearch(store, args) {
   const query = args.filter((arg) => arg !== '--all').join(' ');
   if (query.trim() === '') fail('Say what to look for: nosyparker search "<query>"');
 
-  if ([...query.trim()].length < 3) {
-    // Said out loud rather than silently returning nothing, because a short
-    // query is a limit of the trigram index, not an empty store.
-    process.stdout.write('Search needs at least three characters to work with.\n');
-    return;
-  }
-
   const found = searchMemories(store, LOCAL_OWNER, query, { includeArchived });
   if (found.length === 0) {
     process.stdout.write('Nothing matched.\n');

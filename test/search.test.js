@@ -128,12 +128,82 @@ test('the index follows a memory that changes state', (t) => {
   assert.equal(searchMemories(store, OWNER, 'bike', { includeArchived: true }).length, 1);
 });
 
-test('a query shorter than a trigram returns nothing rather than failing', (t) => {
+test('two character words are findable, which is most of Chinese and Japanese', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
-  submit(store, { owner: OWNER, text: '我住在柏林' });
-  assert.deepEqual(searchMemories(store, OWNER, '柏林'), []);
+  submit(store, { owner: OWNER, text: '我住在柏林并且喜欢安静的办公室' });
+  submit(store, { owner: OWNER, text: '私は東京に住んでいます' });
+  submit(store, { owner: OWNER, text: '寿司が好きです' });
+  submit(store, { owner: OWNER, text: 'I live in Berlin' });
+
+  const cases = [
+    ['柏林', '我住在柏林并且喜欢安静的办公室'], // Berlin
+    ['东京', null], // simplified form, deliberately not in the store
+    ['東京', '私は東京に住んでいます'], // Tokyo
+    ['寿司', '寿司が好きです'], // sushi
+    ['我', '我住在柏林并且喜欢安静的办公室'], // a single character
+  ];
+
+  for (const [query, expected] of cases) {
+    const found = searchMemories(store, OWNER, query);
+    if (expected === null) {
+      assert.equal(found.length, 0, `${query} should not have matched anything`);
+    } else {
+      assert.equal(found.length, 1, `no match for ${query}`);
+      assert.equal(found[0].text, expected);
+    }
+  }
+});
+
+test('short and long words can be mixed in one query', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  submit(store, { owner: OWNER, text: 'I drink coffee in the morning' });
+  submit(store, { owner: OWNER, text: 'I drink tea in the evening' });
+
+  assert.equal(searchMemories(store, OWNER, 'in coffee').length, 1);
+  assert.equal(searchMemories(store, OWNER, 'coffee in the morning').length, 1);
+  assert.equal(searchMemories(store, OWNER, 'in coffee evening').length, 0);
+});
+
+test('a short query treats percent and underscore as ordinary characters', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  submit(store, { owner: OWNER, text: 'my battery alarm is set at 20%' });
+  submit(store, { owner: OWNER, text: 'the file is called year_end and nothing else' });
+  submit(store, { owner: OWNER, text: 'nothing special about this one' });
+
+  // As a wildcard each of these would match everything.
+  assert.equal(searchMemories(store, OWNER, '%').length, 1);
+  assert.equal(searchMemories(store, OWNER, '_').length, 1);
+  assert.equal(searchMemories(store, OWNER, '0%').length, 1);
+
+  // Literally, "r_e" really is inside "year_end", so it matches.
+  assert.equal(searchMemories(store, OWNER, 'r_e').length, 1);
+
+  // As a wildcard "y_ar" would match "year". Taken literally, it matches
+  // nothing, which is the behaviour being asked for here.
+  assert.equal(searchMemories(store, OWNER, 'y_ar').length, 0);
+  assert.equal(searchMemories(store, OWNER, '2%').length, 0);
+});
+
+test('the archive stays out of short queries too', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const stored = submit(store, { owner: OWNER, text: '我住在柏林' });
+  forget(store, {
+    owner: OWNER,
+    id: /** @type {number} */ (stored.memory_id),
+    reason: '搬走了',
+  });
+
+  assert.equal(searchMemories(store, OWNER, '柏林').length, 0);
+  assert.equal(searchMemories(store, OWNER, '柏林', { includeArchived: true }).length, 1);
+  assert.equal(searchMemories(store, 'someone-else', '柏林', { includeArchived: true }).length, 0);
 });
 
 test('punctuation in a query is treated as text to look for, not as syntax', (t) => {
