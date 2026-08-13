@@ -62,6 +62,95 @@ test('agents offering different sentences at once all get stored', async (t) => 
   assert.equal(listDecisions(store, CLI_OWNER).length, 12);
 });
 
+test('agents all replacing the same memory at once leave no dangling pointer', async (t) => {
+  const file = freshStoreFile(t);
+
+  await runAtOnce(file, [['add', 'I live in Tehran']]);
+  const results = await runAtOnce(
+    file,
+    Array.from({ length: 10 }, (_, index) => ['add', `I live in city ${index}`, '--replaces', '1']),
+  );
+
+  for (const result of results) {
+    assert.equal(result.code, 0, result.output);
+  }
+
+  const store = openStore({ file, now: () => new Date().toISOString() });
+  t.after(() => store.close());
+
+  const decisions = listDecisions(store, CLI_OWNER);
+  const replaced = decisions.filter((decision) => decision.rule === 'replaces');
+  const refused = decisions.filter((decision) => decision.rule === 'replaces-unknown');
+
+  assert.equal(replaced.length, 1, 'only one of them can be the one that replaced it');
+  assert.equal(refused.length, 9, 'the rest have to be told the id was already retired');
+
+  const memories = listMemories(store, CLI_OWNER, { includeArchived: true });
+  assert.equal(memories.length, 2, 'one original and one replacement');
+  assertPointersAgree(memories);
+});
+
+test('agents forgetting and restoring the same memory at once leave it consistent', async (t) => {
+  const file = freshStoreFile(t);
+
+  await runAtOnce(file, [['add', 'I live in Tehran']]);
+  await runAtOnce(file, [['add', 'I live in Berlin', '--replaces', '1']]);
+
+  const results = await runAtOnce(file, [
+    ['restore', '1'],
+    ['restore', '1'],
+    ['forget', '1', 'one'],
+    ['restore', '1'],
+    ['forget', '2', 'two'],
+    ['restore', '2'],
+  ]);
+
+  for (const result of results) {
+    assert.equal(result.code, 0, result.output);
+  }
+
+  const store = openStore({ file, now: () => new Date().toISOString() });
+  t.after(() => store.close());
+
+  const memories = listMemories(store, CLI_OWNER, { includeArchived: true });
+  assert.equal(memories.length, 2);
+  assertPointersAgree(memories);
+  assert.equal(listDecisions(store, CLI_OWNER).length, 8, 'every attempt is in the log');
+});
+
+/**
+ * No memory may claim something another memory contradicts, and nothing that
+ * is being shown may also be marked as replaced.
+ *
+ * @param {import('../src/store.js').Memory[]} memories
+ */
+function assertPointersAgree(memories) {
+  const byId = new Map(memories.map((memory) => [memory.id, memory]));
+
+  for (const memory of memories) {
+    if (memory.superseded_by !== null) {
+      const replacement = byId.get(memory.superseded_by);
+      assert.ok(replacement, `memory ${memory.id} points at ${memory.superseded_by}, which is gone`);
+      assert.equal(
+        replacement.supersedes,
+        memory.id,
+        `memory ${memory.id} says ${memory.superseded_by} replaced it, but that memory disagrees`,
+      );
+      assert.notEqual(memory.state, 'active', `memory ${memory.id} is active and replaced at once`);
+    }
+
+    if (memory.supersedes !== null) {
+      const replaced = byId.get(memory.supersedes);
+      assert.ok(replaced, `memory ${memory.id} points at ${memory.supersedes}, which is gone`);
+      assert.equal(
+        replaced.superseded_by,
+        memory.id,
+        `memory ${memory.id} claims to have replaced ${memory.supersedes}, which disagrees`,
+      );
+    }
+  }
+}
+
 /**
  * A store file of its own, in a folder that is cleaned up afterwards. The file
  * is created before the children start so that they are racing to write, not

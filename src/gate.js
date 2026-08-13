@@ -120,14 +120,20 @@ export function submit(store, { owner, text, replaces = null }) {
       // 5. replaces.
       if (target !== null) {
         const newId = insertMemory(db, { owner, text, at, supersedes: target.id });
-        db.prepare(
+        // The state the decision was taken on is named in the WHERE clause, so
+        // if anything moved underneath us the update matches nothing and the
+        // whole decision rolls back rather than leaving a half linked pair.
+        changeExactlyOneRow(
+          db,
           `UPDATE memories
               SET state = 'superseded',
                   state_reason = ?,
                   state_at = ?,
                   superseded_by = ?
-            WHERE id = ? AND owner = ?`,
-        ).run(`Replaced by memory ${newId}`, at, newId, target.id, owner);
+            WHERE id = ? AND owner = ? AND state = 'active' AND superseded_by IS NULL`,
+          [`Replaced by memory ${newId}`, at, newId, target.id, owner],
+          `retire memory ${target.id}`,
+        );
 
         return {
           owner,
@@ -185,11 +191,14 @@ export function forget(store, { owner, id, reason }) {
       }
 
       // 7. forget.
-      db.prepare(
+      changeExactlyOneRow(
+        db,
         `UPDATE memories
             SET state = 'forgotten', state_reason = ?, state_at = ?
-          WHERE id = ? AND owner = ?`,
-      ).run(reason, at, id, owner);
+          WHERE id = ? AND owner = ? AND state = ?`,
+        [reason, at, id, owner, memory.state],
+        `forget memory ${id}`,
+      );
 
       return {
         owner,
@@ -233,17 +242,24 @@ export function restore(store, { owner, id }) {
         };
       }
 
+      // Read inside the transaction, and written back guarded by the same
+      // value, so the pointer cannot be cleared on the strength of a reading
+      // that another writer has already changed.
       const replacedBy = memory.superseded_by;
 
-      db.prepare(
+      changeExactlyOneRow(
+        db,
         `UPDATE memories
             SET state = 'active', state_reason = NULL, state_at = ?, superseded_by = NULL
-          WHERE id = ? AND owner = ?`,
-      ).run(at, id, owner);
+          WHERE id = ? AND owner = ? AND state = ? AND superseded_by IS ?`,
+        [at, id, owner, memory.state, replacedBy],
+        `restore memory ${id}`,
+      );
 
       if (replacedBy !== null) {
         // The other side of the pointer, so neither row is left claiming
-        // something the other one contradicts.
+        // something the other one contradicts. Nothing to do if that memory
+        // has already stopped claiming it.
         db.prepare(
           `UPDATE memories
               SET supersedes = NULL
@@ -282,6 +298,31 @@ function findDuplicate(store, owner, text) {
     if (normaliseForComparison(memory.text) === wanted) return memory;
   }
   return null;
+}
+
+/**
+ * Run an update that is only correct if it changes exactly one row.
+ *
+ * Every state change here names, in its WHERE clause, the state the decision
+ * was taken on. If some other writer got there first the update matches
+ * nothing, this throws, and `recordDecision` rolls the whole thing back. The
+ * alternative is a write that silently does nothing while the log row says it
+ * happened.
+ *
+ * @param {DatabaseSync} db
+ * @param {string} sql
+ * @param {(string|number|null)[]} parameters
+ * @param {string} what described in the error, for a person reading a crash
+ * @returns {void}
+ */
+function changeExactlyOneRow(db, sql, parameters, what) {
+  const { changes } = db.prepare(sql).run(...parameters);
+  if (Number(changes) !== 1) {
+    throw new Error(
+      `Could not ${what}: it changed underneath this decision, so nothing was written. ` +
+        'Read it again and try again.',
+    );
+  }
 }
 
 /**
