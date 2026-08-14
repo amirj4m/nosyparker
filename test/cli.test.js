@@ -66,9 +66,11 @@ test('forgetting and restoring, and what the list shows in between', (t) => {
 
   assert.match(run(['forget', '1', 'I eat fish again']).out, /will not be shown any more/u);
   assert.match(run(['list']).out, /Nothing stored yet/u);
-  assert.match(run(['list', '--all']).out, /\[forgotten: I eat fish again\]/u);
   assert.match(run(['search', 'vegetarian']).out, /Nothing matched/u);
-  assert.match(run(['search', 'vegetarian', '--all']).out, /1 match/u);
+
+  // What was put away is read back from the log, not from the list.
+  assert.match(run(['log']).out, /forgotten \(forget\)/u);
+  assert.match(run(['log']).out, /text: I eat fish again/u);
 
   assert.match(run(['restore', '1']).out, /being shown again/u);
   assert.match(run(['list']).out, /1\. I am vegetarian/u);
@@ -82,15 +84,15 @@ test('replacing a memory from the command line', (t) => {
 
   assert.match(replaced.out, /memory 1 was retired in its favour/u);
   assert.match(run(['list']).out, /^2\. I live in Berlin$/mu);
-  assert.match(run(['list', '--all']).out, /\[superseded: Replaced by memory 2\]/u);
+  assert.equal(run(['list']).out.includes('Tehran'), false, 'the retired one is not shown');
 });
 
 test('the tool says what it wants when it is given nonsense', (t) => {
   const run = commandRunner(t);
 
   const noCommand = run([]);
-  assert.equal(noCommand.code, 0);
-  assert.match(noCommand.out, /nosyparker add/u, 'no arguments should print the usage');
+  assert.equal(noCommand.code, 1);
+  assert.match(noCommand.err, /add, search, list, log, forget, restore/u);
 
   assert.equal(run(['add']).code, 1);
   assert.match(run(['add']).err, /Say what you want to store/u);

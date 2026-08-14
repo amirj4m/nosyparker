@@ -5,23 +5,14 @@
  * plain sentences. There is no logic here that is not about printing.
  */
 
-import { LOCAL_OWNER, defaultStorePath, systemClock } from './config.js';
+import { defaultStorePath, systemClock } from './config.js';
 import { forget, restore, submit } from './gate.js';
 import { listDecisions, listMemories, openStore, searchMemories } from './store.js';
 
-const USAGE = `nosyparker
+/** Phase 1 is one person on one machine, so there is one owner. */
+const LOCAL_OWNER = 'local';
 
-  nosyparker add "<text>" [--replaces <id>]   store a sentence
-  nosyparker search "<query>" [--all]         find stored sentences
-  nosyparker list [--all]                     show what is currently active
-  nosyparker log                              show every decision ever made
-  nosyparker forget <id> "<reason>"           stop showing a memory
-  nosyparker restore <id>                     show it again
-
-  --all also shows memories that were replaced or forgotten.
-
-The store is at ${defaultStorePath()}
-`;
+const COMMANDS = 'add, search, list, log, forget, restore';
 
 main(process.argv.slice(2));
 
@@ -31,10 +22,7 @@ main(process.argv.slice(2));
 function main(argv) {
   const [command, ...rest] = argv;
 
-  if (!command || command === 'help' || command === '--help' || command === '-h') {
-    process.stdout.write(USAGE);
-    return;
-  }
+  if (!command) fail(`Say what to do. The commands are: ${COMMANDS}.`);
 
   const store = openStore({ file: defaultStorePath(), now: systemClock });
 
@@ -47,7 +35,7 @@ function main(argv) {
         runSearch(store, rest);
         break;
       case 'list':
-        runList(store, rest);
+        runList(store);
         break;
       case 'log':
         runLog(store);
@@ -59,7 +47,7 @@ function main(argv) {
         runRestore(store, rest);
         break;
       default:
-        fail(`There is no command called "${command}".\n\n${USAGE}`);
+        fail(`There is no command called "${command}". The commands are: ${COMMANDS}.`);
     }
   } finally {
     store.close();
@@ -105,11 +93,10 @@ function runAdd(store, args) {
  * @param {string[]} args
  */
 function runSearch(store, args) {
-  const includeArchived = args.includes('--all');
-  const query = args.filter((arg) => arg !== '--all').join(' ');
+  const query = args.join(' ');
   if (query.trim() === '') fail('Say what to look for: nosyparker search "<query>"');
 
-  const found = searchMemories(store, LOCAL_OWNER, query, { includeArchived });
+  const found = searchMemories(store, LOCAL_OWNER, query);
   if (found.length === 0) {
     process.stdout.write('Nothing matched.\n');
     return;
@@ -121,11 +108,9 @@ function runSearch(store, args) {
 
 /**
  * @param {import('./store.js').Store} store
- * @param {string[]} args
  */
-function runList(store, args) {
-  const includeArchived = args.includes('--all');
-  const memories = listMemories(store, LOCAL_OWNER, { includeArchived });
+function runList(store) {
+  const memories = listMemories(store, LOCAL_OWNER);
 
   if (memories.length === 0) {
     process.stdout.write('Nothing stored yet.\n');
@@ -202,14 +187,9 @@ function printOutcome(result) {
  * @returns {string}
  */
 function formatMemory(memory) {
-  const lines = [`${memory.id}. ${memory.text}`];
-
-  if (memory.state !== 'active') {
-    const reason = memory.state_reason ? `: ${memory.state_reason}` : '';
-    lines.push(`   [${memory.state}${reason}]`);
-  }
-
-  return lines.join('\n') + '\n';
+  // Only active memories reach here. What was replaced or forgotten is not
+  // something this tool shows; the decision log is where that is read.
+  return `${memory.id}. ${memory.text}\n`;
 }
 
 /**
