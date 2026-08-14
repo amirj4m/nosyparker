@@ -69,10 +69,17 @@ function main(argv) {
   const db = new DatabaseSync(file);
 
   try {
-    // Waiting a while for the store comes first. Several agents connected at
-    // once is the ordinary state of this tool, and each of the steps below
-    // takes a lock. Without this the script fell over with a stack trace the
-    // moment anything else had the file open.
+    // Several agents connected at once is the ordinary state of this tool, so
+    // any of the steps below can find the store locked.
+    //
+    // Be exact about what this buys, because the name promises more than it
+    // delivers: SQLite does not apply busy_timeout to a change of journal
+    // mode, and taking the store out of WAL is the first thing this script
+    // does to it. So against a store somebody else is holding, this does not
+    // wait ten seconds; it gives up in a few milliseconds. The timeout covers
+    // the ordinary statements and not that one. Either way the failure is
+    // caught below and answered with a sentence, which is the behaviour that
+    // matters here, and nothing has been changed by the time it happens.
     db.exec('PRAGMA busy_timeout = 10000');
 
     // Left on, so that the database itself refuses to let this script leave a
@@ -80,16 +87,28 @@ function main(argv) {
     db.exec('PRAGMA foreign_keys = ON');
     db.exec('PRAGMA secure_delete = ON');
 
-    const memory = db.prepare('SELECT id, text FROM memories WHERE id = ?').get(id);
-    if (memory === undefined) {
-      stop(`There is no memory ${id} in ${file}. Nothing was changed.`);
-    }
-
     db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get();
     db.prepare('PRAGMA journal_mode = DELETE').get();
 
     db.exec('BEGIN IMMEDIATE');
     try {
+      // Whether the memory is there is asked here, under the same lock that
+      // deletes it. Asked before the transaction, two purges of the same id
+      // both saw the row, both carried on, and both said the memory was gone
+      // although only one of them had deleted anything. Every other read in
+      // this project that a write depends on was moved inside its transaction
+      // for the same reason; this one was left behind.
+      const memory = db.prepare('SELECT id FROM memories WHERE id = ?').get(id);
+      if (memory === undefined) {
+        db.exec('ROLLBACK');
+
+        // The store was taken out of WAL a moment ago, before it was known
+        // whether there was anything to delete. Put it back before leaving, so
+        // that finding nothing does not change the file either.
+        db.prepare('PRAGMA journal_mode = WAL').get();
+        stop(`There is no memory ${id} in ${file}. Nothing was changed.`);
+      }
+
       // Everything that points at this memory stops pointing at it first, so
       // that the delete cannot leave a reference to a row that is not there.
       // Rows are only ever unlinked here, never removed.

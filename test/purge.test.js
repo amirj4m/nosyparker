@@ -12,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
 
 import { listDecisions, listMemories, openStore } from '../src/store.js';
 
@@ -45,7 +46,7 @@ test('it refuses without both flags, and changes nothing', (t) => {
 });
 
 test('it refuses an id that is not there', (t) => {
-  const { run, purge } = workspace(t);
+  const { run, purge, file } = workspace(t);
   run(['add', 'I live in Tehran']);
 
   const missing = purge(['--id', '99', '--yes']);
@@ -55,6 +56,17 @@ test('it refuses an id that is not there', (t) => {
   // The command was typed correctly. Answering it with syntax would send the
   // reader looking for a mistake that is not there.
   assert.equal(missing.err.includes('--id <id> --yes'), false, 'no usage for this one');
+
+  // Whether the row is there is now asked inside the transaction, which is
+  // after the store has been taken out of WAL. Finding nothing has to put that
+  // back, or a purge of a wrong id quietly changes the file it refused to
+  // touch. Read raw, because opening a store sets the mode itself.
+  const db = new DatabaseSync(file);
+  t.after(() => db.close());
+  const mode = /** @type {{journal_mode: string}} */ (
+    /** @type {unknown} */ (db.prepare('PRAGMA journal_mode').get())
+  );
+  assert.equal(mode.journal_mode, 'wal', 'the store was left in the wrong journal mode');
 });
 
 test('it removes the memory, keeps the log, and leaves nothing dangling', (t) => {
