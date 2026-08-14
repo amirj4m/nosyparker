@@ -38,32 +38,92 @@ test('a store hands out no database handle', (t) => {
   }
 });
 
-test('the only way in writes its own log row', (t) => {
+test('a decision is handed named actions, not a way to run statements', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
-  // recordDecision is the exported door, and it takes the handle in rather
-  // than giving it out. Using it at all produces a decision row.
-  recordDecision(store, (db, at) => {
-    const written = db
-      .prepare(
-        `INSERT INTO memories (owner, text, created_at, state, state_at)
-         VALUES (?, ?, ?, 'active', ?)`,
-      )
-      .run(OWNER, 'direct', at, at);
+  /** @type {Record<string, unknown>|null} */
+  let handed = null;
+
+  recordDecision(store, (actions, at) => {
+    handed = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (actions));
 
     return {
       owner: OWNER,
       verdict: 'stored',
       rule: 'keep',
-      explanation: 'written directly through the exported door',
+      explanation: 'written through the actions',
       input_excerpt: 'direct',
-      memory_id: Number(written.lastInsertRowid),
+      memory_id: actions.insertMemory({ owner: OWNER, text: 'direct', at, supersedes: null }),
     };
   });
 
+  assert.notEqual(handed, null);
+  const given = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (handed));
+
+  // Nothing that runs SQL of the caller's choosing.
+  for (const forbidden of ['prepare', 'exec', 'run', 'query', 'db', 'database']) {
+    assert.equal(typeof given[forbidden], 'undefined', `actions expose ${forbidden}`);
+  }
+
+  // Only the changes a memory is allowed to undergo, and nothing else.
+  assert.deepEqual(Object.keys(given).sort(), [
+    'bringBack',
+    'insertMemory',
+    'putAway',
+    'retire',
+    'unlinkSupersedes',
+  ]);
+
   assert.equal(listMemories(store, OWNER).length, 1);
   assert.equal(listDecisions(store, OWNER).length, 1);
+});
+
+test('actions kept past the end of a decision no longer work', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const first = submit(store, { owner: OWNER, text: 'the original text' });
+  const id = /** @type {number} */ (first.memory_id);
+
+  // This is the escape the second reviewer used: keep whatever the callback
+  // was handed, then use it after the decision has been written.
+  /** @type {import('../src/store.js').StoreActions|null} */
+  let stolen = null;
+
+  recordDecision(store, (actions) => {
+    stolen = actions;
+    return {
+      owner: OWNER,
+      verdict: 'refused',
+      rule: 'empty',
+      explanation: 'a decision that changes nothing',
+      input_excerpt: '',
+    };
+  });
+
+  const kept = /** @type {import('../src/store.js').StoreActions} */ (
+    /** @type {unknown} */ (stolen)
+  );
+  assert.notEqual(kept, null);
+
+  const at = '2030-01-01T00:00:00.000Z';
+  assert.throws(() => kept.insertMemory({ owner: OWNER, text: 'fabricated', at, supersedes: null }));
+  assert.throws(() => kept.putAway({ owner: OWNER, id, at, reason: 'r', wasInState: 'active' }));
+  assert.throws(() => kept.retire({ owner: OWNER, id, at, supersededBy: id }));
+  assert.throws(() =>
+    kept.bringBack({ owner: OWNER, id, at, wasInState: 'active', wasSupersededBy: null }),
+  );
+  assert.throws(() => kept.unlinkSupersedes({ owner: OWNER, id, noLongerSupersedes: id }));
+
+  // Nothing was rewritten and nothing was fabricated.
+  const memories = listMemories(store, OWNER, { includeArchived: true });
+  assert.equal(memories.length, 1);
+  assert.equal(memories[0].text, 'the original text');
+  assert.equal(memories[0].state, 'active');
+
+  // And the log still accounts for every change: two calls, two rows.
+  assert.equal(listDecisions(store, OWNER).length, 2);
 });
 
 test('every read shows only active memories until asked otherwise', (t) => {

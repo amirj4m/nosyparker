@@ -65,7 +65,7 @@ import { isBlank, normaliseForComparison } from './text.js';
  */
 export function submit(store, { owner, text, replaces = null }) {
   return asResult(
-    recordDecision(store, (db, at) => {
+    recordDecision(store, (actions, at) => {
       // 1. credential. This runs before anything else touches the text, and it
       // is the only branch that replaces the excerpt with a placeholder.
       const credential = detectCredential(text);
@@ -124,21 +124,8 @@ export function submit(store, { owner, text, replaces = null }) {
 
       // 5. replaces.
       if (target !== null) {
-        const newId = insertMemory(db, { owner, text, at, supersedes: target.id });
-        // The state the decision was taken on is named in the WHERE clause, so
-        // if anything moved underneath us the update matches nothing and the
-        // whole decision rolls back rather than leaving a half linked pair.
-        changeExactlyOneRow(
-          db,
-          `UPDATE memories
-              SET state = 'superseded',
-                  state_reason = ?,
-                  state_at = ?,
-                  superseded_by = ?
-            WHERE id = ? AND owner = ? AND state = 'active' AND superseded_by IS NULL`,
-          [`Replaced by memory ${newId}`, at, newId, target.id, owner],
-          `retire memory ${target.id}`,
-        );
+        const newId = actions.insertMemory({ owner, text, at, supersedes: target.id });
+        actions.retire({ owner, id: target.id, at, supersededBy: newId });
 
         return {
           owner,
@@ -160,7 +147,7 @@ export function submit(store, { owner, text, replaces = null }) {
         rule: 'keep',
         explanation: 'Stored.',
         input_excerpt: excerpt(text),
-        memory_id: insertMemory(db, { owner, text, at, supersedes: null }),
+        memory_id: actions.insertMemory({ owner, text, at, supersedes: null }),
       };
     }),
   );
@@ -181,7 +168,7 @@ export function submit(store, { owner, text, replaces = null }) {
  */
 export function forget(store, { owner, id, reason }) {
   return asResult(
-    recordDecision(store, (db, at) => {
+    recordDecision(store, (actions, at) => {
       // 1. credential. A reason is free text from a caller like any other, and
       // it is written to the row as well as to the log, so it is guarded the
       // same way. This comes first here for the same reason it comes first in
@@ -231,14 +218,7 @@ export function forget(store, { owner, id, reason }) {
       }
 
       // 7. forget.
-      changeExactlyOneRow(
-        db,
-        `UPDATE memories
-            SET state = 'forgotten', state_reason = ?, state_at = ?
-          WHERE id = ? AND owner = ? AND state = ?`,
-        [reason, at, id, owner, memory.state],
-        `forget memory ${id}`,
-      );
+      actions.putAway({ owner, id, at, reason, wasInState: memory.state });
 
       return {
         owner,
@@ -269,7 +249,7 @@ export function forget(store, { owner, id, reason }) {
  */
 export function restore(store, { owner, id }) {
   return asResult(
-    recordDecision(store, (db, at) => {
+    recordDecision(store, (actions, at) => {
       // Archived rows included, since an archived row is the whole point.
       const memory = getMemory(store, owner, id, { includeArchived: true });
 
@@ -301,24 +281,18 @@ export function restore(store, { owner, id }) {
 
       // state_reason is left alone on purpose. It says why this memory was put
       // away, which stays true and stays worth knowing after it comes back.
-      changeExactlyOneRow(
-        db,
-        `UPDATE memories
-            SET state = 'active', state_at = ?, superseded_by = NULL
-          WHERE id = ? AND owner = ? AND state = ? AND superseded_by IS ?`,
-        [at, id, owner, memory.state, replacedBy],
-        `restore memory ${id}`,
-      );
+      actions.bringBack({
+        owner,
+        id,
+        at,
+        wasInState: memory.state,
+        wasSupersededBy: replacedBy,
+      });
 
       if (replacedBy !== null) {
         // The other side of the pointer, so neither row is left claiming
-        // something the other one contradicts. Nothing to do if that memory
-        // has already stopped claiming it.
-        db.prepare(
-          `UPDATE memories
-              SET supersedes = NULL
-            WHERE id = ? AND owner = ? AND supersedes = ?`,
-        ).run(replacedBy, owner, id);
+        // something the other one contradicts.
+        actions.unlinkSupersedes({ owner, id: replacedBy, noLongerSupersedes: id });
       }
 
       return {
@@ -365,46 +339,6 @@ function describeState(memory) {
   return memory.state === 'superseded'
     ? `replaced by memory ${memory.superseded_by}`
     : `forgotten${because}`;
-}
-
-/**
- * Run an update that is only correct if it changes exactly one row.
- *
- * Every state change here names, in its WHERE clause, the state the decision
- * was taken on. If some other writer got there first the update matches
- * nothing, this throws, and `recordDecision` rolls the whole thing back. The
- * alternative is a write that silently does nothing while the log row says it
- * happened.
- *
- * @param {DatabaseSync} db
- * @param {string} sql
- * @param {(string|number|null)[]} parameters
- * @param {string} what described in the error, for a person reading a crash
- * @returns {void}
- */
-function changeExactlyOneRow(db, sql, parameters, what) {
-  const { changes } = db.prepare(sql).run(...parameters);
-  if (Number(changes) !== 1) {
-    throw new Error(
-      `Could not ${what}: it changed underneath this decision, so nothing was written. ` +
-        'Read it again and try again.',
-    );
-  }
-}
-
-/**
- * @param {DatabaseSync} db
- * @param {{owner: string, text: string, at: string, supersedes: number|null}} row
- * @returns {number}
- */
-function insertMemory(db, { owner, text, at, supersedes }) {
-  const written = db
-    .prepare(
-      `INSERT INTO memories (owner, text, created_at, state, state_reason, state_at, supersedes)
-       VALUES (?, ?, ?, 'active', NULL, ?, ?)`,
-    )
-    .run(owner, text, at, at, supersedes);
-  return Number(written.lastInsertRowid);
 }
 
 /**

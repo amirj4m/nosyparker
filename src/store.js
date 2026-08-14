@@ -7,13 +7,18 @@
  * path in this project deletes a row except `scripts/purge.mjs`, which a
  * person runs by hand.
  *
- * The database handle is deliberately not on the Store object. It is held in a
- * WeakMap in this module, so nothing outside this file can reach it, and the
- * only exported function that hands it out is `recordDecision`, which writes
- * the decision row in the same transaction as whatever the caller does with
- * it. That is what makes "no change without a log entry" a property of the
- * code rather than a promise in a comment: there is no exported path to a
- * statement handle that does not also write the log row.
+ * Nothing outside this file ever holds the database handle. It is not on the
+ * Store object and it is not passed to callers: `recordDecision` hands the
+ * caller a small set of named actions instead, one for each change a memory is
+ * allowed to undergo, and every one of them is written alongside the decision
+ * row that explains it.
+ *
+ * That is the whole of the guarantee, and it is worth being precise about why
+ * it holds. A caller cannot write arbitrary SQL because it is never given
+ * anything that runs SQL. It cannot keep the actions and use them after the
+ * fact either: they stop working the moment the transaction ends. So there is
+ * no sequence of calls, on any object reachable from here, that changes a
+ * memory without also writing down why.
  */
 
 import fs from 'node:fs';
@@ -214,6 +219,116 @@ export function excerpt(text) {
 }
 
 /**
+ * Everything a decision is allowed to do to a memory. There is nothing here
+ * that runs a statement of the caller's choosing, which is deliberate.
+ *
+ * @typedef {object} StoreActions
+ * @property {(row: {owner: string, text: string, at: string, supersedes: number|null}) => number} insertMemory
+ * @property {(row: {owner: string, id: number, at: string, supersededBy: number}) => void} retire
+ * @property {(row: {owner: string, id: number, at: string, reason: string, wasInState: string}) => void} putAway
+ * @property {(row: {owner: string, id: number, at: string, wasInState: string, wasSupersededBy: number|null}) => void} bringBack
+ * @property {(row: {owner: string, id: number, noLongerSupersedes: number}) => void} unlinkSupersedes
+ */
+
+/**
+ * Build the actions for one transaction, and a way to switch them off again.
+ *
+ * @param {DatabaseSync} db
+ * @returns {{actions: StoreActions, revoke: () => void}}
+ */
+function actionsFor(db) {
+  let live = true;
+
+  /**
+   * @param {string} sql
+   * @param {(string|number|null)[]} parameters
+   * @param {string} what
+   * @param {boolean} [mustChangeARow]
+   */
+  const change = (sql, parameters, what, mustChangeARow = true) => {
+    if (!live) {
+      throw new Error(
+        'This decision is already written. Changing a memory afterwards would leave ' +
+          'no record of why, so it is not something that can be done from here.',
+      );
+    }
+
+    const { changes } = db.prepare(sql).run(...parameters);
+    if (mustChangeARow && Number(changes) !== 1) {
+      throw new Error(
+        `Could not ${what}: it changed underneath this decision, so nothing was written. ` +
+          'Read it again and try again.',
+      );
+    }
+  };
+
+  /** @type {StoreActions} */
+  const actions = {
+    insertMemory({ owner, text, at, supersedes }) {
+      if (!live) throw new Error('This decision is already written.');
+      const written = db
+        .prepare(
+          `INSERT INTO memories (owner, text, created_at, state, state_reason, state_at, supersedes)
+           VALUES (?, ?, ?, 'active', NULL, ?, ?)`,
+        )
+        .run(owner, text, at, at, supersedes);
+      return Number(written.lastInsertRowid);
+    },
+
+    retire({ owner, id, at, supersededBy }) {
+      // The state this was decided on is named in the WHERE clause, so if
+      // another writer got there first this changes nothing, throws, and the
+      // whole decision rolls back rather than leaving a half linked pair.
+      change(
+        `UPDATE memories
+            SET state = 'superseded', state_reason = ?, state_at = ?, superseded_by = ?
+          WHERE id = ? AND owner = ? AND state = 'active' AND superseded_by IS NULL`,
+        [`Replaced by memory ${supersededBy}`, at, supersededBy, id, owner],
+        `retire memory ${id}`,
+      );
+    },
+
+    putAway({ owner, id, at, reason, wasInState }) {
+      change(
+        `UPDATE memories
+            SET state = 'forgotten', state_reason = ?, state_at = ?
+          WHERE id = ? AND owner = ? AND state = ?`,
+        [reason, at, id, owner, wasInState],
+        `forget memory ${id}`,
+      );
+    },
+
+    bringBack({ owner, id, at, wasInState, wasSupersededBy }) {
+      change(
+        `UPDATE memories
+            SET state = 'active', state_at = ?, superseded_by = NULL
+          WHERE id = ? AND owner = ? AND state = ? AND superseded_by IS ?`,
+        [at, id, owner, wasInState, wasSupersededBy],
+        `restore memory ${id}`,
+      );
+    },
+
+    unlinkSupersedes({ owner, id, noLongerSupersedes }) {
+      // Nothing to do if that memory has already stopped claiming it, so this
+      // one does not insist on having changed a row.
+      change(
+        'UPDATE memories SET supersedes = NULL WHERE id = ? AND owner = ? AND supersedes = ?',
+        [id, owner, noLongerSupersedes],
+        `unlink memory ${id}`,
+        false,
+      );
+    },
+  };
+
+  return {
+    actions,
+    revoke() {
+      live = false;
+    },
+  };
+}
+
+/**
  * @typedef {object} DecisionPlan
  * @property {string} owner
  * @property {string} verdict one of VERDICTS
@@ -237,13 +352,14 @@ export function excerpt(text) {
  * If anything throws, the change and the log row roll back together.
  *
  * @param {Store} store
- * @param {(db: DatabaseSync, at: string) => DecisionPlan} decide
+ * @param {(actions: StoreActions, at: string) => DecisionPlan} decide
  * @returns {{decision_id: number, memory_id: number|null, related_memory_id: number|null, plan: DecisionPlan}}
  */
 export function recordDecision(store, decide) {
   const at = store.now();
   const handle = handleOf(store);
   const { db } = handle;
+  const { actions, revoke } = actionsFor(db);
 
   // A decision taken while another decision is still open joins it rather than
   // trying to start a second transaction, which SQLite will not allow. The
@@ -256,7 +372,7 @@ export function recordDecision(store, decide) {
   handle.depth += 1;
 
   try {
-    const plan = decide(db, at);
+    const plan = decide(actions, at);
 
     const memoryId = plan.memory_id ?? null;
     const relatedId = plan.related_memory_id ?? null;
@@ -299,6 +415,9 @@ export function recordDecision(store, decide) {
     }
     throw error;
   } finally {
+    // Whatever happened, the actions handed out for this decision stop working
+    // now. Keeping one past this point buys a caller nothing.
+    revoke();
     handle.depth -= 1;
   }
 }
