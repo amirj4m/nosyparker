@@ -34,8 +34,8 @@
  */
 
 import { detectCredential, credentialExplanation, credentialPlaceholder } from './credentials.js';
-import { excerpt, getMemory, listMemories, recordDecision } from './store.js';
-import { isBlank, normaliseForComparison } from './text.js';
+import { excerpt, findDuplicate, getMemory, recordDecision } from './store.js';
+import { isBlank } from './text.js';
 
 /**
  * @typedef {import('./store.js').Store} Store
@@ -354,22 +354,6 @@ export function restore(store, { owner, id }) {
       };
     }),
   );
-}
-
-/**
- * The active memory that says exactly the same thing, if there is one.
- *
- * @param {Store} store
- * @param {string} owner
- * @param {string} text
- * @returns {Memory|null}
- */
-function findDuplicate(store, owner, text) {
-  const wanted = normaliseForComparison(text);
-  for (const memory of listMemories(store, owner)) {
-    if (normaliseForComparison(memory.text) === wanted) return memory;
-  }
-  return null;
 }
 
 /**

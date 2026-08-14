@@ -50,6 +50,7 @@ const MIN_SEARCH_LENGTH = 3;
  * @property {number} id
  * @property {string} owner
  * @property {string} text
+ * @property {string} text_normalised
  * @property {string} created_at
  * @property {'active'|'superseded'|'forgotten'} state
  * @property {string|null} state_reason
@@ -111,6 +112,13 @@ CREATE TABLE IF NOT EXISTS memories (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   owner         TEXT    NOT NULL,
   text          TEXT    NOT NULL,
+  -- The same text after NFKC, trimming, collapsing runs of whitespace and
+  -- lowercasing. It is written once, when the memory is stored, so that asking
+  -- "is this already stored?" is a question the database can answer by itself
+  -- rather than one that drags every active memory into JavaScript on every
+  -- write, inside the lock every other agent is waiting on. Case folding
+  -- happens here, in JavaScript, because SQLite's own lower() only knows ASCII.
+  text_normalised TEXT  NOT NULL,
   created_at    TEXT    NOT NULL,
   state         TEXT    NOT NULL DEFAULT 'active'
                 CHECK (state IN ('active', 'superseded', 'forgotten')),
@@ -270,10 +278,11 @@ function actionsFor(db) {
       if (!live) throw new Error('This decision is already written.');
       const written = db
         .prepare(
-          `INSERT INTO memories (owner, text, created_at, state, state_reason, state_at, supersedes)
-           VALUES (?, ?, ?, 'active', NULL, ?, ?)`,
+          `INSERT INTO memories
+             (owner, text, text_normalised, created_at, state, state_reason, state_at, supersedes)
+           VALUES (?, ?, ?, ?, 'active', NULL, ?, ?)`,
         )
-        .run(owner, text, at, at, supersedes);
+        .run(owner, text, normaliseForComparison(text), at, at, supersedes);
       return Number(written.lastInsertRowid);
     },
 
@@ -448,6 +457,31 @@ export function getMemory(store, owner, id, options = {}) {
 }
 
 /**
+ * The active memory that says exactly the same thing, if there is one.
+ *
+ * Asked as one question of the database, against the normalised copy written
+ * when each memory was stored. This runs inside the write lock on every single
+ * write, so what it costs is time every other agent spends waiting.
+ *
+ * @param {Store} store
+ * @param {string} owner
+ * @param {string} text
+ * @returns {Memory|null}
+ */
+export function findDuplicate(store, owner, text) {
+  const row = handleOf(store)
+    .db.prepare(
+      `SELECT * FROM memories
+        WHERE owner = ? AND state = 'active' AND text_normalised = ?
+        ORDER BY id
+        LIMIT 1`,
+    )
+    .get(owner, normaliseForComparison(text));
+
+  return row ? /** @type {Memory} */ (/** @type {unknown} */ (row)) : null;
+}
+
+/**
  * Memories in the order they were stored. Active only unless asked otherwise.
  *
  * @param {Store} store
@@ -526,19 +560,23 @@ export function searchMemories(store, owner, query, options = {}) {
  * @returns {Memory[]}
  */
 function searchBySubstring(store, owner, terms, includeArchived) {
-  const sql = includeArchived
-    ? 'SELECT * FROM memories WHERE owner = ? ORDER BY id'
-    : "SELECT * FROM memories WHERE owner = ? AND state = 'active' ORDER BY id";
+  // Both sides were folded in JavaScript: the stored copy when it was written,
+  // and the search term just now. So the database can do the looking without
+  // needing to know anything about case in any alphabet.
+  const conditions = terms.map(() => 'instr(text_normalised, ?) > 0').join(' AND ');
 
-  const rows = /** @type {Memory[]} */ (
-    /** @type {unknown} */ (handleOf(store).db.prepare(sql).all(owner))
-  );
+  const sql = `
+    SELECT *
+      FROM memories
+     WHERE owner = ?
+       ${includeArchived ? '' : "AND state = 'active'"}
+       AND ${conditions}
+     ORDER BY id`;
 
   const wanted = terms.map((term) => normaliseForComparison(term));
-  return rows.filter((memory) => {
-    const haystack = normaliseForComparison(memory.text);
-    return wanted.every((term) => haystack.includes(term));
-  });
+  return /** @type {Memory[]} */ (
+    /** @type {unknown} */ (handleOf(store).db.prepare(sql).all(owner, ...wanted))
+  );
 }
 
 /**
