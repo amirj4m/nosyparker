@@ -21,6 +21,7 @@ import {
   openStore,
   recordDecision,
   searchMemories,
+  SCHEMA_VERSION,
 } from '../src/store.js';
 import { OWNER, temporaryStore } from './helpers.js';
 
@@ -219,11 +220,14 @@ test('a new store writes down the schema version it was made under', (t) => {
   const reader = new DatabaseSync(store.file);
   t.after(() => reader.close());
 
-  // 1 is the current SCHEMA_VERSION in store.js, and moves with it.
   const stamped = /** @type {{user_version: number}} */ (
     /** @type {unknown} */ (reader.prepare('PRAGMA user_version').get())
   );
-  assert.equal(stamped.user_version, 1, 'a new store should be stamped, not left at zero');
+  assert.equal(
+    stamped.user_version,
+    SCHEMA_VERSION,
+    'a new store should be stamped with the current version, not left at zero',
+  );
 });
 
 test('a store older than this code is refused at the door, not on the first write', (t) => {
@@ -233,7 +237,10 @@ test('a store older than this code is refused at the door, not on the first writ
 
   // A store as it was before text_normalised was added: the table is there, so
   // CREATE TABLE IF NOT EXISTS leaves it exactly as it is, and nothing ever
-  // wrote a version number into the file.
+  // wrote a version number into the file. No version is stamped here on
+  // purpose rather than for want of deriving one — a file from before there
+  // were versions is the case this is about, and it stays older than whatever
+  // SCHEMA_VERSION grows into.
   const old = new DatabaseSync(file);
   old.exec(`CREATE TABLE memories (
     id            INTEGER PRIMARY KEY,
@@ -293,7 +300,7 @@ test('a store newer than this code is refused too, and says so differently', (t)
   made.close();
 
   const ahead = new DatabaseSync(file);
-  ahead.exec('PRAGMA user_version = 99');
+  ahead.exec(`PRAGMA user_version = ${SCHEMA_VERSION + 1}`);
   ahead.close();
 
   assert.throws(

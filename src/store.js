@@ -43,8 +43,12 @@ const MIN_SEARCH_LENGTH = 3;
  * is written into new stores and checked whenever an existing one is opened,
  * in either direction, so that the failure happens at the door and in a
  * sentence.
+ *
+ * Exported so that the tests can check against it rather than against a copy
+ * of the number, which would go red on the first bump for reasons that had
+ * nothing to do with the change being made.
  */
-const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 1;
 
 /**
  * @typedef {object} Memory
