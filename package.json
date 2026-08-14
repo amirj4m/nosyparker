@@ -4,21 +4,6 @@
   "description": "A memory store for AI agents that keeps everything it is told and forgets nothing on its own.",
   "license": "MIT",
   "type": "module",
-  "private": false,
-  "engines": {
-    "node": ">=22.5.0"
-  },
-  "bin": {
-    "nosyparker": "src/cli.js"
-  },
-  "exports": {
-    ".": "./src/index.js"
-  },
-  "files": [
-    "src",
-    "README.md",
-    "LICENSE"
-  ],
   "scripts": {
     "test": "node --test 'test/*.test.js'",
     "typecheck": "tsc --noEmit"
