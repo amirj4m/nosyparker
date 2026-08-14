@@ -8,8 +8,8 @@ expires, and nothing is ever removed behind your back.
 
 ## What it can do
 
-Every agent on your machine connects to one server and reads and writes the
-same file, so what you tell one, the others know. Six things an agent can do:
+Every agent on your machine reads and writes the same file, so what you tell
+one, the others know. Six things an agent can do:
 
 - **remember** a fact about you, replacing an older one if you have changed
   your mind.
