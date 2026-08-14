@@ -128,6 +128,7 @@ function main(argv) {
       // the purge would leave him with a store that had quietly changed and no
       // way to find out how. Please do not "fix" this later by deleting or
       // blanking these rows.
+      //
       // A retired memory carries the sentence the gate wrote when it was
       // retired, which names the memory that replaced it. Once that memory is
       // deleted the sentence is false, so it is rewritten here, in the same
@@ -146,11 +147,24 @@ function main(argv) {
       // one about a purge they never mentioned. Only the gate's own sentence,
       // naming this id, is this script's to correct.
       //
+      // That line is deliberate, and it is not an inconsistency to be tidied
+      // up later. This script corrects the gate's sentence because the gate
+      // wrote it: it is the program's own bookkeeping, and once it names a
+      // memory that has been deleted it is simply wrong. A reason somebody
+      // typed is a different thing. It is what they meant at the time, it is
+      // theirs, and it stays exactly as they wrote it even when it mentions a
+      // memory that is now gone. So a person who forgets a memory with the
+      // reason "superseded by 4" and later purges memory 4 keeps those words,
+      // and that is the intended outcome, not an oversight. The decision log
+      // records the reason either way. The owner has been asked and has
+      // decided this: we do not edit words a person wrote.
+      //
       // It is built in JavaScript rather than joined together in SQL for a
       // second reason: node:sqlite binds a JavaScript number as a REAL, so
       // asking SQLite for `'Replaced by memory ' || ?` with 2 gets back
       // `Replaced by memory 2.0`, which matches nothing at all and fails by
       // quietly doing nothing.
+      //
       // The sentence it becomes is shared too, because it is the only trace
       // left that there was ever a replacement: the pointer that used to say
       // so is cleared two lines below. `restore` reads it to tell somebody the
