@@ -114,23 +114,35 @@ export function detectCredential(text) {
 }
 
 /**
- * Is there a 13 to 19 digit run that passes the Luhn check?
+ * Is there a 13 to 19 digit sequence anywhere that passes the Luhn check?
  *
  * Digits may be separated by single spaces or hyphens, the way people write
  * card numbers down.
+ *
+ * Every window is looked at, not just whole runs. A card with anything else
+ * numeric beside it — an order number, a reference, a stray digit — reads as
+ * one long run, and a long run does not pass Luhn even though the card inside
+ * it does. Checking only whole runs meant "ref4 4111 1111 1111 1111" was
+ * stored in plain text while "4111 1111 1111 1111" on its own was refused.
  *
  * @param {string} text
  * @returns {boolean}
  */
 function containsPaymentCard(text) {
-  const runs = text.match(/\d(?:[ -]?\d){12,18}/gu);
+  const runs = text.match(/\d(?:[ -]?\d)*/gu);
   if (!runs) return false;
 
   for (const run of runs) {
     const digits = run.replace(/[ -]/gu, '');
-    if (digits.length < 13 || digits.length > 19) continue;
-    if (passesLuhn(digits)) return true;
+
+    for (let start = 0; start < digits.length; start += 1) {
+      for (let length = 13; length <= 19; length += 1) {
+        if (start + length > digits.length) break;
+        if (passesLuhn(digits.slice(start, start + length))) return true;
+      }
+    }
   }
+
   return false;
 }
 

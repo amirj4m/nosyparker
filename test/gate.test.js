@@ -53,6 +53,32 @@ test('rule 1 recognises every shape it claims to', (t) => {
   assert.equal(listMemories(store, OWNER).length, 0);
 });
 
+test('rule 1 catches a card number with another number beside it', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  // Every one of these was stored in plain text when only whole digit runs
+  // were checked, because the card and its neighbour read as one long run.
+  const cards = [
+    'ref4 4111 1111 1111 1111',
+    '4111111111111111 7',
+    'order 12 4111111111111111',
+    'id 9 5500005555555559',
+    'a1 378282246310005',
+    '4111 1111 1111 1111',
+    'x4111111111111111',
+    '1 4111111111111111',
+    'invoice 2024 total 4111-1111-1111-1111 paid',
+  ];
+
+  for (const text of cards) {
+    const result = submit(store, { owner: OWNER, text });
+    assert.equal(result.rule, 'credential', `should have been refused: ${text}`);
+  }
+
+  assert.equal(listMemories(store, OWNER).length, 0);
+});
+
 test('rule 1 leaves ordinary sentences about secrets alone', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
