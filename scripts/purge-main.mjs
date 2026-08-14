@@ -33,6 +33,7 @@ import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
 import { defaultStorePath } from '../src/config.js';
+import { supersededReason } from '../src/store.js';
 
 // Started by a person, through the launcher, or not at all.
 //
@@ -127,11 +128,16 @@ function main(argv) {
       // the purge would leave him with a store that had quietly changed and no
       // way to find out how. Please do not "fix" this later by deleting or
       // blanking these rows.
-      // A retired memory carries the sentence `Replaced by memory 4`, written
-      // by the gate when it was retired. Once memory 4 is deleted that sentence
-      // is false, so it is rewritten here, in the same transaction as the
-      // delete, and no row is ever readable while citing a memory that has
-      // already gone.
+      // A retired memory carries the sentence the gate wrote when it was
+      // retired, which names the memory that replaced it. Once that memory is
+      // deleted the sentence is false, so it is rewritten here, in the same
+      // transaction as the delete, and no row is ever readable while citing a
+      // memory that has already gone.
+      //
+      // The sentence to look for comes from `supersededReason`, the same
+      // function the gate writes it with. Spelling it out here as well was a
+      // reword away from this script searching for something nobody writes and
+      // saying it had put things right.
       //
       // Matched on the sentence rather than on `superseded_by`, which is the
       // wider net and the wrong one. Forgetting a memory that had been replaced
@@ -140,13 +146,14 @@ function main(argv) {
       // one about a purge they never mentioned. Only the gate's own sentence,
       // naming this id, is this script's to correct.
       //
-      // The sentence to look for is built here rather than joined together in
-      // SQL. node:sqlite binds a JavaScript number as a REAL, so asking SQLite
-      // for `'Replaced by memory ' || ?` with 2 gets back `Replaced by memory
-      // 2.0`, which matches nothing at all and fails by quietly doing nothing.
+      // It is built in JavaScript rather than joined together in SQL for a
+      // second reason: node:sqlite binds a JavaScript number as a REAL, so
+      // asking SQLite for `'Replaced by memory ' || ?` with 2 gets back
+      // `Replaced by memory 2.0`, which matches nothing at all and fails by
+      // quietly doing nothing.
       db.prepare('UPDATE memories SET state_reason = ? WHERE state_reason = ?').run(
         'Replaced by a newer memory, which has since been purged.',
-        `Replaced by memory ${id}`,
+        supersededReason(id),
       );
 
       db.prepare('UPDATE memories SET supersedes = NULL WHERE supersedes = ?').run(id);

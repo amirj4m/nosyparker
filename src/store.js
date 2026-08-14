@@ -284,6 +284,24 @@ function prepareSchema(db, file) {
 }
 
 /**
+ * What a memory's `state_reason` says for as long as it stands replaced.
+ *
+ * One definition and three readers: the gate writes it when a memory is
+ * retired, the purge script goes looking for it when the memory it names is
+ * deleted, and the tests check the end of that story. Spelled out separately
+ * in each place, as it was, rewording it here would have left the purge script
+ * hunting for a sentence nobody writes any more — and failing at that in the
+ * worst way available, reporting a successful purge while quietly correcting
+ * nothing. Now the wording lives in one place and they cannot drift apart.
+ *
+ * @param {number} supersededBy id of the memory that replaced this one
+ * @returns {string}
+ */
+export function supersededReason(supersededBy) {
+  return `Replaced by memory ${supersededBy}`;
+}
+
+/**
  * Everything a decision is allowed to do to a memory. There is nothing here
  * that runs a statement of the caller's choosing, which is deliberate.
  *
@@ -349,7 +367,7 @@ function actionsFor(db) {
         `UPDATE memories
             SET state = 'superseded', state_reason = ?, state_at = ?, superseded_by = ?
           WHERE id = ? AND owner = ? AND state = 'active' AND superseded_by IS NULL`,
-        [`Replaced by memory ${supersededBy}`, at, supersededBy, id, owner],
+        [supersededReason(supersededBy), at, supersededBy, id, owner],
         `retire memory ${id}`,
       );
     },

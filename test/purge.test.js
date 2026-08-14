@@ -14,7 +14,13 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
-import { getMemory, listDecisions, listMemories, openStore } from '../src/store.js';
+import {
+  getMemory,
+  listDecisions,
+  listMemories,
+  openStore,
+  supersededReason,
+} from '../src/store.js';
 
 const CLI = path.join(import.meta.dirname, '..', 'src', 'cli.js');
 const PURGE = path.join(import.meta.dirname, '..', 'scripts', 'purge.mjs');
@@ -135,8 +141,8 @@ test('no memory is left giving a reason that names the purged one', (t) => {
   read((store) => {
     assert.equal(
       getMemory(store, CLI_OWNER, 1, archived)?.state_reason,
-      'Replaced by memory 2',
-      'the sentence this test is about',
+      supersededReason(2),
+      'the sentence this test is about, asked for the way the gate writes it',
     );
   });
 
