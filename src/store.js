@@ -94,7 +94,7 @@ function handleOf(store) {
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS memories (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  id            INTEGER PRIMARY KEY,
   owner         TEXT    NOT NULL,
   text          TEXT    NOT NULL,
   -- The same text after NFKC, trimming, collapsing runs of whitespace and
@@ -113,22 +113,17 @@ CREATE TABLE IF NOT EXISTS memories (
   superseded_by INTEGER REFERENCES memories(id)
 );
 
-CREATE INDEX IF NOT EXISTS memories_owner_state ON memories(owner, state);
-
 CREATE TABLE IF NOT EXISTS decisions (
-  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  id                INTEGER PRIMARY KEY,
   owner             TEXT    NOT NULL,
   decided_at        TEXT    NOT NULL,
-  verdict           TEXT    NOT NULL
-                    CHECK (verdict IN ('stored', 'superseded', 'forgotten', 'restored', 'refused')),
+  verdict           TEXT    NOT NULL,
   rule              TEXT    NOT NULL,
   explanation       TEXT    NOT NULL,
   memory_id         INTEGER REFERENCES memories(id),
   related_memory_id INTEGER REFERENCES memories(id),
   input_excerpt     TEXT    NOT NULL
 );
-
-CREATE INDEX IF NOT EXISTS decisions_owner_time ON decisions(owner, decided_at);
 
 -- Trigram, not unicode61. unicode61 finds nothing in Chinese or Japanese
 -- because it splits on spaces, and this has to work in every language.
