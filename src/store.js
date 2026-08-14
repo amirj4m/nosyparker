@@ -302,6 +302,19 @@ export function supersededReason(supersededBy) {
 }
 
 /**
+ * What that sentence becomes once the memory it named has been purged.
+ *
+ * Written by the purge script and read by the gate: it is the only trace left
+ * that there ever was a replacement, because the purge clears the pointer that
+ * used to say so. `restore` reads it to know it should mention that the
+ * replacement is gone. Kept here for the same reason as the sentence above —
+ * two copies would be one reword away from restore quietly falling silent
+ * again.
+ */
+export const PURGED_REPLACEMENT_REASON =
+  'Replaced by a newer memory, which has since been purged.';
+
+/**
  * Everything a decision is allowed to do to a memory. There is nothing here
  * that runs a statement of the caller's choosing, which is deliberate.
  *

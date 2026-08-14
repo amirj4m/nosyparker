@@ -184,6 +184,29 @@ test('no memory is left giving a reason that names the purged one', (t) => {
   });
 });
 
+test('restoring a memory whose replacement was purged says the replacement is gone', (t) => {
+  const { run, purge } = workspace(t);
+
+  run(['add', 'I live in Tehran']); // 1
+  run(['add', 'I live in Berlin', '--replaces', '1']); // 2
+  assert.equal(purge(['--id', '2', '--yes']).code, 0);
+
+  // The purge cleared superseded_by, which is the pointer this message used to
+  // be built from, so restoring said only that the memory was back and left
+  // the person to work out for themselves that memory 2 no longer exists.
+  const restored = run(['restore', '1']);
+  assert.equal(restored.code, 0);
+  assert.match(restored.out, /being shown again/u);
+  assert.match(restored.out, /was purged/u);
+
+  // And an ordinary restore, with nothing missing, still says only what it did.
+  run(['add', 'I keep Sundays free']); // 3
+  run(['forget', '3', 'not any more']);
+  const plain = run(['restore', '3']);
+  assert.equal(plain.code, 0);
+  assert.equal(plain.out.includes('purged'), false, 'nothing was purged in this one');
+});
+
 test('the search index forgets a purged memory', (t) => {
   const { run, purge } = workspace(t);
 

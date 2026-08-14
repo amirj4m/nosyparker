@@ -38,7 +38,7 @@
  */
 
 import { detectCredential, credentialExplanation, credentialPlaceholder } from './credentials.js';
-import { findDuplicate, getMemory, recordDecision } from './store.js';
+import { findDuplicate, getMemory, PURGED_REPLACEMENT_REASON, recordDecision } from './store.js';
 import { isBlank } from './text.js';
 
 /** Longest excerpt of the offered text kept on a decision row. */
@@ -324,6 +324,14 @@ export function restore(store, { owner, id }) {
       // that another writer has already changed.
       const replacedBy = memory.superseded_by;
 
+      // A memory whose replacement was purged has no pointer left to say so:
+      // the purge cleared it. What it has instead is the sentence the purge
+      // wrote in its place, and that sentence is the only way left to know.
+      // Without this, restoring such a memory said only that it was being
+      // shown again, and left the person to work out on their own that the
+      // memory which had replaced it no longer exists.
+      const replacementWasPurged = memory.state_reason === PURGED_REPLACEMENT_REASON;
+
       // state_reason is cleared, because it says why this memory is put away
       // and it is not put away any more. Leaving it left an active memory
       // carrying "not interested any more", which is simply not true of a
@@ -354,17 +362,45 @@ export function restore(store, { owner, id }) {
         owner,
         verdict: 'restored',
         rule: 'restored',
-        explanation:
-          replacedBy === null
-            ? `Memory ${id} is being shown again.`
-            : `Memory ${id} is being shown again, and memory ${replacedBy} no longer claims to ` +
-              'have replaced it.',
+        explanation: restoreExplanation(id, replacedBy, replacementWasPurged),
         input_excerpt: '',
         memory_id: id,
         related_memory_id: replacedBy,
       };
     }),
   );
+}
+
+/**
+ * What to tell somebody who has just brought a memory back.
+ *
+ * Three situations, and the difference between them is worth a sentence each.
+ * The memory that replaced this one may still be there, in which case it has
+ * just stopped claiming to have replaced it. It may have been purged, in which
+ * case there is nothing to name and the person should be told that rather than
+ * left to notice. Or there was never a replacement at all.
+ *
+ * @param {number} id
+ * @param {number|null} replacedBy the memory that replaced it, if it is still there
+ * @param {boolean} replacementWasPurged whether the memory that replaced it has been purged
+ * @returns {string}
+ */
+function restoreExplanation(id, replacedBy, replacementWasPurged) {
+  if (replacedBy !== null) {
+    return (
+      `Memory ${id} is being shown again, and memory ${replacedBy} no longer claims to ` +
+      'have replaced it.'
+    );
+  }
+
+  if (replacementWasPurged) {
+    return (
+      `Memory ${id} is being shown again. The memory that had replaced it was purged, so ` +
+      'there is nothing left claiming to have replaced it.'
+    );
+  }
+
+  return `Memory ${id} is being shown again.`;
 }
 
 /**

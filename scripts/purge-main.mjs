@@ -33,7 +33,7 @@ import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
 import { defaultStorePath } from '../src/config.js';
-import { supersededReason } from '../src/store.js';
+import { PURGED_REPLACEMENT_REASON, supersededReason } from '../src/store.js';
 
 // Started by a person, through the launcher, or not at all.
 //
@@ -151,8 +151,12 @@ function main(argv) {
       // asking SQLite for `'Replaced by memory ' || ?` with 2 gets back
       // `Replaced by memory 2.0`, which matches nothing at all and fails by
       // quietly doing nothing.
+      // The sentence it becomes is shared too, because it is the only trace
+      // left that there was ever a replacement: the pointer that used to say
+      // so is cleared two lines below. `restore` reads it to tell somebody the
+      // replacement is gone.
       db.prepare('UPDATE memories SET state_reason = ? WHERE state_reason = ?').run(
-        'Replaced by a newer memory, which has since been purged.',
+        PURGED_REPLACEMENT_REASON,
         supersededReason(id),
       );
 
