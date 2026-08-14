@@ -9,7 +9,7 @@
  * terminal with `scripts/purge.mjs`, which nothing here can call.
  */
 
-export { LOCAL_OWNER, defaultStorePath, systemClock } from './config.js';
+export { defaultStorePath, systemClock } from './config.js';
 export { forget, restore, submit } from './gate.js';
 export {
   getMemory,

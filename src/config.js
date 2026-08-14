@@ -19,22 +19,12 @@ const STORE_FILE_NAME = 'memory.sqlite';
 const STORE_ENV_VAR = 'NOSYPARKER_STORE';
 
 /**
- * Owner recorded on memories written by the command line tool.
- *
- * Phase 1 is a single-user, single-machine tool, so there is one owner. The
- * store and the gate still take the owner as an argument, because rows are
- * scoped by owner and later phases will have more than one.
- */
-export const LOCAL_OWNER = 'local';
-
-/**
  * Where the store file lives.
  *
- * @param {NodeJS.ProcessEnv} [env] environment to read, defaults to this process
  * @returns {string} absolute path to the SQLite file
  */
-export function defaultStorePath(env = process.env) {
-  const override = env[STORE_ENV_VAR];
+export function defaultStorePath() {
+  const override = process.env[STORE_ENV_VAR];
   if (override && override.trim() !== '') return path.resolve(override);
   return path.join(os.homedir(), STORE_DIR_NAME, STORE_FILE_NAME);
 }
