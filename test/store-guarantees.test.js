@@ -7,13 +7,18 @@
  */
 
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
 
 import { forget, submit } from '../src/gate.js';
 import {
   getMemory,
   listDecisions,
   listMemories,
+  openStore,
   recordDecision,
   searchMemories,
 } from '../src/store.js';
@@ -205,6 +210,75 @@ test('a decision opened while one is already open is refused outright', (t) => {
   // And the store is left usable rather than stuck inside a transaction.
   submit(store, { owner: OWNER, text: 'still works afterwards' });
   assert.equal(listMemories(store, OWNER).length, 1);
+});
+
+test('a new store writes down the schema version it was made under', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const reader = new DatabaseSync(store.file);
+  t.after(() => reader.close());
+
+  // 1 is the current SCHEMA_VERSION in store.js, and moves with it.
+  const stamped = /** @type {{user_version: number}} */ (
+    /** @type {unknown} */ (reader.prepare('PRAGMA user_version').get())
+  );
+  assert.equal(stamped.user_version, 1, 'a new store should be stamped, not left at zero');
+});
+
+test('a store older than this code is refused at the door, not on the first write', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-schema-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'memory.sqlite');
+
+  // A store as it was before text_normalised was added: the table is there, so
+  // CREATE TABLE IF NOT EXISTS leaves it exactly as it is, and nothing ever
+  // wrote a version number into the file.
+  const old = new DatabaseSync(file);
+  old.exec(`CREATE TABLE memories (
+    id            INTEGER PRIMARY KEY,
+    owner         TEXT    NOT NULL,
+    text          TEXT    NOT NULL,
+    created_at    TEXT    NOT NULL,
+    state         TEXT    NOT NULL DEFAULT 'active',
+    state_reason  TEXT,
+    state_at      TEXT    NOT NULL,
+    supersedes    INTEGER REFERENCES memories(id),
+    superseded_by INTEGER REFERENCES memories(id)
+  )`);
+  old.exec(
+    "INSERT INTO memories (owner, text, created_at, state_at) " +
+      "VALUES ('tester', 'stored before the column existed', '2025-01-01', '2025-01-01')",
+  );
+  old.close();
+
+  // This used to open, list and search quite happily, and then die on the
+  // first write with "no such column: text_normalised".
+  assert.throws(
+    () => openStore({ file, now: () => '2026-01-01T00:00:00.000Z' }),
+    (error) => {
+      const message = /** @type {Error} */ (error).message;
+      assert.match(message, /older version of nosyparker/u);
+      assert.ok(message.includes(file), 'the message should name the file');
+      assert.equal(/no such column/u.test(message), false, 'not a raw SQLite error');
+      return true;
+    },
+  );
+
+  // And it was turned away rather than half opened: the row it already had is
+  // untouched, and no table of this code's making was left behind.
+  const after = new DatabaseSync(file);
+  t.after(() => after.close());
+  assert.equal(
+    after.prepare("SELECT name FROM sqlite_master WHERE name = 'decisions'").get(),
+    undefined,
+  );
+  assert.equal(
+    /** @type {{count: number}} */ (
+      /** @type {unknown} */ (after.prepare('SELECT COUNT(*) AS count FROM memories').get())
+    ).count,
+    1,
+  );
 });
 
 test('a closed store cannot be used again', (t) => {

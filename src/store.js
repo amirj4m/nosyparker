@@ -31,6 +31,21 @@ import { normaliseForComparison } from './text.js';
 const MIN_SEARCH_LENGTH = 3;
 
 /**
+ * The shape of file this code knows how to read. Raise it whenever a column is
+ * added, removed or changed.
+ *
+ * Every statement below says IF NOT EXISTS, which is the right thing for a
+ * table that is not there and says nothing at all about a table that is there
+ * but is missing a column. A store written before `text_normalised` existed
+ * therefore opened without complaint, read without complaint, and then failed
+ * on the first write with `no such column: text_normalised`, which names a
+ * column the person has never heard of and points at no file. The number below
+ * is written into new stores and checked when an old one is opened, so that
+ * the failure happens at the door and in a sentence.
+ */
+const SCHEMA_VERSION = 1;
+
+/**
  * @typedef {object} Memory
  * @property {number} id
  * @property {string} owner
@@ -172,7 +187,14 @@ export function openStore({ file, now }) {
   db.exec('PRAGMA busy_timeout = 5000');
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA foreign_keys = ON');
-  db.exec(SCHEMA);
+
+  try {
+    prepareSchema(db, file);
+  } catch (error) {
+    // Nothing is handed back, so nothing else can close this.
+    db.close();
+    throw error;
+  }
 
   /** @type {Store} */
   const store = {
@@ -186,6 +208,63 @@ export function openStore({ file, now }) {
 
   handles.set(store, { db, deciding: false });
   return store;
+}
+
+/**
+ * Put the tables in a new file, or refuse a file older than this code.
+ *
+ * There is no migration here and there is deliberately no place to put one.
+ * Failing at the door, naming the file, is the whole of what this does.
+ *
+ * The version and the tables are read and written inside one transaction,
+ * because several agents opening the same new store at the same moment is the
+ * ordinary case for this tool. Split across the boundary, the second one can
+ * see the first one's tables before it sees the version those tables were
+ * written under, and turn a perfectly current file away.
+ *
+ * @param {DatabaseSync} db
+ * @param {string} file
+ */
+function prepareSchema(db, file) {
+  db.exec('BEGIN IMMEDIATE');
+
+  try {
+    const version = Number(
+      /** @type {{user_version: number}} */ (
+        /** @type {unknown} */ (db.prepare('PRAGMA user_version').get())
+      ).user_version,
+    );
+
+    // Nothing has ever been stored here, so there is no old shape to be wrong
+    // about and this is simply a new store.
+    const fresh =
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memories'")
+        .get() === undefined;
+
+    if (fresh) {
+      db.exec(SCHEMA);
+      db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    } else if (version < SCHEMA_VERSION) {
+      throw new Error(
+        `${file} was written by an older version of nosyparker: it is at schema version ` +
+          `${version} and this code needs ${SCHEMA_VERSION}. It is missing at least one column ` +
+          'this code writes to, so it has not been opened and nothing in it has been changed. ' +
+          'There is no upgrade: move the file aside and start a new store, or go back to the ' +
+          'version that wrote it.',
+      );
+    }
+
+    db.exec('COMMIT');
+  } catch (error) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Nothing to undo, or nothing that can be undone. The failure above is
+      // the one worth reporting either way.
+    }
+    throw error;
+  }
 }
 
 /**
