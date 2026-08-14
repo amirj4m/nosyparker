@@ -113,6 +113,39 @@ test('the search index forgets a purged memory', (t) => {
   assert.match(run(['search', 'email']).out, /1 match/u);
 });
 
+test('it explains itself in a sentence when an agent is holding the store', (t) => {
+  const { run, purge, read, file } = workspace(t);
+  run(['add', 'I live in Tehran']);
+
+  // An agent, connected and holding the store open, which is the ordinary
+  // state of this tool rather than an unusual one.
+  const agent = openStore({ file, now: () => new Date().toISOString() });
+  t.after(() => {
+    try {
+      agent.close();
+    } catch {
+      // Already closed by the test body.
+    }
+  });
+
+  const result = purge(['--id', '1', '--yes']);
+
+  assert.equal(result.code, 1);
+  assert.match(result.err, /something else is using it/u);
+  assert.match(result.err, /agent connected to your memories/u);
+  assert.equal(result.err.includes('at main'), false, 'it should not print a stack trace');
+  assert.equal(result.err.includes('ERR_SQLITE_ERROR'), false);
+
+  // Nothing was lost while it was refusing.
+  read((store) => {
+    assert.equal(listMemories(store, CLI_OWNER).length, 1);
+  });
+
+  // And once the agent lets go, the same command works.
+  agent.close();
+  assert.equal(purge(['--id', '1', '--yes']).code, 0);
+});
+
 test('it cannot be imported, only run', async () => {
   await assert.rejects(() => import(`file://${PURGE}`), /not something to import/u);
 });

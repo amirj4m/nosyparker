@@ -69,6 +69,12 @@ function main(argv) {
   const db = new DatabaseSync(file);
 
   try {
+    // Waiting a while for the store comes first. Several agents connected at
+    // once is the ordinary state of this tool, and each of the steps below
+    // takes a lock. Without this the script fell over with a stack trace the
+    // moment anything else had the file open.
+    db.exec('PRAGMA busy_timeout = 10000');
+
     // Left on, so that the database itself refuses to let this script leave a
     // reference pointing at a row that is gone.
     db.exec('PRAGMA foreign_keys = ON');
@@ -125,9 +131,29 @@ function main(argv) {
         'of the text. That log is deliberately left alone. Anything that pointed at ' +
         'this memory no longer does.\n',
     );
+  } catch (error) {
+    // If it is still locked after all that waiting, an agent is holding the
+    // store. Say so in a sentence rather than printing a stack trace at
+    // somebody who is trying to delete one row.
+    if (isLocked(error)) {
+      stop(
+        'Could not get to the store, because something else is using it. That will be an ' +
+          'agent connected to your memories. Close it and run this again. Nothing was changed.',
+      );
+    }
+    throw error;
   } finally {
     db.close();
   }
+}
+
+/**
+ * @param {unknown} error
+ * @returns {boolean}
+ */
+function isLocked(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('database is locked') || message.includes('database table is locked');
 }
 
 /**
