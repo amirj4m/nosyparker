@@ -369,7 +369,7 @@ function readId(args, name) {
     throw new Error(
       `"${name}" has to be the id of a memory, which is a whole number above zero, ` +
         `and this call gave ${describe(value)}. Nothing was done. The ids are the ` +
-        'numbers shown by list and recall.',
+        'numbers shown against each memory by list, recall and why.',
     );
   }
   return value;
