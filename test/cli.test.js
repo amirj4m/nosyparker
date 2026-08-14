@@ -113,6 +113,28 @@ test('the tool says what it wants when it is given nonsense', (t) => {
   assert.match(badId.err, /not a memory id/u);
 });
 
+test('no Node warning about SQLite reaches the terminal', (t) => {
+  const run = commandRunner(t);
+
+  // Two lines of red after a command that worked is how a person decides a
+  // tool is broken.
+  const stored = run(['add', 'I live in Berlin']);
+  assert.equal(stored.code, 0);
+  assert.equal(stored.err, '', `stderr should be empty, got: ${stored.err}`);
+
+  // And every command, not just the first one to touch the store.
+  for (const args of [['list'], ['log'], ['search', 'Berlin'], ['forget', '1', 'moved']]) {
+    assert.equal(run(args).err.includes('ExperimentalWarning'), false, `warning leaked from ${args[0]}`);
+  }
+
+  // What the tool has to say for itself still arrives, which is the half a
+  // blanket --no-warnings would have taken with it.
+  const unknown = run(['sing']);
+  assert.equal(unknown.code, 1);
+  assert.match(unknown.err, /no command called "sing"/u);
+  assert.equal(unknown.err.includes('ExperimentalWarning'), false);
+});
+
 test('an argument a command does not take is refused, not ignored', (t) => {
   const run = commandRunner(t);
   run(['add', 'I live in Berlin']);

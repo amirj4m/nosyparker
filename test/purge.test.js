@@ -56,6 +56,7 @@ test('it refuses an id that is not there', (t) => {
   // The command was typed correctly. Answering it with syntax would send the
   // reader looking for a mistake that is not there.
   assert.equal(missing.err.includes('--id <id> --yes'), false, 'no usage for this one');
+  assert.equal(missing.err.includes('ExperimentalWarning'), false, 'nor a Node warning');
 
   // Whether the row is there is now asked inside the transaction, which is
   // after the store has been taken out of WAL. Finding nothing has to put that
@@ -80,6 +81,7 @@ test('it removes the memory, keeps the log, and leaves nothing dangling', (t) =>
   assert.equal(result.code, 0, result.err);
   assert.match(result.out, /Memory 1 is gone/u);
   assert.match(result.out, /log is deliberately left alone/u);
+  assert.equal(result.err, '', `stderr should be empty, got: ${result.err}`);
 
   read((store) => {
     const memories = listMemories(store, CLI_OWNER, { includeArchived: true });
@@ -221,6 +223,11 @@ test('it explains itself in a sentence when an agent is holding the store', (t) 
 
 test('it cannot be imported, only run', async () => {
   await assert.rejects(() => import(`file://${PURGE}`), /not something to import/u);
+
+  // Splitting the script into a launcher and a body must not have left a
+  // second way in with no lock on it.
+  const body = path.join(import.meta.dirname, '..', 'scripts', 'purge-main.mjs');
+  await assert.rejects(() => import(`file://${body}`), /not something to import/u);
 });
 
 /**
