@@ -59,10 +59,10 @@ function main(argv) {
   const id = idFlag === -1 ? Number.NaN : Number(argv[idFlag + 1]);
 
   if (!Number.isInteger(id) || id <= 0) {
-    stop('Which memory? Pass --id <id>.');
+    stopWithUsage('Which memory? Pass --id <id>.');
   }
   if (!confirmed) {
-    stop(`This permanently removes memory ${id}. Add --yes if that is what you want.`);
+    stopWithUsage(`This permanently removes memory ${id}. Add --yes if that is what you want.`);
   }
 
   const file = defaultStorePath();
@@ -161,6 +161,22 @@ function isLocked(error) {
  * @returns {never}
  */
 function stop(message) {
+  process.stderr.write(`${message}\n`);
+  process.exit(1);
+}
+
+/**
+ * The same, plus how to type the command.
+ *
+ * Only the two failures that are actually about how it was typed use this. A
+ * store that something else is holding, or an id that is not in the file, has
+ * nothing to do with the wording of the command, and answering those with a
+ * block of syntax told the reader to look in the wrong place.
+ *
+ * @param {string} message
+ * @returns {never}
+ */
+function stopWithUsage(message) {
   process.stderr.write(`${message}\n\n${USAGE}`);
   process.exit(1);
 }

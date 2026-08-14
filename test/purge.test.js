@@ -26,10 +26,12 @@ test('it refuses without both flags, and changes nothing', (t) => {
   const noFlags = purge([]);
   assert.equal(noFlags.code, 1);
   assert.match(noFlags.err, /Which memory/u);
+  assert.match(noFlags.err, /--id <id> --yes/u, 'how it was typed is the problem, so say how');
 
   const noYes = purge(['--id', '1']);
   assert.equal(noYes.code, 1);
   assert.match(noYes.err, /Add --yes/u);
+  assert.match(noYes.err, /--id <id> --yes/u);
 
   const noId = purge(['--yes']);
   assert.equal(noId.code, 1);
@@ -49,6 +51,10 @@ test('it refuses an id that is not there', (t) => {
   const missing = purge(['--id', '99', '--yes']);
   assert.equal(missing.code, 1);
   assert.match(missing.err, /no memory 99/u);
+
+  // The command was typed correctly. Answering it with syntax would send the
+  // reader looking for a mistake that is not there.
+  assert.equal(missing.err.includes('--id <id> --yes'), false, 'no usage for this one');
 });
 
 test('it removes the memory, keeps the log, and leaves nothing dangling', (t) => {
@@ -137,6 +143,7 @@ test('it explains itself in a sentence when an agent is holding the store', (t) 
   assert.match(result.err, /agent connected to your memories/u);
   assert.equal(result.err.includes('at main'), false, 'it should not print a stack trace');
   assert.equal(result.err.includes('ERR_SQLITE_ERROR'), false);
+  assert.equal(result.err.includes('--id <id> --yes'), false, 'nor a block of syntax');
 
   // Nothing was lost while it was refusing.
   read((store) => {

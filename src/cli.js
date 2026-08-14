@@ -12,8 +12,6 @@ import { listDecisions, listMemories, openStore, searchMemories } from './store.
 /** Phase 1 is one person on one machine, so there is one owner. */
 const LOCAL_OWNER = 'local';
 
-const COMMANDS = 'add, search, list, log, forget, restore';
-
 main(process.argv.slice(2));
 
 /**
@@ -22,7 +20,7 @@ main(process.argv.slice(2));
 function main(argv) {
   const [command, ...rest] = argv;
 
-  if (!command) fail(`Say what to do. The commands are: ${COMMANDS}.`);
+  if (!command) fail('No command was given.');
 
   const store = openStore({ file: defaultStorePath(), now: systemClock });
 
@@ -47,7 +45,7 @@ function main(argv) {
         runRestore(store, rest);
         break;
       default:
-        fail(`There is no command called "${command}". The commands are: ${COMMANDS}.`);
+        fail(`There is no command called "${command}".`);
     }
   } finally {
     store.close();

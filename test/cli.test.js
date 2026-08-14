@@ -92,7 +92,8 @@ test('the tool says what it wants when it is given nonsense', (t) => {
 
   const noCommand = run([]);
   assert.equal(noCommand.code, 1);
-  assert.match(noCommand.err, /add, search, list, log, forget, restore/u);
+  assert.match(noCommand.err, /No command was given/u);
+  assert.equal(noCommand.err.includes('search'), false, 'it does not list the commands');
 
   assert.equal(run(['add']).code, 1);
   assert.match(run(['add']).err, /Say what you want to store/u);
@@ -105,6 +106,7 @@ test('the tool says what it wants when it is given nonsense', (t) => {
   const unknown = run(['sing']);
   assert.equal(unknown.code, 1);
   assert.match(unknown.err, /no command called "sing"/u);
+  assert.equal(unknown.err.includes('search'), false, 'it does not list the commands');
 
   const badId = run(['restore', 'seven']);
   assert.equal(badId.code, 1);
