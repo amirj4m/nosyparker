@@ -84,11 +84,13 @@ test('it removes the memory, keeps the log, and leaves nothing dangling', (t) =>
   assert.deepEqual(foreignKeyViolations(file), [], 'the store should be referentially consistent');
 });
 
-test('the text of a purged memory is really gone from the file', (t) => {
+test('the part of a purged memory that the log does not keep is gone from the file', (t) => {
   const { run, purge, file } = workspace(t);
 
-  // Long enough that most of it is past what the log keeps, so the tail is
-  // text that should exist nowhere at all once it has been purged.
+  // The log keeps the first 160 characters of what was offered, on purpose, so
+  // a short memory survives a purge in full in the log. What this test proves
+  // is narrower: the part of a memory that is past the excerpt exists nowhere
+  // in the file or the write ahead log once it has been purged.
   const tail = 'ZEBRAFINCHMARKER';
   run(['add', `a memory about ${'padding '.repeat(30)}${tail}`]);
   run(['add', 'something else entirely']);
