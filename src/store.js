@@ -27,21 +27,6 @@ import { DatabaseSync } from 'node:sqlite';
 
 import { normaliseForComparison } from './text.js';
 
-/** The three states a memory can be in. `active` is the showcase. */
-export const STATES = /** @type {const} */ (['active', 'superseded', 'forgotten']);
-
-/** What a decision row can record as its outcome. */
-export const VERDICTS = /** @type {const} */ ([
-  'stored',
-  'superseded',
-  'forgotten',
-  'restored',
-  'refused',
-]);
-
-/** Longest excerpt of the offered text kept on a decision row. */
-export const EXCERPT_LIMIT = 160;
-
 /** Trigram search needs at least three characters to match on. */
 const MIN_SEARCH_LENGTH = 3;
 
@@ -209,26 +194,6 @@ export function openStore({ file, now }) {
 }
 
 /**
- * Cut the offered text down to what a decision row is allowed to keep.
- *
- * Counted in characters, not in the sixteen bit pieces JavaScript stores them
- * in. `"…".length` lies about anything outside the first sixty five thousand
- * code points, which is most of the world's writing and every emoji, and
- * cutting by that count can slice a single character in half and leave an
- * unpaired surrogate in the log. This counts the same way
- * `credentialPlaceholder` does.
- *
- * @param {string} text
- * @returns {string}
- */
-export function excerpt(text) {
-  const flattened = text.replace(/\s+/gu, ' ').trim();
-  const characters = [...flattened];
-  if (characters.length <= EXCERPT_LIMIT) return flattened;
-  return characters.slice(0, EXCERPT_LIMIT - 1).join('') + '…';
-}
-
-/**
  * Everything a decision is allowed to do to a memory. There is nothing here
  * that runs a statement of the caller's choosing, which is deliberate.
  *
@@ -342,7 +307,7 @@ function actionsFor(db) {
 /**
  * @typedef {object} DecisionPlan
  * @property {string} owner
- * @property {string} verdict one of VERDICTS
+ * @property {string} verdict what became of it
  * @property {string} rule the rule that fired
  * @property {string} explanation plain language, meant to be read by a person
  * @property {string} input_excerpt already trimmed and, for secrets, already replaced
