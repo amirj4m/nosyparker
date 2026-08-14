@@ -21,11 +21,12 @@
  *   6. keep              stored
  *
  * `forget` and `restore` are separate entry points and are not part of the
- * submit path. Both refuse rather than repeat themselves: forgetting what is
- * already put away, or restoring what is already on show, changes nothing and
- * is logged as a refusal. That is what keeps a second reason from being
- * written over the first one, and it means no call ever quietly rewrites a
- * row's history.
+ * submit path. Both are content to repeat themselves: forgetting something
+ * already put away puts it away again under the new reason, and restoring
+ * something already on show restores it again. Each writes its ordinary row.
+ * A memory's row therefore carries only its latest reason, and the full run of
+ * them is in the decision log, which holds every call ever made and is never
+ * shortened.
  *
  * The gate does not compare meanings. It has no notion of two memories being
  * about the same topic, it never decides on its own that one memory updates
@@ -240,25 +241,10 @@ export function forget(store, { owner, id, reason }) {
         };
       }
 
-      // A memory that is already put away is left exactly as it is. Writing
-      // the new reason over the old one would quietly destroy the record of
-      // why it was put away in the first place, and the row is the only place
-      // that reason is kept in a form anyone reads.
-      if (memory.state !== 'active') {
-        return {
-          owner,
-          verdict: 'refused',
-          rule: 'already-archived',
-          explanation:
-            `Memory ${id} is already put away, ${describeState(memory)}. Nothing was changed, ` +
-            'and the reason it was put away the first time is still on it. Restore it first ' +
-            'if you want to forget it for a different reason.',
-          input_excerpt: excerpt(reason),
-          memory_id: id,
-        };
-      }
-
-      // 7. forget.
+      // 7. forget. Asking again for something already put away simply puts it
+      // away again under the new reason. The reason on the row is replaced,
+      // and every reason ever given is still in the decision log, which is
+      // complete and never shortened.
       actions.putAway({ owner, id, at, reason, wasInState: memory.state });
 
       return {
@@ -307,17 +293,6 @@ export function restore(store, { owner, id }) {
         };
       }
 
-      if (memory.state === 'active') {
-        return {
-          owner,
-          verdict: 'refused',
-          rule: 'already-active',
-          explanation: `Memory ${id} is already being shown, so nothing was changed.`,
-          input_excerpt: '',
-          memory_id: id,
-        };
-      }
-
       // Read inside the transaction, and written back guarded by the same
       // value, so the pointer cannot be cleared on the strength of a reading
       // that another writer has already changed.
@@ -342,7 +317,7 @@ export function restore(store, { owner, id }) {
       return {
         owner,
         verdict: 'restored',
-        rule: 'restore',
+        rule: 'restored',
         explanation:
           replacedBy === null
             ? `Memory ${id} is being shown again.`
@@ -354,19 +329,6 @@ export function restore(store, { owner, id }) {
       };
     }),
   );
-}
-
-/**
- * How to describe an archived memory to a person.
- *
- * @param {Memory} memory
- * @returns {string}
- */
-function describeState(memory) {
-  const because = memory.state_reason === null ? '' : `: ${memory.state_reason}`;
-  return memory.state === 'superseded'
-    ? `replaced by memory ${memory.superseded_by}`
-    : `forgotten${because}`;
 }
 
 /**

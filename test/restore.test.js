@@ -108,7 +108,7 @@ test('no memory anywhere points at a memory in a state that contradicts it', (t)
   assert.equal(getMemory(store, OWNER, /** @type {number} */ (third.memory_id))?.supersedes, null);
 });
 
-test('forgetting something already put away changes nothing and keeps the first reason', (t) => {
+test('forgetting something already put away simply does it again', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -118,16 +118,47 @@ test('forgetting something already put away changes nothing and keeps the first 
 
   const again = forget(store, { owner: OWNER, id, reason: 'two' });
 
-  assert.equal(again.verdict, 'refused');
-  assert.equal(again.rule, 'already-archived');
-  assert.equal(
-    getMemory(store, OWNER, id, { includeArchived: true })?.state_reason,
-    'one',
-    'the first reason should survive the second attempt',
+  assert.equal(again.verdict, 'forgotten');
+  assert.equal(again.rule, 'forget');
+  assert.equal(getMemory(store, OWNER, id, { includeArchived: true })?.state_reason, 'two');
+
+  // The row carries the latest reason, and the log carries all of them. That
+  // is where an earlier reason is read back from.
+  assert.deepEqual(
+    listDecisions(store, OWNER).map((decision) => decision.input_excerpt),
+    ['I am allergic to walnuts', 'one', 'two'],
   );
 });
 
-test('forgetting something that was replaced changes nothing', (t) => {
+test('a reason survives forget, restore and forget again, in the log', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const stored = submit(store, { owner: OWNER, text: 'I cycle to work' });
+  const id = /** @type {number} */ (stored.memory_id);
+
+  forget(store, { owner: OWNER, id, reason: 'the first reason' });
+  restore(store, { owner: OWNER, id });
+  forget(store, { owner: OWNER, id, reason: 'the second reason' });
+
+  assert.equal(
+    getMemory(store, OWNER, id, { includeArchived: true })?.state_reason,
+    'the second reason',
+  );
+
+  const log = listDecisions(store, OWNER);
+  assert.deepEqual(
+    log.map((decision) => decision.rule),
+    ['keep', 'forget', 'restored', 'forget'],
+  );
+  assert.equal(
+    log.some((decision) => decision.input_excerpt === 'the first reason'),
+    true,
+    'the earlier reason has to stay readable somewhere',
+  );
+});
+
+test('forgetting something that was replaced puts it away', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -138,25 +169,24 @@ test('forgetting something that was replaced changes nothing', (t) => {
   const result = forget(store, { owner: OWNER, id: oldId, reason: 'moved' });
   const row = getMemory(store, OWNER, oldId, { includeArchived: true });
 
-  assert.equal(result.rule, 'already-archived');
-  assert.equal(row?.state, 'superseded');
-  assert.equal(row?.state_reason, 'Replaced by memory 2');
+  assert.equal(result.verdict, 'forgotten');
+  assert.equal(row?.state, 'forgotten');
+  assert.equal(row?.state_reason, 'moved');
 });
 
-test('restoring something already being shown changes nothing', (t) => {
+test('restoring something already being shown simply does it again', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
   const stored = submit(store, { owner: OWNER, text: 'I keep Sundays free' });
   const id = /** @type {number} */ (stored.memory_id);
-  const before = getMemory(store, OWNER, id);
 
   const result = restore(store, { owner: OWNER, id });
 
-  assert.equal(result.verdict, 'refused');
-  assert.equal(result.rule, 'already-active');
-  assert.deepEqual(getMemory(store, OWNER, id), before, 'the row should be untouched');
-  assert.equal(listDecisions(store, OWNER).length, 2, 'and it is still written down');
+  assert.equal(result.verdict, 'restored');
+  assert.equal(result.rule, 'restored');
+  assert.equal(getMemory(store, OWNER, id)?.state, 'active');
+  assert.equal(listDecisions(store, OWNER).length, 2, 'and it is written down');
 });
 
 test('restoring is written to the log like everything else', (t) => {
@@ -171,7 +201,7 @@ test('restoring is written to the log like everything else', (t) => {
   const log = listDecisions(store, OWNER);
   assert.deepEqual(
     log.map((decision) => decision.rule),
-    ['keep', 'forget', 'restore'],
+    ['keep', 'forget', 'restored'],
   );
   assert.equal(log[2].memory_id, id);
 });
