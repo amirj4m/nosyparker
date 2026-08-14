@@ -3,6 +3,7 @@
  */
 
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import test from 'node:test';
 
 import { forget, restore, submit } from '../src/gate.js';
@@ -315,6 +316,33 @@ test('every call writes exactly one decision row, refusals included', (t) => {
     assert.ok(decision.explanation.length > 0, 'every decision explains itself');
     assert.ok(decision.decided_at.length > 0);
   }
+});
+
+test('the gate has ten rule names and no more', () => {
+  // Ten outcomes, so ten names. Nine of these were written down in the
+  // specification; `restored` is the tenth, because a restore that works has
+  // to say which rule answered it and none of the other nine is that rule.
+  const VOCABULARY = [
+    'credential',
+    'empty',
+    'already-stored',
+    'replaces-unknown',
+    'replaces',
+    'keep',
+    'forget',
+    'forget-unknown',
+    'restore-unknown',
+    'restored',
+  ];
+
+  // Read out of the file rather than collected from a run, because a run can
+  // only show that a name is reachable. The half that matters here is the
+  // other half: that there is no eleventh name anywhere in the gate. Two
+  // reviews read past `restored` because nothing was checking for that.
+  const source = fs.readFileSync(new URL('../src/gate.js', import.meta.url), 'utf8');
+  const named = [...source.matchAll(/\brule: '([^']*)'/gu)].map((match) => match[1]);
+
+  assert.deepEqual([...new Set(named)].sort(), [...VOCABULARY].sort());
 });
 
 test('a decision row and its memory arrive together or not at all', (t) => {
