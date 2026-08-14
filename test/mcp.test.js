@@ -22,14 +22,14 @@ const SERVER = path.join(import.meta.dirname, '..', 'src', 'mcp-server.js');
 /** Invented, and assembled here so this file does not itself hold a key. */
 const SECRET = ['AKIA', 'QQQZZZTESTKEY999'].join('');
 
-test('the server lists exactly the five tools, each with something to read', async (t) => {
+test('the server lists exactly the six tools, each with something to read', async (t) => {
   const agent = await connect(t, freshStoreFile(t));
 
   const { tools } = await agent.listTools();
 
   assert.deepEqual(
     tools.map((tool) => tool.name),
-    ['remember', 'recall', 'forget', 'list', 'why'],
+    ['remember', 'recall', 'forget', 'restore', 'list', 'why'],
   );
 
   for (const tool of tools) {
@@ -41,9 +41,6 @@ test('the server lists exactly the five tools, each with something to read', asy
     );
     assert.equal(tool.inputSchema.type, 'object');
   }
-
-  // restore is a live question and is deliberately not here.
-  assert.equal(tools.some((tool) => tool.name === 'restore'), false);
 });
 
 test('remember, recall, list, forget and why, one after another', async (t) => {
@@ -85,6 +82,45 @@ test('remember with replaces retires the old memory and keeps it in the file', a
   assert.equal(listed.includes('Tehran'), false, 'the retired one is not shown');
 
   assert.match(await say(agent, 'why', {}), /superseded \(replaces\)/u);
+});
+
+test('what an agent puts away, an agent can bring back', async (t) => {
+  const agent = await connect(t, freshStoreFile(t));
+
+  await say(agent, 'remember', { text: 'I am vegetarian' });
+  await say(agent, 'forget', { id: 1, reason: 'I eat fish again' });
+  assert.equal(await say(agent, 'list', {}), 'Nothing stored yet.');
+
+  // The id has left list and recall by now, which is exactly why restore's
+  // description sends the agent to `why` to find it.
+  assert.match(await say(agent, 'why', {}), /^ {2}memory: 1$/mu);
+
+  assert.match(await say(agent, 'restore', { id: 1 }), /being shown again/u);
+  assert.equal(await say(agent, 'list', {}), '1. I am vegetarian');
+  assert.match(await say(agent, 'recall', { query: 'vegetarian' }), /1 match/u);
+
+  // Asking again for something already being shown says so and changes
+  // nothing, which is what makes this safe for an agent to reach for.
+  assert.match(await say(agent, 'restore', { id: 1 }), /being shown again/u);
+  assert.equal(await say(agent, 'list', {}), '1. I am vegetarian');
+
+  assert.match(await say(agent, 'why', {}), /restored \(restored\)/u);
+});
+
+test('restoring a replaced memory leaves the newer one no longer claiming it', async (t) => {
+  const agent = await connect(t, freshStoreFile(t));
+
+  await say(agent, 'remember', { text: 'I live in Tehran' });
+  await say(agent, 'remember', { text: 'I live in Berlin', replaces: 1 });
+
+  assert.match(
+    await say(agent, 'restore', { id: 1 }),
+    /memory 2 no longer claims to have replaced it/u,
+  );
+
+  const listed = await say(agent, 'list', {});
+  assert.match(listed, /^1\. I live in Tehran$/mu, 'the older one is shown again');
+  assert.match(listed, /^2\. I live in Berlin$/mu, 'and the newer one still is');
 });
 
 test('an empty store says so rather than answering with nothing', async (t) => {
@@ -150,6 +186,7 @@ test('every refusal writes its row, whatever it was refused for', async (t) => {
   await say(agent, 'remember', { text: SECRET });
   await say(agent, 'remember', { text: 'something new', replaces: 404 });
   await say(agent, 'forget', { id: 404, reason: 'not there' });
+  await say(agent, 'restore', { id: 404 });
 
   const log = await say(agent, 'why', {});
   for (const rule of [
@@ -159,12 +196,13 @@ test('every refusal writes its row, whatever it was refused for', async (t) => {
     'refused (credential)',
     'refused (replaces-unknown)',
     'refused (forget-unknown)',
+    'refused (restore-unknown)',
   ]) {
     assert.ok(log.includes(rule), `${rule} should be in the log`);
   }
 
-  // Six calls, six entries, in the order they were made.
-  assert.equal(log.split('\n\n').length, 6);
+  // Seven calls, seven entries, in the order they were made.
+  assert.equal(log.split('\n\n').length, 7);
 });
 
 test('a malformed call is answered with a sentence and the server carries on', async (t) => {
@@ -186,6 +224,8 @@ test('a malformed call is answered with a sentence and the server carries on', a
     ['forget', { id: 1 }, /"reason" has to be text/u],
     ['forget', { id: 1, reason: '   ' }, /No reason was given/u],
     ['forget', { id: null, reason: 'why not' }, /this call gave null/u],
+    ['restore', {}, /"id" has to be the id of a memory/u],
+    ['restore', { id: 1, reason: 'changed my mind' }, /does not take an argument called "reason"/u],
     ['recall', {}, /"query" has to be text/u],
     ['recall', { query: ['a'] }, /this call gave a list/u],
     ['list', { limit: 3 }, /does not take an argument called "limit"/u],
@@ -219,6 +259,10 @@ test('a wrong id is a sentence rather than a crash, and changes nothing', async 
   assert.match(
     await say(agent, 'remember', { text: 'I live in Lisbon', replaces: 99 }),
     /memory 99 is not one of your active memories/u,
+  );
+  assert.match(
+    await say(agent, 'restore', { id: 99 }),
+    /no memory 99 belonging to you/u,
   );
 
   assert.equal(await say(agent, 'list', {}), '1. I live in Berlin');
@@ -255,9 +299,13 @@ test('two agents on the same store read each other, in both directions', async (
   const log = await say(first, 'why', {});
   assert.equal(log.split('\n\n').length, 3);
 
-  // What one agent puts away is put away for the other one too.
+  // What one agent puts away is put away for the other one too, and either of
+  // them can undo it.
   await say(first, 'forget', { id: 2, reason: 'I moved' });
   assert.equal((await say(second, 'list', {})).includes('Berlin'), false);
+
+  await say(second, 'restore', { id: 2 });
+  assert.match(await say(first, 'list', {}), /^2\. I live in Berlin$/mu);
 });
 
 /**

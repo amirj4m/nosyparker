@@ -1,5 +1,5 @@
 /**
- * The five tools.
+ * The six tools.
  *
  * Each one reads its arguments, calls one function in the gate or the store,
  * and turns what comes back into something a person can read. There is no rule
@@ -12,9 +12,9 @@
  * agent says word for word what the same refusal says at the terminal, because
  * there is one set of sentences and this file does not own it.
  *
- * A tool is a name, a description, a schema and a function. Adding a sixth is
- * adding one entry to the list at the bottom; nothing else knows how many
- * there are.
+ * A tool is a name, a description, a schema and a function. Adding one is
+ * adding one entry to the list below; nothing else knows how many there are,
+ * which is how `restore` arrived without anything but this file changing.
  *
  * On the descriptions. MCP is pull-only: nothing here can make an agent look
  * something up before it answers, or write something down after it learns it.
@@ -24,7 +24,7 @@
  * shape.
  */
 
-import { forget, submit } from './gate.js';
+import { forget, restore, submit } from './gate.js';
 import { listDecisions, listMemories, searchMemories } from './store.js';
 import { isBlank } from './text.js';
 
@@ -142,9 +142,9 @@ export const TOOLS = [
       'Stop a memory being shown, and say why.',
       '',
       'This is not deletion. The memory stays in the file, leaves `list` and',
-      '`recall`, keeps the reason given here, and can be brought back. Nothing in',
-      'this server removes anything: the only way a memory leaves the file is the',
-      'person deleting it themselves.',
+      '`recall`, keeps the reason given here, and can be brought back with `restore`.',
+      'Nothing in this server removes anything: the only way a memory leaves the file',
+      'is the person deleting it themselves.',
       '',
       'Use it when the person says something is wrong or no longer true and there is',
       'nothing to put in its place. When there is something to put in its place, use',
@@ -182,6 +182,42 @@ export const TOOLS = [
       }
 
       return outcome(forget(store, { owner, id, reason }));
+    },
+  },
+
+  {
+    name: 'restore',
+    description: [
+      'Show a memory again that was forgotten or replaced.',
+      '',
+      'The undo for `forget`. Reach for it the moment the person says the last thing',
+      'was a mistake, or asks for something back that an agent put away. Nothing was',
+      'lost when it was forgotten, and they should not have to leave the conversation',
+      'and open a terminal to reverse something an agent did to their memory.',
+      '',
+      'The id comes from `why`, which names the memories that were forgotten and',
+      'replaced. `list` and `recall` show only what is currently being shown, so the',
+      'memory you are looking for will not be in either.',
+      '',
+      'If a newer memory had replaced this one, that newer memory stops claiming to',
+      'have replaced it and both are shown from now on. Restoring something already',
+      'being shown says so and changes nothing.',
+    ].join('\n'),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'integer',
+          description: 'Id of the memory to show again, from `why`.',
+        },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    run(store, owner, args) {
+      only(args, ['id']);
+
+      return outcome(restore(store, { owner, id: readId(args, 'id') }));
     },
   },
 

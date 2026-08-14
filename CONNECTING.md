@@ -38,7 +38,7 @@ The path has to be absolute. Claude Code starts the server in a working
 directory of its own choosing, and a relative one will not be found.
 
 Restart Claude Code. `/mcp` lists the connected servers; nosyparker should be
-there with five tools.
+there with six tools.
 
 ## Trying it
 
@@ -49,6 +49,7 @@ Ask for each of these in turn, in ordinary words:
 - *"How do I like to be written to?"* → `recall`
 - *"Forget that, I have changed my mind."* → `forget`, with a reason
 - *"Why is that not remembered any more?"* → `why`
+- *"Actually, put that back."* → `restore`
 
 Then start a second agent — another Claude Code window, or the command line
 tool in a terminal — and ask it what it knows about you. It reads the same
