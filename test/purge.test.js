@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
-import { listDecisions, listMemories, openStore } from '../src/store.js';
+import { getMemory, listDecisions, listMemories, openStore } from '../src/store.js';
 
 const CLI = path.join(import.meta.dirname, '..', 'src', 'cli.js');
 const PURGE = path.join(import.meta.dirname, '..', 'scripts', 'purge.mjs');
@@ -119,6 +119,58 @@ test('the part of a purged memory that the log does not keep is gone from the fi
 
   assert.equal(fileContains(file, tail), false, 'the marker survived in the database file');
   assert.equal(fileContains(`${file}-wal`, tail), false, 'the marker survived in the log file');
+});
+
+test('no memory is left giving a reason that names the purged one', (t) => {
+  const { run, purge, read } = workspace(t);
+  const archived = { includeArchived: true };
+
+  run(['add', 'I live in Tehran']); // 1, about to be retired by 2
+  run(['add', 'I live in Berlin', '--replaces', '1']); // 2
+  run(['add', 'I am vegetarian']); // 3, forgotten for a reason of its own
+  run(['forget', '3', 'I eat fish again']);
+
+  read((store) => {
+    assert.equal(
+      getMemory(store, CLI_OWNER, 1, archived)?.state_reason,
+      'Replaced by memory 2',
+      'the sentence this test is about',
+    );
+  });
+
+  assert.equal(purge(['--id', '2', '--yes']).code, 0);
+
+  read((store) => {
+    const reason = /** @type {string} */ (getMemory(store, CLI_OWNER, 1, archived)?.state_reason);
+    assert.equal(reason.includes('memory 2'), false, 'it still names a memory that is gone');
+    assert.match(reason, /has since been purged/u);
+
+    // Nothing else was rewritten. A reason of somebody's own is not this
+    // script's to touch.
+    assert.equal(getMemory(store, CLI_OWNER, 3, archived)?.state_reason, 'I eat fish again');
+  });
+
+  // Restore still leaves state_reason alone, on purpose. The point is that
+  // what it leaves alone is now true.
+  run(['restore', '1']);
+  read((store) => {
+    const reason = /** @type {string} */ (getMemory(store, CLI_OWNER, 1)?.state_reason);
+    assert.equal(reason.includes('memory 2'), false, 'the false sentence outlived the restore');
+  });
+
+  // And in the other order, where restoring first clears the pointer and keeps
+  // the reason, so there is no link left to find the row by.
+  run(['add', 'I take the bus']); // 4
+  run(['add', 'I cycle to work', '--replaces', '4']); // 5
+  run(['restore', '4']);
+
+  assert.equal(purge(['--id', '5', '--yes']).code, 0);
+
+  read((store) => {
+    const reason = /** @type {string} */ (getMemory(store, CLI_OWNER, 4, archived)?.state_reason);
+    assert.equal(reason.includes('memory 5'), false, 'a cleared pointer left the sentence behind');
+    assert.match(reason, /has since been purged/u);
+  });
 });
 
 test('the search index forgets a purged memory', (t) => {

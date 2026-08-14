@@ -120,6 +120,29 @@ function main(argv) {
       // the purge would leave him with a store that had quietly changed and no
       // way to find out how. Please do not "fix" this later by deleting or
       // blanking these rows.
+      // A retired memory carries the sentence `Replaced by memory 4`, written
+      // by the gate when it was retired. Once memory 4 is deleted that sentence
+      // is false, and it is the kind of false that survives everything: the
+      // reason is deliberately left alone by restore, so bringing the memory
+      // back leaves it still naming a memory nobody can look up. It is rewritten
+      // here, in the same transaction as the delete, so that no row is ever
+      // readable while citing a memory that has already gone.
+      //
+      // Matched on the sentence rather than on the pointer, because the pointer
+      // is not always there to match on: restoring a memory clears
+      // `superseded_by` and leaves the reason exactly as it was. Matching the
+      // text catches that memory too, and touches nothing else, since a reason
+      // that does not name this id is not this purge's business.
+      //
+      // The sentence to look for is built here rather than joined together in
+      // SQL. node:sqlite binds a JavaScript number as a REAL, so asking SQLite
+      // for `'Replaced by memory ' || ?` with 2 gets back `Replaced by memory
+      // 2.0`, which matches nothing at all and fails by quietly doing nothing.
+      db.prepare('UPDATE memories SET state_reason = ? WHERE state_reason = ?').run(
+        'Replaced by a newer memory, which has since been purged.',
+        `Replaced by memory ${id}`,
+      );
+
       db.prepare('UPDATE memories SET supersedes = NULL WHERE supersedes = ?').run(id);
       db.prepare('UPDATE memories SET superseded_by = NULL WHERE superseded_by = ?').run(id);
       db.prepare('UPDATE decisions SET memory_id = NULL WHERE memory_id = ?').run(id);
