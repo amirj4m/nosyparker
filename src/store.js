@@ -85,7 +85,7 @@ const MIN_SEARCH_LENGTH = 3;
 /**
  * @typedef {object} Handle
  * @property {DatabaseSync} db
- * @property {number} depth how many transactions this store is currently inside
+ * @property {boolean} deciding whether a decision is open on this store
  */
 
 /**
@@ -204,7 +204,7 @@ export function openStore({ file, now }) {
     },
   };
 
-  handles.set(store, { db, depth: 0 });
+  handles.set(store, { db, deciding: false });
   return store;
 }
 
@@ -372,15 +372,15 @@ export function recordDecision(store, decide) {
   const { db } = handle;
   const { actions, revoke } = actionsFor(db);
 
-  // A decision taken while another decision is still open joins it rather than
-  // trying to start a second transaction, which SQLite will not allow. The
-  // inner one gets a savepoint of its own, so it can fail and be undone
-  // without taking the outer one down with it.
-  const nested = handle.depth > 0;
-  const savepoint = `nosyparker_${(savepointCount += 1)}`;
+  if (handle.deciding) {
+    throw new Error(
+      'A decision is already open on this store. One call, one decision, one row: ' +
+        'finish the first before starting another.',
+    );
+  }
 
-  db.exec(nested ? `SAVEPOINT ${savepoint}` : 'BEGIN IMMEDIATE');
-  handle.depth += 1;
+  db.exec('BEGIN IMMEDIATE');
+  handle.deciding = true;
 
   try {
     const plan = decide(actions, at);
@@ -405,7 +405,7 @@ export function recordDecision(store, decide) {
         plan.input_excerpt,
       );
 
-    db.exec(nested ? `RELEASE ${savepoint}` : 'COMMIT');
+    db.exec('COMMIT');
 
     return {
       decision_id: Number(written.lastInsertRowid),
@@ -419,7 +419,7 @@ export function recordDecision(store, decide) {
     // to stand in front of the first: the first one says what actually went
     // wrong.
     try {
-      db.exec(nested ? `ROLLBACK TO ${savepoint}; RELEASE ${savepoint}` : 'ROLLBACK');
+      db.exec('ROLLBACK');
     } catch {
       // Nothing to undo, or nothing that can be undone. Either way the
       // original failure below is the one worth reporting.
@@ -429,12 +429,9 @@ export function recordDecision(store, decide) {
     // Whatever happened, the actions handed out for this decision stop working
     // now. Keeping one past this point buys a caller nothing.
     revoke();
-    handle.depth -= 1;
+    handle.deciding = false;
   }
 }
-
-/** Makes each savepoint name its own, since they can be nested. */
-let savepointCount = 0;
 
 /**
  * One memory by id. Active only unless asked otherwise, like every other read

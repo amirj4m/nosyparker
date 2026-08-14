@@ -178,57 +178,33 @@ test('a failure inside a decision is the error that comes back', (t) => {
   assert.equal(listMemories(store, OWNER).length, 1);
 });
 
-test('a decision taken inside another decision joins it instead of failing', (t) => {
+test('a decision opened while one is already open is refused outright', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
-  recordDecision(store, () => {
-    // The gate, called from inside an open decision, used to fail here with
-    // "cannot start a transaction within a transaction".
-    submit(store, { owner: OWNER, text: 'written from inside another decision' });
-
-    return {
-      owner: OWNER,
-      verdict: 'refused',
-      rule: 'empty',
-      explanation: 'the outer decision',
-      input_excerpt: '',
-    };
-  });
-
-  assert.equal(listMemories(store, OWNER).length, 1);
-  assert.deepEqual(
-    listDecisions(store, OWNER).map((decision) => decision.explanation),
-    ['Stored.', 'the outer decision'],
-  );
-});
-
-test('an inner decision that fails does not take the outer one with it', (t) => {
-  const store = temporaryStore();
-  t.after(() => store.close());
-
-  recordDecision(store, () => {
-    assert.throws(() =>
+  assert.throws(
+    () =>
       recordDecision(store, () => {
-        submit(store, { owner: OWNER, text: 'this should be undone' });
-        throw new Error('the inner decision failed');
+        submit(store, { owner: OWNER, text: 'written from inside another decision' });
+
+        return {
+          owner: OWNER,
+          verdict: 'refused',
+          rule: 'empty',
+          explanation: 'the outer decision',
+          input_excerpt: '',
+        };
       }),
-    );
-
-    return {
-      owner: OWNER,
-      verdict: 'stored',
-      rule: 'keep',
-      explanation: 'the outer decision survived',
-      input_excerpt: '',
-    };
-  });
-
-  assert.equal(listMemories(store, OWNER).length, 0, 'the inner write should have been undone');
-  assert.deepEqual(
-    listDecisions(store, OWNER).map((decision) => decision.explanation),
-    ['the outer decision survived'],
+    /decision is already open/u,
   );
+
+  // The outer decision rolled back with it, so nothing was written at all.
+  assert.equal(listMemories(store, OWNER, { includeArchived: true }).length, 0);
+  assert.equal(listDecisions(store, OWNER).length, 0);
+
+  // And the store is left usable rather than stuck inside a transaction.
+  submit(store, { owner: OWNER, text: 'still works afterwards' });
+  assert.equal(listMemories(store, OWNER).length, 1);
 });
 
 test('a closed store cannot be used again', (t) => {
