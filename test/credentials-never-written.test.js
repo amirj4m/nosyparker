@@ -72,7 +72,7 @@ test('a credential in a reason for forgetting is refused too', (t) => {
 
   const [, decision] = listDecisions(store, OWNER);
   assert.equal(decision.input_excerpt.includes(leak), false);
-  assert.match(decision.input_excerpt, /^\[not recorded: recognised as an AWS access key,/u);
+  assert.equal(decision.input_excerpt, '[not recorded: recognised as an AWS access key]');
 
   const database = fs.readFileSync(store.file);
   const wal = fs.readFileSync(`${store.file}-wal`);
@@ -112,7 +112,10 @@ test('the log records that something was refused without recording what it was',
   const [decision] = listDecisions(store, OWNER);
 
   assert.equal(decision.rule, 'credential');
-  assert.equal(decision.input_excerpt, '[not recorded: recognised as an AWS access key, 20 characters]');
+  assert.equal(decision.input_excerpt, '[not recorded: recognised as an AWS access key]');
+
+  // Not even how long it was, which is still a fact about the secret.
+  assert.equal(/\d/u.test(decision.input_excerpt), false);
   assert.equal(decision.input_excerpt.includes(SECRET), false);
   assert.equal(decision.explanation.includes(SECRET), false);
 });

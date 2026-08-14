@@ -53,7 +53,7 @@ test('a refusal is explained and is not an error', (t) => {
   const credential = run(['add', `my key is ${['AKIA', 'IOSFODNN7EXAMPLE'].join('')}`]);
   assert.equal(credential.code, 0);
   assert.match(credential.out, /looks like an AWS access key/u);
-  assert.match(credential.out, /password manager/u);
+  assert.match(credential.out, /memory, not a secret store/u);
 
   // And the credential is not in the log either.
   assert.match(run(['log']).out, /\[not recorded: recognised as an AWS access key/u);

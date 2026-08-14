@@ -105,7 +105,7 @@ function refuseCredentialOwner(owner) {
     explanation:
       'The owner name itself looked like a secret, so nothing was stored and the name ' +
       `was not written down either. ${credentialExplanation(credential)}`,
-    input_excerpt: credentialPlaceholder(credential, owner),
+    input_excerpt: credentialPlaceholder(credential),
   };
 }
 
@@ -137,7 +137,7 @@ export function submit(store, { owner, text, replaces = null }) {
           verdict: 'refused',
           rule: 'credential',
           explanation: credentialExplanation(credential),
-          input_excerpt: credentialPlaceholder(credential, text),
+          input_excerpt: credentialPlaceholder(credential),
         };
       }
 
@@ -245,7 +245,7 @@ export function forget(store, { owner, id, reason }) {
           verdict: 'refused',
           rule: 'credential',
           explanation: credentialExplanation(credential),
-          input_excerpt: credentialPlaceholder(credential, reason),
+          input_excerpt: credentialPlaceholder(credential),
         };
       }
 
