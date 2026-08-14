@@ -113,6 +113,25 @@ test('the tool says what it wants when it is given nonsense', (t) => {
   assert.match(badId.err, /not a memory id/u);
 });
 
+test('an argument a command does not take is refused, not ignored', (t) => {
+  const run = commandRunner(t);
+  run(['add', 'I live in Berlin']);
+
+  // --all was taken out on purpose. Accepting it in silence told the reader
+  // they had been shown the forgotten and replaced memories as well.
+  const all = run(['list', '--all']);
+  assert.equal(all.code, 1);
+  assert.match(all.err, /"list" does not take --all/u);
+
+  assert.equal(run(['log', '--since', 'yesterday']).code, 1);
+  assert.equal(run(['restore', '1', 'please']).code, 1);
+
+  // And each of them still works when given nothing it did not ask for.
+  assert.equal(run(['list']).code, 0);
+  assert.equal(run(['log']).code, 0);
+  assert.equal(run(['restore', '1']).code, 0);
+});
+
 test('--replaces is checked before anything is stored', (t) => {
   const run = commandRunner(t);
 

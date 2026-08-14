@@ -33,10 +33,10 @@ function main(argv) {
         runSearch(store, rest);
         break;
       case 'list':
-        runList(store);
+        runList(store, rest);
         break;
       case 'log':
-        runLog(store);
+        runLog(store, rest);
         break;
       case 'forget':
         runForget(store, rest);
@@ -106,8 +106,11 @@ function runSearch(store, args) {
 
 /**
  * @param {import('./store.js').Store} store
+ * @param {string[]} args
  */
-function runList(store) {
+function runList(store, args) {
+  refuseExtra('list', args);
+
   const memories = listMemories(store, LOCAL_OWNER);
 
   if (memories.length === 0) {
@@ -120,8 +123,11 @@ function runList(store) {
 
 /**
  * @param {import('./store.js').Store} store
+ * @param {string[]} args
  */
-function runLog(store) {
+function runLog(store, args) {
+  refuseExtra('log', args);
+
   const decisions = listDecisions(store, LOCAL_OWNER);
 
   if (decisions.length === 0) {
@@ -163,8 +169,9 @@ function runForget(store, args) {
  * @param {string[]} args
  */
 function runRestore(store, args) {
-  const [rawId] = args;
+  const [rawId, ...extra] = args;
   if (rawId === undefined) fail('Which one? nosyparker restore <id>');
+  refuseExtra('restore', extra);
 
   printOutcome(restore(store, { owner: LOCAL_OWNER, id: toId(rawId) }));
 }
@@ -188,6 +195,27 @@ function formatMemory(memory) {
   // Only active memories reach here. What was replaced or forgotten is not
   // something this tool shows; the decision log is where that is read.
   return `${memory.id}. ${memory.text}\n`;
+}
+
+/**
+ * Refuse what a command was not asked for.
+ *
+ * `list`, `log` and `restore` take a fixed number of arguments, and until now
+ * they read the ones they wanted and dropped the rest on the floor. So
+ * `list --all` printed the active memories and exited 0, and the person
+ * reading it had every reason to believe they had been shown the forgotten
+ * and replaced ones too. `--all` was taken out deliberately; accepting it
+ * without a word is worse than refusing it.
+ *
+ * `add`, `search` and `forget` are not in this list on purpose. Everything
+ * after their first argument is the text or the reason, so there is nothing
+ * left over for them to ignore.
+ *
+ * @param {string} command
+ * @param {string[]} extra
+ */
+function refuseExtra(command, extra) {
+  if (extra.length > 0) fail(`"${command}" does not take ${extra[0]}.`);
 }
 
 /**
