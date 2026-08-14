@@ -11,8 +11,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-import { forget, submit } from '../src/gate.js';
-import { getMemory, listDecisions } from '../src/store.js';
+import { forget, restore, submit } from '../src/gate.js';
+import { getMemory, listDecisions, listMemories } from '../src/store.js';
 import { OWNER, temporaryStore } from './helpers.js';
 
 // Invented, and assembled at runtime so that this file does not itself hold a
@@ -78,6 +78,30 @@ test('a credential in a reason for forgetting is refused too', (t) => {
   const wal = fs.readFileSync(`${store.file}-wal`);
   assert.equal(contains(database, leak), false, 'the reason reached the database file');
   assert.equal(contains(wal, leak), false, 'the reason reached the write ahead log');
+});
+
+test('a credential given as the owner name is refused on every entry point', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const leak = ['AKIA', 'IOSFODNN7EXAMPLE'].join('');
+
+  const stored = submit(store, { owner: leak, text: 'hello there friend' });
+  assert.equal(stored.verdict, 'refused');
+  assert.equal(stored.rule, 'credential');
+
+  assert.equal(forget(store, { owner: leak, id: 1, reason: 'a reason' }).rule, 'credential');
+  assert.equal(restore(store, { owner: leak, id: 1 }).rule, 'credential');
+
+  // Nothing was stored under that name, and the name is not in the log either.
+  assert.equal(listMemories(store, leak, { includeArchived: true }).length, 0);
+  assert.equal(listDecisions(store, leak).length, 0);
+  assert.equal(listDecisions(store, '[owner not recorded]').length, 3, 'but the refusals are logged');
+
+  const database = fs.readFileSync(store.file);
+  const wal = fs.readFileSync(`${store.file}-wal`);
+  assert.equal(contains(database, leak), false, 'the owner name reached the database file');
+  assert.equal(contains(wal, leak), false, 'the owner name reached the write ahead log');
 });
 
 test('the log records that something was refused without recording what it was', (t) => {

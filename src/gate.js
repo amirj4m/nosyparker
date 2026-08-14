@@ -54,6 +54,38 @@ import { isBlank, normaliseForComparison } from './text.js';
  */
 
 /**
+ * What goes in the owner column when the owner is the thing that looked like a
+ * secret. The decision still has to be written down, and writing it under the
+ * name it was given would put the secret in the log.
+ */
+const OWNER_NOT_RECORDED = '[owner not recorded]';
+
+/**
+ * Rule 1, applied to the owner.
+ *
+ * The owner is free text from a caller like the memory and the reason are, and
+ * it is stored on both tables, so it is checked on every entry point before
+ * anything else happens.
+ *
+ * @param {string} owner
+ * @returns {import('./store.js').DecisionPlan|null}
+ */
+function refuseCredentialOwner(owner) {
+  const credential = detectCredential(owner);
+  if (credential === null) return null;
+
+  return {
+    owner: OWNER_NOT_RECORDED,
+    verdict: 'refused',
+    rule: 'credential',
+    explanation:
+      'The owner name itself looked like a secret, so nothing was stored and the name ' +
+      `was not written down either. ${credentialExplanation(credential)}`,
+    input_excerpt: credentialPlaceholder(credential, owner),
+  };
+}
+
+/**
  * Offer a memory to the store.
  *
  * @param {Store} store
@@ -66,8 +98,14 @@ import { isBlank, normaliseForComparison } from './text.js';
 export function submit(store, { owner, text, replaces = null }) {
   return asResult(
     recordDecision(store, (actions, at) => {
-      // 1. credential. This runs before anything else touches the text, and it
-      // is the only branch that replaces the excerpt with a placeholder.
+      // 1. credential, on the owner first, since the owner is written to both
+      // tables and would otherwise end up in the very row that records the
+      // refusal.
+      const badOwner = refuseCredentialOwner(owner);
+      if (badOwner) return badOwner;
+
+      // 1. credential, on the text. This runs before anything else touches it,
+      // and it is the only branch that replaces the excerpt with a placeholder.
       const credential = detectCredential(text);
       if (credential) {
         return {
@@ -169,6 +207,9 @@ export function submit(store, { owner, text, replaces = null }) {
 export function forget(store, { owner, id, reason }) {
   return asResult(
     recordDecision(store, (actions, at) => {
+      const badOwner = refuseCredentialOwner(owner);
+      if (badOwner) return badOwner;
+
       // 1. credential. A reason is free text from a caller like any other, and
       // it is written to the row as well as to the log, so it is guarded the
       // same way. This comes first here for the same reason it comes first in
@@ -250,6 +291,9 @@ export function forget(store, { owner, id, reason }) {
 export function restore(store, { owner, id }) {
   return asResult(
     recordDecision(store, (actions, at) => {
+      const badOwner = refuseCredentialOwner(owner);
+      if (badOwner) return badOwner;
+
       // Archived rows included, since an archived row is the whole point.
       const memory = getMemory(store, owner, id, { includeArchived: true });
 
