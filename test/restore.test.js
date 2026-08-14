@@ -23,13 +23,45 @@ test('restoring a forgotten memory brings it back to the active list', (t) => {
 
   assert.equal(result.verdict, 'restored');
   assert.equal(getMemory(store, OWNER, id)?.state, 'active');
-  // The reason it was put away is kept. It was true, and it is the only
-  // account of it that anyone reads off the row.
-  assert.equal(getMemory(store, OWNER, id)?.state_reason, 'thought I had grown out of it');
+  // And it stops saying why it was put away, because it is not put away.
+  assert.equal(getMemory(store, OWNER, id)?.state_reason, null);
   assert.deepEqual(
     listMemories(store, OWNER).map((memory) => memory.id),
     [id],
   );
+});
+
+test('a restored memory gives no reason for being archived, and the log still has it', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const stored = submit(store, { owner: OWNER, text: 'I go to the Tuesday class' });
+  const id = /** @type {number} */ (stored.memory_id);
+
+  forget(store, { owner: OWNER, id, reason: 'not interested any more' });
+  assert.equal(
+    getMemory(store, OWNER, id, { includeArchived: true })?.state_reason,
+    'not interested any more',
+    'while it is put away, the row says why',
+  );
+
+  restore(store, { owner: OWNER, id });
+
+  // An active memory explaining why it is archived is a sentence that is not
+  // true of it. The row describes the memory as it is now.
+  const row = getMemory(store, OWNER, id);
+  assert.equal(row?.state, 'active');
+  assert.equal(row?.state_reason, null);
+
+  // Clearing it loses nothing. The log holds every call ever made, is never
+  // shortened, and still has the reason under the date it was given.
+  const log = listDecisions(store, OWNER);
+  assert.deepEqual(
+    log.map((decision) => decision.rule),
+    ['keep', 'forget', 'restored'],
+  );
+  assert.equal(log[1].input_excerpt, 'not interested any more');
+  assert.equal(log[1].memory_id, id);
 });
 
 test('restoring a superseded memory leaves no pointer dangling on either side', (t) => {

@@ -129,17 +129,16 @@ function main(argv) {
       // blanking these rows.
       // A retired memory carries the sentence `Replaced by memory 4`, written
       // by the gate when it was retired. Once memory 4 is deleted that sentence
-      // is false, and it is the kind of false that survives everything: the
-      // reason is deliberately left alone by restore, so bringing the memory
-      // back leaves it still naming a memory nobody can look up. It is rewritten
-      // here, in the same transaction as the delete, so that no row is ever
-      // readable while citing a memory that has already gone.
+      // is false, so it is rewritten here, in the same transaction as the
+      // delete, and no row is ever readable while citing a memory that has
+      // already gone.
       //
-      // Matched on the sentence rather than on the pointer, because the pointer
-      // is not always there to match on: restoring a memory clears
-      // `superseded_by` and leaves the reason exactly as it was. Matching the
-      // text catches that memory too, and touches nothing else, since a reason
-      // that does not name this id is not this purge's business.
+      // Matched on the sentence rather than on `superseded_by`, which is the
+      // wider net and the wrong one. Forgetting a memory that had been replaced
+      // keeps the pointer and puts the person's own words in the reason, so
+      // matching the pointer would paint over a sentence somebody wrote with
+      // one about a purge they never mentioned. Only the gate's own sentence,
+      // naming this id, is this script's to correct.
       //
       // The sentence to look for is built here rather than joined together in
       // SQL. node:sqlite binds a JavaScript number as a REAL, so asking SQLite

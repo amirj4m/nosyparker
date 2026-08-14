@@ -24,9 +24,12 @@
  * submit path. Both are content to repeat themselves: forgetting something
  * already put away puts it away again under the new reason, and restoring
  * something already on show restores it again. Each writes its ordinary row.
- * A memory's row therefore carries only its latest reason, and the full run of
- * them is in the decision log, which holds every call ever made and is never
- * shortened.
+ *
+ * A memory's row says what is true of it now: `state_reason` holds the reason
+ * it is put away while it is put away, and is cleared when it comes back,
+ * because an active memory has no reason for being archived. Every reason ever
+ * given is in the decision log, which holds every call ever made and is never
+ * shortened. The row is the current state; the log is the history.
  *
  * The gate does not compare meanings. It has no notion of two memories being
  * about the same topic, it never decides on its own that one memory updates
@@ -321,8 +324,18 @@ export function restore(store, { owner, id }) {
       // that another writer has already changed.
       const replacedBy = memory.superseded_by;
 
-      // state_reason is left alone on purpose. It says why this memory was put
-      // away, which stays true and stays worth knowing after it comes back.
+      // state_reason is cleared, because it says why this memory is put away
+      // and it is not put away any more. Leaving it left an active memory
+      // carrying "not interested any more", which is simply not true of a
+      // memory being shown.
+      //
+      // It used to be kept, on the grounds that the row was the only place
+      // anyone could read that sentence. That was wrong: `forget` writes the
+      // reason to the decision log, the log holds every call ever made, and
+      // nothing shortens it. So the sentence is still there to be read, under
+      // the date it was given, along with every other reason this memory was
+      // ever put away. The row keeps the current state of things; the log
+      // keeps the history.
       actions.bringBack({
         owner,
         id,

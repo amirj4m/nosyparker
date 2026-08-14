@@ -363,7 +363,7 @@ function actionsFor(db) {
     bringBack({ owner, id, at, wasInState, wasSupersededBy }) {
       change(
         `UPDATE memories
-            SET state = 'active', state_at = ?, superseded_by = NULL
+            SET state = 'active', state_reason = NULL, state_at = ?, superseded_by = NULL
           WHERE id = ? AND owner = ? AND state = ? AND superseded_by IS ?`,
         [at, id, owner, wasInState, wasSupersededBy],
         `restore memory ${id}`,

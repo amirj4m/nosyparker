@@ -152,26 +152,29 @@ test('no memory is left giving a reason that names the purged one', (t) => {
     assert.equal(getMemory(store, CLI_OWNER, 3, archived)?.state_reason, 'I eat fish again');
   });
 
-  // Restore still leaves state_reason alone, on purpose. The point is that
-  // what it leaves alone is now true.
+  // Bringing it back clears the reason outright, so there is nothing left for
+  // a later purge to be wrong about either.
   run(['restore', '1']);
   read((store) => {
-    const reason = /** @type {string} */ (getMemory(store, CLI_OWNER, 1)?.state_reason);
-    assert.equal(reason.includes('memory 2'), false, 'the false sentence outlived the restore');
+    assert.equal(getMemory(store, CLI_OWNER, 1)?.state_reason, null);
   });
 
-  // And in the other order, where restoring first clears the pointer and keeps
-  // the reason, so there is no link left to find the row by.
+  // The case that decides how this is matched. A memory that was replaced and
+  // then forgotten still points at its replacement, but its reason is the
+  // person's own words. Purging the replacement must leave those words alone,
+  // which matching on superseded_by would not have done.
   run(['add', 'I take the bus']); // 4
   run(['add', 'I cycle to work', '--replaces', '4']); // 5
-  run(['restore', '4']);
+  run(['forget', '4', 'I sold the bike']);
 
   assert.equal(purge(['--id', '5', '--yes']).code, 0);
 
   read((store) => {
-    const reason = /** @type {string} */ (getMemory(store, CLI_OWNER, 4, archived)?.state_reason);
-    assert.equal(reason.includes('memory 5'), false, 'a cleared pointer left the sentence behind');
-    assert.match(reason, /has since been purged/u);
+    assert.equal(
+      getMemory(store, CLI_OWNER, 4, archived)?.state_reason,
+      'I sold the bike',
+      'a purge painted over a reason somebody wrote',
+    );
   });
 });
 
