@@ -157,6 +157,43 @@ test('two character words are findable, which is most of Chinese and Japanese', 
   }
 });
 
+test('a short query ignores case in every alphabet that has case', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const sentences = {
+    swedish: 'jag köper ölm på fredagar',
+    greek: 'μου αρέσει ο καφές το πρωί',
+    cyrillic: 'я живу в Москве уже три года',
+    armenian: 'ես սիրում եմ գիրք կարդալ',
+    accented: 'je préfère les réunions courtes',
+  };
+
+  for (const sentence of Object.values(sentences)) {
+    submit(store, { owner: OWNER, text: sentence });
+  }
+
+  /** @type {[string, string][]} */
+  const cases = [
+    ['öl', sentences.swedish],
+    ['ÖL', sentences.swedish],
+    ['κα', sentences.greek],
+    ['ΚΑ', sentences.greek],
+    ['мо', sentences.cyrillic],
+    ['МО', sentences.cyrillic],
+    ['սի', sentences.armenian],
+    ['ՍԻ', sentences.armenian],
+    ['ré', sentences.accented],
+    ['RÉ', sentences.accented],
+  ];
+
+  for (const [query, expected] of cases) {
+    const found = searchMemories(store, OWNER, query);
+    assert.equal(found.length, 1, `no match for ${query}`);
+    assert.equal(found[0].text, expected);
+  }
+});
+
 test('short and long words can be mixed in one query', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());

@@ -25,6 +25,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
+import { normaliseForComparison } from './text.js';
+
 /** The three states a memory can be in. `active` is the showcase. */
 export const STATES = /** @type {const} */ (['active', 'superseded', 'forgotten']);
 
@@ -508,14 +510,14 @@ export function searchMemories(store, owner, query, options = {}) {
 /**
  * The path for queries the trigram index cannot answer.
  *
- * Uses `instr` rather than `LIKE`, which settles the wildcard question by not
- * having any: to `instr`, `%` and `_` are two ordinary characters that a
- * person might well have in a memory, and they are looked for as themselves.
+ * Matching is on plain substrings, so `%` and `_` are two ordinary characters
+ * that a person might well have in a memory and are looked for as themselves.
  *
- * `lower` in SQLite only folds the ASCII letters. That is the one way this
- * differs from the trigram path, and it costs nothing in the scripts that
- * needed this fallback in the first place, since none of them have letter case
- * at all.
+ * Case is folded in JavaScript rather than in SQL. SQLite's `lower` only folds
+ * the twenty six ASCII letters, so with it `ÖL` found nothing while `öl` found
+ * plenty, and the same was true of Greek, Cyrillic, Armenian and every
+ * accented Latin letter. Plenty of those words are one or two characters long,
+ * which is exactly the case this path exists to serve.
  *
  * @param {Store} store
  * @param {string} owner
@@ -524,19 +526,19 @@ export function searchMemories(store, owner, query, options = {}) {
  * @returns {Memory[]}
  */
 function searchBySubstring(store, owner, terms, includeArchived) {
-  const conditions = terms.map(() => 'instr(lower(text), lower(?)) > 0').join(' AND ');
+  const sql = includeArchived
+    ? 'SELECT * FROM memories WHERE owner = ? ORDER BY id'
+    : "SELECT * FROM memories WHERE owner = ? AND state = 'active' ORDER BY id";
 
-  const sql = `
-    SELECT *
-      FROM memories
-     WHERE owner = ?
-       ${includeArchived ? '' : "AND state = 'active'"}
-       AND ${conditions}
-     ORDER BY id`;
-
-  return /** @type {Memory[]} */ (
-    /** @type {unknown} */ (handleOf(store).db.prepare(sql).all(owner, ...terms))
+  const rows = /** @type {Memory[]} */ (
+    /** @type {unknown} */ (handleOf(store).db.prepare(sql).all(owner))
   );
+
+  const wanted = terms.map((term) => normaliseForComparison(term));
+  return rows.filter((memory) => {
+    const haystack = normaliseForComparison(memory.text);
+    return wanted.every((term) => haystack.includes(term));
+  });
 }
 
 /**
