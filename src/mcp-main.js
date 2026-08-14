@@ -42,11 +42,56 @@ const { version } = JSON.parse(
   fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
 );
 
+/**
+ * What the agent is told once, when it connects.
+ *
+ * This and the six tool descriptions are the only influence available. MCP is
+ * pull-only: nothing here can make an agent look something up before it
+ * answers or write something down after it learns it, and there is no hook
+ * that fires on either. The difference between this and a description is
+ * scope. A description is read when an agent is already considering that one
+ * tool; this is read before it is considering anything, and it is the only
+ * place to say what is true of all six at once.
+ *
+ * So it says the things no single tool can: that the memory is shared with
+ * agents this one will never meet, that being uninformed is the normal state
+ * here rather than a sign there is nothing to find, and that a refused
+ * credential is the design working. What each tool does is left to each tool.
+ *
+ * It is short because a model reads it on every connection, and because a page
+ * of instruction is read as boilerplate and skimmed. Everything in it has to
+ * be true of what is built today; there is nothing here about later phases,
+ * and if a claim in it ever stops being true it is a bug in the same way a
+ * wrong sentence in a refusal is.
+ *
+ * Whether a client shows this to the model at all is the client's decision and
+ * not ours. Some inject it, some ignore it. It is worth writing well anyway,
+ * and it is not worth relying on.
+ */
+const INSTRUCTIONS = [
+  'nosyparker is where the person using this machine keeps what they want agents',
+  'to know about them. It is one file on their computer, and it is shared: other',
+  'agents, in other sessions and other tools, read and write the same memories.',
+  'What you store will be read by an agent you never meet, and what you read may',
+  'have been written by one.',
+  '',
+  'Check it before answering anything about them — their situation, their',
+  'preferences, their plans, what they have already decided. You are one of',
+  'several agents here and not necessarily the one they told. When you learn',
+  'something about them that will still be true next week, store it, and say',
+  'briefly that you did; they cannot see this memory while they are talking to',
+  'you.',
+  '',
+  'Credentials are refused by design. Anything shaped like a key, a password or a',
+  'card number is not stored and is not written down anywhere, and that is the',
+  'intended behaviour rather than a failure to work around.',
+].join('\n');
+
 const store = openStore({ file: defaultStorePath(), now: systemClock });
 
 const server = new Server(
   { name: 'nosyparker', version },
-  { capabilities: { tools: {} } },
+  { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
 );
 
 server.setRequestHandler(ListToolsRequestSchema, () => ({

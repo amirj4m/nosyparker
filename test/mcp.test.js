@@ -84,6 +84,22 @@ test('remember with replaces retires the old memory and keeps it in the file', a
   assert.match(await say(agent, 'why', {}), /superseded \(replaces\)/u);
 });
 
+test('the agent is told what this is when it connects', async (t) => {
+  const agent = await connect(t, freshStoreFile(t));
+
+  const instructions = agent.getInstructions() ?? '';
+
+  assert.notEqual(instructions, '', 'the server should introduce itself');
+
+  // Short on purpose. A model reads this on every connection, and a page of
+  // instruction is skimmed as boilerplate. The cap is loose; it is here to
+  // catch this growing into a policy document, not to police a sentence.
+  assert.ok(
+    instructions.length < 1200,
+    `the introduction is ${instructions.length} characters, which is too long to be read`,
+  );
+});
+
 test('what an agent puts away, an agent can bring back', async (t) => {
   const agent = await connect(t, freshStoreFile(t));
 
