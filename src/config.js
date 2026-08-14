@@ -1,5 +1,6 @@
 /**
- * The only module that knows where the file lives and what time it is.
+ * The only module that knows where the file lives, what time it is, and whose
+ * memories these are.
  *
  * Everything else takes the store path and the clock as arguments. That is
  * what lets the tests point at a temporary file and hand out a fixed time
@@ -8,6 +9,21 @@
 
 import os from 'node:os';
 import path from 'node:path';
+
+/**
+ * The one person on this machine.
+ *
+ * The store takes an owner on every call, and there are now two ways in: the
+ * command line tool and the MCP server. Both are that same person sitting at
+ * that same laptop, so both have to pass the same word, or the memories stored
+ * through one would be invisible to the other and neither would say why. It is
+ * written down once here rather than spelled out in each entry point, for the
+ * same reason SCHEMA_VERSION is exported rather than copied.
+ *
+ * This is not identity and it is not a login. There is one person and there is
+ * no second one to tell them apart from.
+ */
+export const LOCAL_OWNER = 'local';
 
 /** Folder name used under the user's home directory. */
 const STORE_DIR_NAME = '.nosyparker';

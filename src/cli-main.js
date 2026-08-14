@@ -8,12 +8,9 @@
  * the only difference is the warning.
  */
 
-import { defaultStorePath, systemClock } from './config.js';
+import { defaultStorePath, LOCAL_OWNER, systemClock } from './config.js';
 import { forget, restore, submit } from './gate.js';
 import { listDecisions, listMemories, openStore, searchMemories } from './store.js';
-
-/** Phase 1 is one person on one machine, so there is one owner. */
-const LOCAL_OWNER = 'local';
 
 main(process.argv.slice(2));
 
