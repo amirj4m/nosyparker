@@ -281,6 +281,48 @@ test('a store older than this code is refused at the door, not on the first writ
   );
 });
 
+test('a store newer than this code is refused too, and says so differently', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-schema-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'memory.sqlite');
+
+  // A perfectly ordinary store, stamped by a version of nosyparker that does
+  // not exist yet. This is what a Phase 2 file looks like to Phase 1 code.
+  const made = openStore({ file, now: () => '2026-01-01T00:00:00.000Z' });
+  submit(made, { owner: OWNER, text: 'written by a later version' });
+  made.close();
+
+  const ahead = new DatabaseSync(file);
+  ahead.exec('PRAGMA user_version = 99');
+  ahead.close();
+
+  assert.throws(
+    () => openStore({ file, now: () => '2026-01-01T00:00:00.000Z' }),
+    (error) => {
+      const message = /** @type {Error} */ (error).message;
+      assert.match(message, /newer version of nosyparker/u);
+      assert.ok(message.includes(file), 'the message should name the file');
+
+      // The two are different problems and the advice for one is wrong for the
+      // other: telling somebody to put this file aside and start again would
+      // throw away the memories the newer version wrote.
+      assert.equal(/older version/u.test(message), false, 'that is the other case');
+      assert.equal(/move the file aside/u.test(message), false);
+      return true;
+    },
+  );
+
+  // Refused, not quietly emptied: the memory it already held is still there.
+  const after = new DatabaseSync(file);
+  t.after(() => after.close());
+  assert.equal(
+    /** @type {{count: number}} */ (
+      /** @type {unknown} */ (after.prepare('SELECT COUNT(*) AS count FROM memories').get())
+    ).count,
+    1,
+  );
+});
+
 test('a closed store cannot be used again', (t) => {
   const store = temporaryStore();
   submit(store, { owner: OWNER, text: 'something to keep' });

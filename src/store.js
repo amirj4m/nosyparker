@@ -40,8 +40,9 @@ const MIN_SEARCH_LENGTH = 3;
  * therefore opened without complaint, read without complaint, and then failed
  * on the first write with `no such column: text_normalised`, which names a
  * column the person has never heard of and points at no file. The number below
- * is written into new stores and checked when an old one is opened, so that
- * the failure happens at the door and in a sentence.
+ * is written into new stores and checked whenever an existing one is opened,
+ * in either direction, so that the failure happens at the door and in a
+ * sentence.
  */
 const SCHEMA_VERSION = 1;
 
@@ -211,7 +212,7 @@ export function openStore({ file, now }) {
 }
 
 /**
- * Put the tables in a new file, or refuse a file older than this code.
+ * Put the tables in a new file, or refuse one this code does not match.
  *
  * There is no migration here and there is deliberately no place to put one.
  * Failing at the door, naming the file, is the whole of what this does.
@@ -252,6 +253,17 @@ function prepareSchema(db, file) {
           'this code writes to, so it has not been opened and nothing in it has been changed. ' +
           'There is no upgrade: move the file aside and start a new store, or go back to the ' +
           'version that wrote it.',
+      );
+    } else if (version > SCHEMA_VERSION) {
+      // The same failure from the other side, and a different problem to be
+      // in: the file is fine and this copy of the program is the old one. Said
+      // separately, because "move the file aside" would be exactly the wrong
+      // advice here. It is the newer memories that would be lost.
+      throw new Error(
+        `${file} was written by a newer version of nosyparker: it is at schema version ` +
+          `${version} and this code only knows ${SCHEMA_VERSION}. It has been left alone rather ` +
+          'than written to by code that does not know its shape. Update nosyparker and open it ' +
+          'again; the file itself is fine and nothing in it has been changed.',
       );
     }
 
