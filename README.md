@@ -47,16 +47,18 @@ it somewhere else.
 ## Commands
 
 ```
-nosyparker add "<text>"              store a sentence
-nosyparker search "<query>"          find stored sentences
-nosyparker list                      show what is currently stored
-nosyparker log                       show every decision ever made
-nosyparker forget <id> "<reason>"    stop showing a memory, keep the record
-nosyparker restore <id>              show it again
+nosyparker add "<text>"                    store a sentence
+nosyparker add "<text>" --replaces <id>    store it in place of an old one
+nosyparker search "<query>"                find stored sentences
+nosyparker list                            show what is currently stored
+nosyparker log                             show every decision ever made
+nosyparker forget <id> "<reason>"          stop showing a memory, keep the record
+nosyparker restore <id>                    show it again
 ```
 
-`add` takes an optional `--replaces <id>` if the new sentence replaces an old
-one.
+`--replaces` names the memory the new sentence takes over from. That memory is
+retired rather than removed: it stops being shown, stays in the file, and can
+be brought back with `restore`.
 
 `list` and `search` show what is currently stored. Memories you have forgotten,
 and ones that were replaced, are not shown by either. They are still in the
