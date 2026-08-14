@@ -1,0 +1,334 @@
+/**
+ * The MCP server, exercised the way an agent uses it: over stdio, through a
+ * real client, against a real server process.
+ *
+ * Nothing here calls a function in `src/tools.js` directly. A test that did
+ * would pass with the server unable to start, the tools unlisted, or the
+ * schemas malformed, and would say nothing about whether an agent can use any
+ * of this. So every one of these speaks the protocol.
+ */
+
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+
+const SERVER = path.join(import.meta.dirname, '..', 'src', 'mcp-server.js');
+
+/** Invented, and assembled here so this file does not itself hold a key. */
+const SECRET = ['AKIA', 'QQQZZZTESTKEY999'].join('');
+
+test('the server lists exactly the five tools, each with something to read', async (t) => {
+  const agent = await connect(t, freshStoreFile(t));
+
+  const { tools } = await agent.listTools();
+
+  assert.deepEqual(
+    tools.map((tool) => tool.name),
+    ['remember', 'recall', 'forget', 'list', 'why'],
+  );
+
+  for (const tool of tools) {
+    // A tool an agent cannot tell when to use is a tool it will not use, so
+    // the description is part of the product rather than documentation.
+    assert.ok(
+      (tool.description ?? '').length > 200,
+      `${tool.name} needs a description that says when to reach for it`,
+    );
+    assert.equal(tool.inputSchema.type, 'object');
+  }
+
+  // restore is a live question and is deliberately not here.
+  assert.equal(tools.some((tool) => tool.name === 'restore'), false);
+});
+
+test('remember, recall, list, forget and why, one after another', async (t) => {
+  const agent = await connect(t, freshStoreFile(t));
+
+  assert.match(await say(agent, 'remember', { text: 'I prefer short sentences' }), /Stored\./u);
+  assert.match(await say(agent, 'remember', { text: '我住在柏林' }), /Stored\./u);
+
+  const listed = await say(agent, 'list', {});
+  assert.match(listed, /^1\. I prefer short sentences$/mu);
+  assert.match(listed, /^2\. 我住在柏林$/mu);
+
+  assert.match(await say(agent, 'recall', { query: 'short sentences' }), /1 match/u);
+  assert.match(await say(agent, 'recall', { query: '柏林' }), /我住在柏林/u);
+  assert.match(await say(agent, 'recall', { query: 'pineapple' }), /Nothing matched/u);
+
+  const forgotten = await say(agent, 'forget', { id: 1, reason: 'I like long ones now' });
+  assert.match(forgotten, /will not be shown any more/u);
+  assert.equal((await say(agent, 'list', {})).includes('short sentences'), false);
+  assert.match(await say(agent, 'recall', { query: 'short sentences' }), /Nothing matched/u);
+
+  // What was put away is read back from the log, which is what `why` is for.
+  const log = await say(agent, 'why', {});
+  assert.match(log, /forgotten \(forget\)/u);
+  assert.match(log, /text: I like long ones now/u);
+});
+
+test('remember with replaces retires the old memory and keeps it in the file', async (t) => {
+  const agent = await connect(t, freshStoreFile(t));
+
+  await say(agent, 'remember', { text: 'I live in Tehran' });
+  const replaced = await say(agent, 'remember', { text: 'I live in Berlin', replaces: 1 });
+
+  assert.match(replaced, /memory 1 was retired in its favour/u);
+  assert.match(replaced, /still in the file/u);
+
+  const listed = await say(agent, 'list', {});
+  assert.match(listed, /^2\. I live in Berlin$/mu);
+  assert.equal(listed.includes('Tehran'), false, 'the retired one is not shown');
+
+  assert.match(await say(agent, 'why', {}), /superseded \(replaces\)/u);
+});
+
+test('an empty store says so rather than answering with nothing', async (t) => {
+  const agent = await connect(t, freshStoreFile(t));
+
+  assert.equal(await say(agent, 'list', {}), 'Nothing stored yet.');
+  assert.equal(await say(agent, 'why', {}), 'Nothing has happened yet.');
+});
+
+test('a credential offered through remember reaches neither the store nor the log', async (t) => {
+  const file = freshStoreFile(t);
+  const agent = await connect(t, file);
+
+  // Ordinary memories first, so the byte scan below is looking through a file
+  // with real content in it.
+  await say(agent, 'remember', { text: 'I prefer meetings before noon' });
+
+  const refused = await say(agent, 'remember', { text: `my aws key is ${SECRET}` });
+  assert.match(refused, /looks like an AWS access key/u);
+  assert.match(refused, /memory, not a secret store/u);
+
+  // A refusal is an answer, not a failure. Told otherwise, an agent tries
+  // again in a different shape, which is the one thing this rule exists to
+  // stop.
+  const raw = await agent.callTool({
+    name: 'remember',
+    arguments: { text: `my aws key is ${SECRET}` },
+  });
+  assert.notEqual(raw.isError, true, 'a refusal must not read as a failed call');
+
+  // The refusal is in the log, and what was refused is not.
+  const log = await say(agent, 'why', {});
+  assert.match(log, /refused \(credential\)/u);
+  assert.match(log, /\[not recorded: recognised as an AWS access key\]/u);
+  assert.equal(log.includes(SECRET), false);
+
+  // The bytes are the proof. Asking the database would only show that no row
+  // has it; this shows it was never written.
+  //
+  // Read with the server still up, on purpose. Closing the store checkpoints
+  // the write ahead log and takes the file away, so a scan afterwards would be
+  // looking at whatever survived the tidying rather than at everything that
+  // was ever written.
+  const database = fs.readFileSync(file);
+  const wal = fs.readFileSync(`${file}-wal`);
+
+  assert.ok(
+    contains(database, 'I prefer meetings before noon') ||
+      contains(wal, 'I prefer meetings before noon'),
+    'a stored memory should be findable in the bytes, or this scan proves nothing',
+  );
+  assert.equal(contains(database, SECRET), false, 'the key reached the database file');
+  assert.equal(contains(wal, SECRET), false, 'the key reached the write ahead log');
+});
+
+test('every refusal writes its row, whatever it was refused for', async (t) => {
+  const agent = await connect(t, freshStoreFile(t));
+
+  await say(agent, 'remember', { text: 'I prefer short sentences' });
+
+  await say(agent, 'remember', { text: 'I prefer short sentences' });
+  await say(agent, 'remember', { text: '   ' });
+  await say(agent, 'remember', { text: SECRET });
+  await say(agent, 'remember', { text: 'something new', replaces: 404 });
+  await say(agent, 'forget', { id: 404, reason: 'not there' });
+
+  const log = await say(agent, 'why', {});
+  for (const rule of [
+    'stored (keep)',
+    'refused (already-stored)',
+    'refused (empty)',
+    'refused (credential)',
+    'refused (replaces-unknown)',
+    'refused (forget-unknown)',
+  ]) {
+    assert.ok(log.includes(rule), `${rule} should be in the log`);
+  }
+
+  // Six calls, six entries, in the order they were made.
+  assert.equal(log.split('\n\n').length, 6);
+});
+
+test('a malformed call is answered with a sentence and the server carries on', async (t) => {
+  const agent = await connect(t, freshStoreFile(t));
+
+  await say(agent, 'remember', { text: 'I live in Berlin' });
+
+  /**
+   * Each of these is a way a client can get a call wrong.
+   *
+   * @type {[string, Record<string, unknown>, RegExp][]}
+   */
+  const wrong = [
+    ['remember', {}, /"text" has to be text/u],
+    ['remember', { text: 5 }, /this call gave 5/u],
+    ['remember', { text: 'fine', replaces: 'one' }, /has to be the id of a memory/u],
+    ['remember', { text: 'fine', replaces: 0 }, /whole number above zero/u],
+    ['remember', { text: 'fine', replaces: 1.5 }, /whole number above zero/u],
+    ['forget', { id: 1 }, /"reason" has to be text/u],
+    ['forget', { id: 1, reason: '   ' }, /No reason was given/u],
+    ['forget', { id: null, reason: 'why not' }, /this call gave null/u],
+    ['recall', {}, /"query" has to be text/u],
+    ['recall', { query: ['a'] }, /this call gave a list/u],
+    ['list', { limit: 3 }, /does not take an argument called "limit"/u],
+    ['why', { since: 'yesterday' }, /takes no arguments at all/u],
+    ['remember', { text: 'fine', colour: 'blue' }, /does not take an argument called "colour"/u],
+    ['sing', {}, /no tool called "sing"/u],
+  ];
+
+  for (const [name, args, expected] of wrong) {
+    const answer = await agent.callTool({ name, arguments: args });
+    assert.match(text(answer), expected, `${name} ${JSON.stringify(args)}`);
+  }
+
+  // Nothing was stored by any of them, and the server is still answering.
+  assert.equal(await say(agent, 'list', {}), '1. I live in Berlin');
+  assert.match(await say(agent, 'remember', { text: 'still working' }), /Stored\./u);
+
+  // A refused call is not a decision, so none of the above is in the log.
+  assert.equal(await say(agent, 'why', {}).then((log) => log.split('\n\n').length), 2);
+});
+
+test('a wrong id is a sentence rather than a crash, and changes nothing', async (t) => {
+  const agent = await connect(t, freshStoreFile(t));
+
+  await say(agent, 'remember', { text: 'I live in Berlin' });
+
+  assert.match(
+    await say(agent, 'forget', { id: 99, reason: 'no such thing' }),
+    /no memory 99 belonging to you/u,
+  );
+  assert.match(
+    await say(agent, 'remember', { text: 'I live in Lisbon', replaces: 99 }),
+    /memory 99 is not one of your active memories/u,
+  );
+
+  assert.equal(await say(agent, 'list', {}), '1. I live in Berlin');
+});
+
+test('two agents on the same store read each other, in both directions', async (t) => {
+  // The whole point of the product: one memory on the machine, not one per
+  // agent. Two separate server processes, two clients, one file.
+  const file = freshStoreFile(t);
+  const first = await connect(t, file);
+  const second = await connect(t, file);
+
+  await say(first, 'remember', { text: 'I prefer to be written to in short sentences' });
+
+  assert.match(
+    await say(second, 'list', {}),
+    /^1\. I prefer to be written to in short sentences$/mu,
+    'the second agent should see what the first one stored',
+  );
+  assert.match(await say(second, 'recall', { query: 'short sentences' }), /1 match/u);
+
+  // And back the other way, so this is not one process happening to be ahead.
+  await say(second, 'remember', { text: 'I live in Berlin' });
+  assert.match(await say(first, 'list', {}), /^2\. I live in Berlin$/mu);
+
+  // The second agent offering what the first one already stored is refused by
+  // the rule that has to see across both of them.
+  assert.match(
+    await say(second, 'remember', { text: 'I prefer to be written to in short sentences' }),
+    /already stored as memory 1/u,
+  );
+
+  // One log, holding what both of them did.
+  const log = await say(first, 'why', {});
+  assert.equal(log.split('\n\n').length, 3);
+
+  // What one agent puts away is put away for the other one too.
+  await say(first, 'forget', { id: 2, reason: 'I moved' });
+  assert.equal((await say(second, 'list', {})).includes('Berlin'), false);
+});
+
+/**
+ * Start a server on its own process and connect a client to it.
+ *
+ * @param {import('node:test').TestContext} t
+ * @param {string} file the store both ends should use
+ * @returns {Promise<Client>}
+ */
+async function connect(t, file) {
+  const client = new Client({ name: 'nosyparker-test', version: '0' });
+
+  await client.connect(
+    new StdioClientTransport({
+      command: process.execPath,
+      args: [SERVER],
+      env: { ...process.env, NOSYPARKER_STORE: file },
+    }),
+  );
+
+  // Closing the client stops the server process it started, so no test leaves
+  // one behind holding the file.
+  t.after(() => client.close());
+  return client;
+}
+
+/**
+ * Call a tool and hand back what a person would be shown.
+ *
+ * @param {Client} client
+ * @param {string} name
+ * @param {Record<string, unknown>} args
+ * @returns {Promise<string>}
+ */
+async function say(client, name, args) {
+  return text(await client.callTool({ name, arguments: args }));
+}
+
+/**
+ * @param {Awaited<ReturnType<Client['callTool']>>} result
+ * @returns {string}
+ */
+function text(result) {
+  const content = /** @type {{type: string, text?: string}[]} */ (result.content);
+  return content.map((part) => part.text ?? '').join('\n');
+}
+
+/**
+ * A store file of its own, in a folder that is cleaned up afterwards.
+ *
+ * @param {import('node:test').TestContext} t
+ * @returns {string}
+ */
+function freshStoreFile(t) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-mcp-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  return path.join(dir, 'memory.sqlite');
+}
+
+/**
+ * Is this text anywhere in these bytes, in any of the encodings SQLite stores
+ * text in?
+ *
+ * @param {Buffer} bytes
+ * @param {string} value
+ * @returns {boolean}
+ */
+function contains(bytes, value) {
+  return (
+    bytes.includes(Buffer.from(value, 'utf8')) ||
+    bytes.includes(Buffer.from(value, 'utf16le')) ||
+    bytes.includes(Buffer.from(value, 'latin1'))
+  );
+}
