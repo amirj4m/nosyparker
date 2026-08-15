@@ -125,6 +125,26 @@ server.setRequestHandler(CallToolRequestSchema, (request) => {
   }
 });
 
+// A fault on the connection itself, rather than in a tool call. The tools
+// answer their own failures in a sentence; this is for the ones that happen
+// underneath them, where there is no request left to reply to.
+//
+// The one that matters is an oversized message. The transport reads at most
+// ten megabytes into a single message and throws when a sender goes past it,
+// and it then closes, which is the right thing: a discarded partial buffer
+// leaves the stream out of step, and there is no way to know where the next
+// message begins. But it closed without a word, so a request too large simply
+// ended the session and left whoever sent it to guess. Said here, on stderr —
+// never stdout, which belongs to the protocol — it lands in the client's log
+// where somebody debugging a dropped connection will actually find it.
+//
+// The tools refuse anything over ten thousand characters long before this, so
+// nothing an agent sends in good faith reaches it.
+server.onerror = (/** @type {unknown} */ error) => {
+  const message = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`nosyparker: the connection failed and is closing: ${message}\n`);
+};
+
 // The store holds a file handle and a write ahead log, and this process is one
 // of several against the same file. Closing it when the client goes away is
 // the difference between letting go tidily and being killed holding it.
