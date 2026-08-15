@@ -14,6 +14,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { execFileSync } from 'node:child_process';
+
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
@@ -263,6 +265,95 @@ test('a malformed call is answered with a sentence and the server carries on', a
   assert.equal(await say(agent, 'why', {}).then((log) => log.split('\n\n').length), 2);
 });
 
+test('a query far too long to be a search is refused, and nothing is allocated for it', async (t) => {
+  const agent = await connect(t, freshStoreFile(t));
+  const pid = /** @type {number} */ (serverPids.get(agent));
+
+  // A memory of one repeated character indexes as thousands of identical
+  // trigrams. That is the other half of the bug: it is what a long query
+  // matches against, and the position lists for the match are what SQLite
+  // built ten gigabytes of.
+  await say(agent, 'remember', { text: 'x'.repeat(9000) });
+
+  const settled = residentMB(pid);
+  const watch = watchResident(pid, settled + 400);
+  t.after(() => watch.stop());
+
+  // The exact call that killed the machine: a one megabyte query.
+  const answer = await say(agent, 'recall', { query: 'x'.repeat(1_000_000) });
+  watch.stop();
+
+  assert.match(answer, /longer than this takes/u);
+  assert.match(answer, /limit is 1000 characters/u);
+
+  assert.ok(
+    watch.peak() < settled + 400,
+    `the server grew from ${settled.toFixed(0)} MB to ${watch.peak().toFixed(0)} MB answering it`,
+  );
+
+  // Two hundred thousand terms is the same bound from the other direction: it
+  // used to hold a core for over a minute.
+  const many = await say(agent, 'recall', { query: Array(200_000).fill('abcd').join(' ') });
+  assert.match(many, /longer than this takes/u);
+
+  // And an ordinary search of the same store still works.
+  assert.match(await say(agent, 'recall', { query: 'xxx' }), /1 match/u);
+});
+
+test('text and reasons are bounded, at the character rather than near it', async (t) => {
+  const agent = await connect(t, freshStoreFile(t));
+
+  assert.match(await say(agent, 'remember', { text: 'a'.repeat(10_000) }), /Stored\./u);
+  assert.match(
+    await say(agent, 'remember', { text: 'b'.repeat(10_001) }),
+    /limit is 10000 characters/u,
+  );
+  assert.match(
+    await say(agent, 'forget', { id: 1, reason: 'c'.repeat(10_001) }),
+    /limit is 10000 characters/u,
+  );
+  assert.match(await say(agent, 'recall', { query: 'd'.repeat(1000) }), /Nothing matched/u);
+  assert.match(await say(agent, 'recall', { query: 'd'.repeat(1001) }), /limit is 1000 characters/u);
+
+  // Refused before the gate, so none of them is a decision.
+  assert.equal((await say(agent, 'why', {})).split('\n\n').length, 1);
+
+  // Memory 1 was not put away by the refused reason.
+  assert.match(await say(agent, 'list', {}), /^1\. a{10}/mu);
+});
+
+test('a message too large for the connection says so instead of dying quietly', async (t) => {
+  // Past the transport's own ten megabyte limit. It closes rather than trying
+  // to resynchronise a stream it has thrown part of away, which is right —
+  // but it used to close without a word, and a session that simply ends is
+  // the hardest kind of failure to diagnose.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-mcp-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [SERVER],
+    env: { ...process.env, NOSYPARKER_STORE: path.join(dir, 'memory.sqlite') },
+    stderr: 'pipe',
+  });
+  const client = new Client({ name: 'nosyparker-test', version: '0' });
+  await client.connect(transport);
+  t.after(() => client.close());
+
+  let said = '';
+  transport.stderr?.on('data', (chunk) => {
+    said += String(chunk);
+  });
+
+  await assert.rejects(() =>
+    client.callTool({ name: 'remember', arguments: { text: 'y'.repeat(20_000_000) } }),
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  assert.match(said, /nosyparker: the connection failed/u);
+  assert.match(said, /ReadBuffer exceeded maximum size/u);
+});
+
 test('a wrong id is a sentence rather than a crash, and changes nothing', async (t) => {
   const agent = await connect(t, freshStoreFile(t));
 
@@ -325,6 +416,13 @@ test('two agents on the same store read each other, in both directions', async (
 });
 
 /**
+ * Which process each client started, so a test can watch how big it gets.
+ *
+ * @type {WeakMap<Client, number>}
+ */
+const serverPids = new WeakMap();
+
+/**
  * Start a server on its own process and connect a client to it.
  *
  * @param {import('node:test').TestContext} t
@@ -333,19 +431,77 @@ test('two agents on the same store read each other, in both directions', async (
  */
 async function connect(t, file) {
   const client = new Client({ name: 'nosyparker-test', version: '0' });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [SERVER],
+    env: { ...process.env, NOSYPARKER_STORE: file },
+  });
 
-  await client.connect(
-    new StdioClientTransport({
-      command: process.execPath,
-      args: [SERVER],
-      env: { ...process.env, NOSYPARKER_STORE: file },
-    }),
-  );
+  await client.connect(transport);
+  if (transport.pid !== null) serverPids.set(client, transport.pid);
 
   // Closing the client stops the server process it started, so no test leaves
   // one behind holding the file.
   t.after(() => client.close());
   return client;
+}
+
+/**
+ * How much memory a process is holding, in megabytes.
+ *
+ * Asked of `ps` rather than of `/proc`, which does not exist everywhere. The
+ * number is resident set size, which is what the kernel counts when it decides
+ * what to kill, and it includes what SQLite allocates outside the JavaScript
+ * heap — which is the whole point here, because that is where the memory this
+ * guards against actually went.
+ *
+ * @param {number} pid
+ * @returns {number}
+ */
+function residentMB(pid) {
+  const out = execFileSync('ps', ['-o', 'rss=', '-p', String(pid)], { encoding: 'utf8' });
+  return Number(out.trim()) / 1024;
+}
+
+/**
+ * Watch a process and kill it if it goes past a limit.
+ *
+ * The killing is not incidental, it is the point. A test that merely measured
+ * afterwards would, on the day somebody removes the bound being tested, sit
+ * there while the server took ten gigabytes and the machine went down around
+ * it — which is exactly what this is here to stop happening again. So the
+ * ceiling is enforced while the call is in flight, and the test then asserts
+ * against the peak.
+ *
+ * @param {number} pid
+ * @param {number} limitMB
+ * @returns {{peak: () => number, stop: () => void}}
+ */
+function watchResident(pid, limitMB) {
+  let peak = 0;
+
+  const timer = setInterval(() => {
+    let rss;
+    try {
+      rss = residentMB(pid);
+    } catch {
+      return; // gone, which is somebody else's business
+    }
+    if (rss > peak) peak = rss;
+    if (rss > limitMB) {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        // already gone
+      }
+      clearInterval(timer);
+    }
+  }, 20);
+
+  return {
+    peak: () => peak,
+    stop: () => clearInterval(timer),
+  };
 }
 
 /**

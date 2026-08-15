@@ -87,7 +87,13 @@ export const TOOLS = [
 
       // Blank text is not checked here. The gate refuses it, and refusing it
       // here instead would be a decision taken with nothing written down.
-      const text = readText(args, 'text', 'the fact to store');
+      const text = readText(
+        args,
+        'text',
+        'the fact to store',
+        TEXT_LIMIT,
+        'A memory is one fact about the person, not a document. Store the fact.',
+      );
       const replaces = args.replaces === undefined ? null : readId(args, 'replaces');
 
       return outcome(submit(store, { owner, text, replaces }));
@@ -123,7 +129,13 @@ export const TOOLS = [
     run(store, owner, args) {
       only(args, ['query']);
 
-      const query = readText(args, 'query', 'what to look for');
+      const query = readText(
+        args,
+        'query',
+        'what to look for',
+        QUERY_LIMIT,
+        'Search for the words that matter rather than for a whole document.',
+      );
       if (isBlank(query)) {
         return 'There was nothing to look for. Say what to search for.';
       }
@@ -172,7 +184,13 @@ export const TOOLS = [
       only(args, ['id', 'reason']);
 
       const id = readId(args, 'id');
-      const reason = readText(args, 'reason', 'why it should stop being shown');
+      const reason = readText(
+        args,
+        'reason',
+        'why it should stop being shown',
+        TEXT_LIMIT,
+        'A reason is a sentence the person would recognise, not a document.',
+      );
 
       // A memory put away for no stated reason is a memory nobody can judge
       // later. The gate has nothing to say about a blank reason, so this is
@@ -338,12 +356,47 @@ function only(args, allowed) {
 }
 
 /**
+ * The longest search query this server will run.
+ *
+ * This is the bound that matters. `searchMemories` hands the whole query to
+ * FTS5 as one quoted phrase, and the index is a trigram one, so a query of N
+ * characters becomes a phrase of N-2 consecutive tokens and SQLite builds the
+ * position lists for every one of them in native memory. A one megabyte query
+ * against a store holding text those trigrams match allocated about ten
+ * gigabytes in a single step and got the process killed by the kernel — with
+ * the machine going down around it, because that memory is SQLite's and not
+ * the JavaScript heap's, so no Node heap limit was ever going to catch it.
+ *
+ * A thousand characters is far more than a search is, and it was measured: at
+ * this length the server does not grow at all above the sixty odd megabytes it
+ * idles at, while four kilobytes already trebles it. It also bounds the number
+ * of terms, since a thousand characters cannot hold more than five hundred of
+ * them, which is the other end of the same problem — a query of two hundred
+ * thousand terms pegged a core for over a minute.
+ */
+const QUERY_LIMIT = 1000;
+
+/**
+ * The longest text this server will store, and the longest reason it will
+ * accept for putting something away.
+ *
+ * A memory is one fact about a person. Ten thousand characters is about
+ * fifteen hundred words, which is a great deal more than any single fact
+ * needs, and it keeps a stored memory from becoming the other half of the
+ * problem above: a megabyte of one repeated character indexes as a million
+ * identical trigrams, and that is what a long query then matches against.
+ */
+const TEXT_LIMIT = 10000;
+
+/**
  * @param {Record<string, unknown>} args
  * @param {string} name
  * @param {string} whatItIsFor
+ * @param {number} limit longest value accepted
+ * @param {string} whyBounded how to finish the sentence when it is too long
  * @returns {string}
  */
-function readText(args, name, whatItIsFor) {
+function readText(args, name, whatItIsFor, limit, whyBounded) {
   const value = args[name];
   if (typeof value !== 'string') {
     throw new Error(
@@ -351,6 +404,21 @@ function readText(args, name, whatItIsFor) {
         `${describe(value)}. Nothing was done.`,
     );
   }
+
+  // Measured with `.length`, deliberately, and not by counting characters the
+  // way the gate's excerpt does. Counting characters means spreading the
+  // string into an array as long as it is, which is an allocation the size of
+  // the input — the exact thing this check exists to refuse. `.length` counts
+  // the sixteen bit pieces, so it never reports fewer than there are
+  // characters, and a bound that errs towards refusing is the right way for
+  // this one to be wrong.
+  if (value.length > limit) {
+    throw new Error(
+      `"${name}" is longer than this takes: the limit is ${limit} characters and nothing ` +
+        `was done. ${whyBounded}`,
+    );
+  }
+
   return value;
 }
 
