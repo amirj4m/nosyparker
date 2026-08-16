@@ -496,3 +496,68 @@ test('an ordinary store answers quickly however it is shaped', (t) => {
   assert.equal(found.length, 2000, 'every match, not a page of them');
   assert.ok(took < 3000, `searching 2000 ordinary memories took ${took} ms`);
 });
+
+
+test('the work limit sits between ordinary text and degenerate text, with room', (t) => {
+  // The limit was calibrated on measurement, and measurement goes stale. This
+  // pins both populations either side of it, so that changing the tokeniser,
+  // the estimate or the number itself fails here rather than on someone's
+  // machine. It asserts the gap, not the numbers: what matters is that
+  // ordinary searching is nowhere near being refused and degenerate searching
+  // is nowhere near being allowed.
+  // Checked before anything is built from it. If somebody sets this absurdly
+  // high, the degenerate search below stops being refused and starts being
+  // run — in the test runner's own process, where nothing can kill it. Failing
+  // here costs nothing and names exactly what changed.
+  assert.ok(SEARCH_WORK_LIMIT >= 1_000_000, 'too low and ordinary searching starts being refused');
+  assert.ok(SEARCH_WORK_LIMIT <= 50_000_000, 'too high and the machine goes down before we do');
+
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const words = ['coffee', 'morning', 'berlin', 'meeting', 'prefers', 'quiet', 'office'];
+  for (let index = 0; index < 400; index += 1) {
+    const said = [`memory ${index}:`];
+    for (let word = 0; said.join(' ').length < 2000; word += 1) {
+      said.push(words[(index + word) % words.length]);
+    }
+    submit(store, { owner: OWNER, text: said.join(' ') });
+  }
+
+  // Ordinary searching, of the kind a person or an agent actually does. None
+  // of it may be refused, and it must not be close to being refused.
+  const ordinary = [
+    'coffee',
+    'coffee morning',
+    'berlin meeting quiet',
+    'memory 42',
+    'coffee morning berlin meeting prefers quiet office '.repeat(19).slice(0, 999),
+  ];
+  for (const query of ordinary) {
+    assert.doesNotThrow(
+      () => searchMemories(store, OWNER, query),
+      `an ordinary search was refused: ${query.slice(0, 40)}`,
+    );
+  }
+
+  // One memory of low-diversity text is all it takes, and it arrives through
+  // the ordinary door, inside every limit the adapter sets. Deliberately just
+  // one: at ten thousand characters the search is refused with room to spare,
+  // and on the day somebody raises the limit far enough to run it anyway it
+  // costs tens of megabytes rather than hundreds.
+  submit(store, { owner: OWNER, text: 'x'.repeat(10_000) });
+
+  assert.throws(
+    () => searchMemories(store, OWNER, 'x'.repeat(999)),
+    /would have to read through roughly/u,
+    'a search over degenerate text must still be refused',
+  );
+
+  // And ordinary searching of that same store is untouched by its presence.
+  for (const query of ordinary) {
+    assert.doesNotThrow(
+      () => searchMemories(store, OWNER, query),
+      `one degenerate memory should not refuse ordinary searches: ${query.slice(0, 30)}`,
+    );
+  }
+});
