@@ -41,7 +41,7 @@
  */
 
 import { forget, restore, screenQuery, submit } from './gate.js';
-import { listDecisions, listMemories, searchMemories } from './store.js';
+import { listDecisions, listMemories, searchMemories, TEXT_LIMIT } from './store.js';
 import { isBlank } from './text.js';
 
 /**
@@ -389,35 +389,6 @@ function only(args, allowed) {
     );
   }
 }
-
-/**
- * The longest text this server will store, and the longest reason it will
- * accept for putting something away.
- *
- * A memory is one fact about a person; ten thousand characters is about
- * fifteen hundred words, and an agent offering more than that has
- * misunderstood the tool rather than found an edge of it.
- *
- * It is not a safety limit and nothing here should be read as one. It once
- * claimed to be half of a pair that made searching safe, and that was wrong
- * twice over: a hundred calls each inside this limit put a megabyte in the
- * store, so it bounds no total; and what a search costs turned out not to
- * depend on how the text got there at all. Nothing here makes searching safe —
- * see DECISIONS.md, "Bounding what a search can cost", which is honest about
- * what is and is not bounded.
- *
- * What it is for: an agent offering fifteen hundred words as one fact about a
- * person has misunderstood the tool, and saying so is worth more than storing
- * it.
- *
- * Searching is bounded in the store rather than here, on the function that
- * does the work and the only place that covers every caller. There is
- * deliberately no copy of that number in this file — a second number that has
- * to agree with the first is how the same sentence ended up in three places in
- * Phase 1. The store throws its sentence and the call below catches it like
- * any other.
- */
-const TEXT_LIMIT = 10000;
 
 /**
  * @param {Record<string, unknown>} args

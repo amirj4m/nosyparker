@@ -211,9 +211,24 @@ test('a search too long to run is refused at the terminal, in a sentence', async
   assert.equal(stored.code, 0);
   assert.match(stored.out, /Stored\./u);
 
-  // And the same paste as a memory is refused, because it is a file.
+  // And the same paste as a memory is refused. At the terminal it is the
+  // length that catches it first — that bound was missing here for the whole
+  // of Phase 2, and it was the only way to store something a later search
+  // could not afford.
   const pasted = await runWatched([CLI, 'add', long], { env, ceilingMB: 500 });
-  assert.match(pasted.out, /reads as a file rather than something to remember/u);
+  assert.equal(pasted.code, 1);
+  assert.match(pasted.err, /The limit is 10,000/u);
+  assert.match(pasted.err, /keep it in a file and store what matters about it/u);
+
+  // Under that length, a log is still refused for what it is.
+  const log = '2026-08-16T09:14:22.031Z INFO  request handled status=200\n'.repeat(150);
+  const shortLog = await runWatched([CLI, 'add', log.slice(0, 9_000)], { env, ceilingMB: 500 });
+  assert.match(shortLog.out, /reads as a file rather than something to remember/u);
+
+  // And a reason is bounded the same way.
+  const reason = await runWatched([CLI, 'forget', '1', long], { env, ceilingMB: 500 });
+  assert.equal(reason.code, 1);
+  assert.match(reason.err, /The limit is 10,000/u);
 
   const searched = await runWatched([CLI, 'search', long], { env, ceilingMB: 500 });
 

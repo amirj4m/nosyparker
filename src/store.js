@@ -122,6 +122,33 @@ export const SEARCH_QUERY_LIMIT = 1000;
 export const REPETITION_LIMIT = 60;
 
 /**
+ * The longest text this store will take, and the longest reason for putting
+ * something away.
+ *
+ * A memory is one fact about a person; ten thousand characters is about
+ * fifteen hundred words, and anything offering more than that as a single fact
+ * has misunderstood the tool.
+ *
+ * It lives here rather than in the MCP adapter, which is where it was, because
+ * that left `nosyparker add` taking text of any length at all — and that was
+ * the only way to reach the worst case the project has: a memory holding a
+ * long dense run padded with enough variety to score under
+ * {@link REPETITION_LIMIT}. Four hundred kilobytes of one character with forty
+ * kilobytes of ordinary text mixed in scores 34.5, well inside the rule, and
+ * cost 856 MB and 4.8 seconds to search. Through the tools it was never
+ * reachable, because ten thousand characters caps it. Through the terminal it
+ * was, and nothing stopped it.
+ *
+ * That is the whole of the fix and it is one number. It went unmade through
+ * three rounds spent on estimates at the read side, which is worth writing
+ * down next to it.
+ *
+ * One definition, read by both entry points. Two numbers that have to agree is
+ * how the same sentence ended up in three places in Phase 1.
+ */
+export const TEXT_LIMIT = 10_000;
+
+/**
  * The shape of file this code knows how to read. Raise it whenever a column is
  * added, removed or changed.
  *
