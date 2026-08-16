@@ -262,8 +262,13 @@ test('a malformed call is answered with a sentence and the server carries on', a
   assert.equal(await say(agent, 'list', {}), '1. I live in Berlin');
   assert.match(await say(agent, 'remember', { text: 'still working' }), /Stored\./u);
 
-  // A refused call is not a decision, so none of the above is in the log.
-  assert.equal(await say(agent, 'why', {}).then((log) => log.split('\n\n').length), 2);
+  // A call refused for its shape is not a decision about a memory, so it
+  // leaves no row: two stores, and one blank reason, which is a decision and
+  // does leave one. The rest — wrong types, unknown arguments, unknown tools
+  // — never reached the gate at all.
+  const log = await say(agent, 'why', {});
+  assert.equal(log.split('\n\n').length, 3);
+  assert.equal((log.match(/refused \(empty\)/gu) ?? []).length, 1, 'the blank reason is a rule now');
 });
 
 test('a query far too long to be a search is refused, and nothing is allocated for it', async (t) => {

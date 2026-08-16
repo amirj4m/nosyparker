@@ -2,15 +2,31 @@
  * The six tools.
  *
  * Each one reads its arguments, calls one function in the gate or the store,
- * and turns what comes back into something a person can read. There is no rule
- * in this file. Nothing here decides whether a memory may be stored, nothing
- * here writes to the database, and nothing here contains a line of SQL: every
- * decision goes through the gate exactly as the command line tool's does, and
- * gets the same transaction and the same row in the log.
+ * and turns what comes back into something a person can read. Nothing here
+ * decides whether a memory may be stored, nothing here writes to the database,
+ * and nothing here contains a line of SQL: every decision goes through the
+ * gate exactly as the command line tool's does, and gets the same transaction
+ * and the same row in the log.
  *
- * The explanations are the gate's own. A refusal shown to a person through an
- * agent says word for word what the same refusal says at the terminal, because
- * there is one set of sentences and this file does not own it.
+ * This used to claim there was no rule in the file at all, and that was not
+ * true: a blank reason and a blank query were both refused here, outside the
+ * gate, with nothing written down. The blank reason has moved to the gate,
+ * where it is the `empty` rule and leaves its row, because refusing to put a
+ * memory away is a decision about a memory.
+ *
+ * What is left here is what belongs here, and it is worth being exact about
+ * the line. This file checks that arguments are the shape the schema says —
+ * text where text is wanted, an id that could be an id, nothing extra — and it
+ * refuses two things of its own on the way into `recall`: a query that is
+ * blank, and a query that looks like a credential. Neither is a decision about
+ * a memory. Nothing is stored, nothing is changed, nothing is even read, so
+ * there is no row for the log to hold and no gate rule that would fit. They
+ * are answers to a caller, not judgements about the store.
+ *
+ * The explanations are the gate's own wherever the gate has one, credentials
+ * included. A refusal shown to a person through an agent says word for word
+ * what the same refusal says at the terminal, because there is one set of
+ * sentences and this file does not own them.
  *
  * A tool is a name, a description, a schema and a function. Adding one is
  * adding one entry to the list below; nothing else knows how many there are,
@@ -205,13 +221,6 @@ export const TOOLS = [
         TEXT_LIMIT,
         'A reason is a sentence the person would recognise, not a document.',
       );
-
-      // A memory put away for no stated reason is a memory nobody can judge
-      // later. The gate has nothing to say about a blank reason, so this is
-      // refused before it becomes a decision, exactly as at the terminal.
-      if (isBlank(reason)) {
-        return 'No reason was given, so nothing was changed. Say why this should stop being shown.';
-      }
 
       return outcome(forget(store, { owner, id, reason }));
     },

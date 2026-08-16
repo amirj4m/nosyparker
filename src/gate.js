@@ -314,6 +314,26 @@ export function forget(store, { owner, id, reason }) {
       const unreadable = refuseControlCharacter(owner, reason);
       if (unreadable) return unreadable;
 
+      // 3. empty. The same rule as an empty memory and the same name, because
+      // it is the same judgement: there was nothing there.
+      //
+      // It was in the adapter, where it refused without writing anything down
+      // — so a memory put away for no stated reason and a refusal to put one
+      // away left the same trace, which is none. Here it leaves its row like
+      // every other decision, and the terminal gets it too rather than having
+      // its own copy of the check.
+      if (isBlank(reason)) {
+        return {
+          owner,
+          verdict: 'refused',
+          rule: 'empty',
+          explanation:
+            'No reason was given, so nothing was changed. A memory put away without a ' +
+            'reason is one nobody can judge later. Say why it should stop being shown.',
+          input_excerpt: '',
+        };
+      }
+
       // Archived rows included, because forgetting is about the row rather
       // than about what is on show.
       const memory = getMemory(store, owner, id, { includeArchived: true });

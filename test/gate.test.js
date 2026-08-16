@@ -524,3 +524,27 @@ test('what is stored is what reads back, for every memory in the file', (t) => {
     );
   }
 });
+
+
+test('rule 3 also covers a reason that says nothing, and leaves its row', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const stored = submit(store, { owner: OWNER, text: 'I am vegetarian' });
+  const id = /** @type {number} */ (stored.memory_id);
+
+  for (const reason of ['', '   ', '\n\t ']) {
+    const result = forget(store, { owner: OWNER, id, reason });
+    assert.equal(result.verdict, 'refused');
+    assert.equal(result.rule, 'empty', `should have been refused: ${JSON.stringify(reason)}`);
+  }
+
+  // The memory was left alone, and every attempt is in the log — which is the
+  // reason this moved out of the adapter, where it left no trace at all.
+  assert.equal(getMemory(store, OWNER, id)?.state, 'active');
+  assert.equal(getMemory(store, OWNER, id)?.state_reason, null);
+  assert.equal(listDecisions(store, OWNER).filter((d) => d.rule === 'empty').length, 3);
+
+  // A reason that says something still works.
+  assert.equal(forget(store, { owner: OWNER, id, reason: 'I eat fish again' }).verdict, 'forgotten');
+});
