@@ -436,3 +436,63 @@ test('the bound refuses rather than returning less, however many match', (t) => 
   // And the work limit is a number this file reads rather than one it repeats.
   assert.equal(SEARCH_WORK_LIMIT, 5_000_000);
 });
+
+
+test('the price of a search is asked of the tokeniser, not guessed at', async () => {
+  // U+0130, the Turkish dotted capital I, folds one way in JavaScript and
+  // another in FTS5. Pricing the query by folding it here looked up a trigram
+  // under a name the index does not use, found nothing, counted it free, and
+  // let the search through — a guard failing open, which is the wrong
+  // direction. Out of process and under a watch, because that is what the
+  // failure looks like.
+  const script = `
+    const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+    (async () => {
+      const { openStore, searchMemories, recordDecision } = await import(${JSON.stringify(STORE_MODULE)});
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-fold-'));
+      const store = openStore({ file: path.join(dir, 'memory.sqlite'), now: () => new Date().toISOString() });
+      recordDecision(store, (actions, at) => {
+        actions.insertMemory({ owner: 'o', text: '\\u0130'.repeat(200000), at, supersedes: null });
+        return { owner: 'o', verdict: 'stored', rule: 'keep', explanation: '.', input_excerpt: '' };
+      });
+      try {
+        console.log('RAN AND RETURNED ' + searchMemories(store, 'o', '\\u0130'.repeat(999)).length);
+      } catch (error) {
+        console.log('REFUSED: ' + error.message);
+      }
+      store.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    })();
+  `;
+
+  const result = await runWatched(['-e', script], { ceilingMB: 400 });
+
+  assert.equal(result.signal, null, `the child was killed at ${result.peak.toFixed(0)} MB`);
+  assert.match(result.out, /REFUSED: That search would have to read through roughly/u);
+  assert.equal(result.out.includes('RAN AND RETURNED'), false, 'the guard failed open');
+  assert.ok(result.peak < 400, `refusing it should cost nothing, and it reached ${result.peak.toFixed(0)} MB`);
+});
+
+test('an ordinary store answers quickly however it is shaped', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  // 2.9 MB of ordinary text, the same size the review reported taking 29.5
+  // seconds. It took that long because the text was one repeated character,
+  // not because the store was large: growing is not what makes search slow.
+  const words = ['coffee', 'morning', 'berlin', 'meeting', 'prefers', 'quiet', 'office'];
+  for (let index = 0; index < 2000; index += 1) {
+    const said = [`memory ${index}:`];
+    for (let word = 0; said.join(' ').length < 1500; word += 1) {
+      said.push(words[(index + word) % words.length]);
+    }
+    submit(store, { owner: OWNER, text: said.join(' ') });
+  }
+
+  const started = Date.now();
+  const found = searchMemories(store, OWNER, 'coffee');
+  const took = Date.now() - started;
+
+  assert.equal(found.length, 2000, 'every match, not a page of them');
+  assert.ok(took < 3000, `searching 2000 ordinary memories took ${took} ms`);
+});

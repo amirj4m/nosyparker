@@ -75,6 +75,23 @@ import { controlCharacterIn, namedCodePoint, normaliseForComparison } from './te
  */
 const VOCABULARY = 'temp.memories_vocabulary';
 
+/**
+ * A scratch index with the same tokeniser, used to tokenise a query the way
+ * the real one would, and its vocabulary.
+ *
+ * Nothing is searched in it. A query is written to it so that FTS5 can be
+ * asked what trigrams it made of it, and the answer is then priced against
+ * {@link VOCABULARY}. Both are `temp`: they belong to this connection, never
+ * reach the file, and hold nothing but the last query priced.
+ *
+ * This is the only write in this file that is not a memory, and it is worth
+ * being plain about that. It touches neither `memories` nor `decisions`, so
+ * the guarantee at the top of the file — that nothing changes a memory without
+ * writing down why — is untouched by it.
+ */
+const QUERY_TOKENS = 'temp.query_tokens';
+const QUERY_VOCABULARY = 'temp.query_vocabulary';
+
 /** Trigram search needs at least three characters to match on. */
 const MIN_SEARCH_LENGTH = 3;
 
@@ -338,6 +355,8 @@ export function openStore({ file, now }) {
     // version moves and a store written by this code still opens under the
     // version before it.
     db.exec(`CREATE VIRTUAL TABLE ${VOCABULARY} USING fts5vocab(main, memories_fts, 'row')`);
+    db.exec(`CREATE VIRTUAL TABLE ${QUERY_TOKENS} USING fts5(text, tokenize='trigram')`);
+    db.exec(`CREATE VIRTUAL TABLE ${QUERY_VOCABULARY} USING fts5vocab(temp, query_tokens, 'row')`);
   } catch (error) {
     // Nothing is handed back, so nothing else can close this.
     db.close();
@@ -869,35 +888,51 @@ function searchBySubstring(store, owner, terms, includeArchived) {
  * answers in eight milliseconds.
  *
  * Where this is not exact. It is an estimate of an upper bound, not a
- * simulation. The counts include memories that are archived or belong to
- * another owner, so it can read high, which errs towards refusing. And case
- * folding here is JavaScript's, while the tokeniser does its own, so a term
- * whose folding differs can be looked up and missed — that errs the other way
- * and would let a search through. Both are known and neither is close to the
- * hundredfold gap the limit sits in.
+ * simulation: the counts include memories that are archived or belong to
+ * another owner, so it can read high, which errs towards refusing. That is the
+ * safe direction and the only inexactness left. The one that erred the other
+ * way — folding case here rather than asking the tokeniser — is gone.
  *
  * @param {Store} store
  * @param {string[]} terms
  */
 function refuseIfTooMuchWork(store, terms) {
+  const { db } = handleOf(store);
+
+  // The trigrams come from the tokeniser rather than from folding the query
+  // here and hoping the two agree. They did not always: `İstanbul` folds one
+  // way in JavaScript and another in FTS5, so one of its trigrams was looked
+  // up under a name the index does not use, found nothing, and counted as
+  // free. That is the wrong direction for a guard to be wrong in — it let an
+  // expensive search through — and it is not fixable by folding more
+  // carefully, because the only definition that matters is the tokeniser's
+  // own. So the query is written into a scratch index with the same tokeniser
+  // and FTS5 is asked what it made of it. It costs about a third of a
+  // millisecond.
+  //
+  // One row per term, not one row for the whole query, so that no trigram is
+  // invented across the gap between two terms — the search looks for each term
+  // separately and so must the price.
+  db.prepare(`DELETE FROM ${QUERY_TOKENS}`).run();
+  const write = db.prepare(`INSERT INTO ${QUERY_TOKENS}(text) VALUES (?)`);
+  for (const term of terms) write.run(term);
+
   /** @type {Map<string, number>} */
   const wanted = new Map();
   let trigrams = 0;
-
-  for (const term of terms) {
-    const folded = term.toLowerCase();
-    for (let at = 0; at + MIN_SEARCH_LENGTH <= folded.length; at += 1) {
-      const gram = folded.slice(at, at + MIN_SEARCH_LENGTH);
-      wanted.set(gram, (wanted.get(gram) ?? 0) + 1);
-      trigrams += 1;
-    }
+  for (const row of /** @type {{term: string, cnt: number}[]} */ (
+    /** @type {unknown} */ (db.prepare(`SELECT term, cnt FROM ${QUERY_VOCABULARY}`).all())
+  )) {
+    const times = Number(row.cnt);
+    wanted.set(row.term, times);
+    trigrams += times;
   }
 
   if (wanted.size === 0) return;
 
   const names = [...wanted.keys()];
-  const rows = handleOf(store)
-    .db.prepare(
+  const rows = db
+    .prepare(
       `SELECT term, doc, cnt FROM ${VOCABULARY} WHERE term IN (${names.map(() => '?').join(',')})`,
     )
     .all(...names);
