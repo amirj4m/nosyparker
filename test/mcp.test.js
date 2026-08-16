@@ -603,3 +603,36 @@ test('a secret offered to recall is refused in the same words as anywhere else',
   // Ordinary searches are untouched.
   assert.match(await say(agent, 'recall', { query: '1Password' }), /1 match/u);
 });
+
+
+test('a number that is not an id is refused before it reaches the log', async (t) => {
+  const agent = await connect(t, freshStoreFile(t));
+
+  await say(agent, 'remember', { text: 'I live in Berlin' });
+
+  // Every one of these is an integer to Number.isInteger, which is how
+  // 1e+308 got as far as the store, was bound as a REAL, matched nothing, and
+  // had "memory 1e+308 is not one of your active memories" written into the
+  // decision log for good.
+  for (const notAnId of [1e308, Number.MAX_SAFE_INTEGER + 2, 2 ** 53, Number.MAX_VALUE]) {
+    /** @type {[string, Record<string, unknown>][]} */
+    const calls = [
+      ['restore', { id: notAnId }],
+      ['forget', { id: notAnId, reason: 'a reason' }],
+      ['remember', { text: 'something', replaces: notAnId }],
+    ];
+    for (const [tool, args] of calls) {
+      const answer = await say(agent, tool, args);
+      assert.match(answer, /has to be the id of a memory/u, `${tool} took ${notAnId}`);
+    }
+  }
+
+  // Nothing reached the log, and the number is not in it.
+  const log = await say(agent, 'why', {});
+  assert.equal(log.split('\n\n').length, 1);
+  assert.equal(log.includes('1e+308'), false);
+
+  // The ids that are ids still work.
+  assert.match(await say(agent, 'forget', { id: 1, reason: 'moved' }), /will not be shown/u);
+  assert.match(await say(agent, 'restore', { id: Number.MAX_SAFE_INTEGER }), /no memory/u);
+});

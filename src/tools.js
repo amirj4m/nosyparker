@@ -438,7 +438,19 @@ function readText(args, name, whatItIsFor, limit, whyBounded) {
  */
 function readId(args, name) {
   const value = args[name];
-  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+
+  // isSafeInteger, not isInteger. 1e308 is an integer as far as isInteger is
+  // concerned — it has nothing after the decimal point — so it was accepted,
+  // reached the store, was bound as a REAL because that is what node:sqlite
+  // does with a number, matched nothing, and came back as "memory 1e+308 is
+  // not one of your active memories". That sentence was then written into the
+  // decision log, where it will sit for good, and it names something that is
+  // not an id and never could have been one.
+  //
+  // Anything past 2^53 is not an id either: it cannot be told apart from its
+  // neighbours once it is a double, so there is no honest answer to give
+  // about it.
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
     throw new Error(
       `"${name}" has to be the id of a memory, which is a whole number above zero, ` +
         `and this call gave ${describe(value)}. Nothing was done. The ids are the ` +
