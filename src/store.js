@@ -120,17 +120,17 @@ export const SEARCH_QUERY_LIMIT = 1000;
  * as such.
  *
  * And it can be walked past on purpose, by mixing a long dense run with filler
- * varied enough to pull the average down. It takes filler where about two
- * thirds of the three-character runs are unique, which no document reaches —
- * this project's own source is 16%, package-lock.json 23%, a list of UUIDs
- * 26%. Only genuinely random data gets there: random base64 is 81% and random
- * printable characters 96%. A review reported such a memory costing 856 MB.
+ * varied enough to pull the average down. That shape passes this rule at every
+ * length — 10.6 at ten thousand characters, 13.1 at two hundred and ten
+ * thousand, 16.0 at four hundred and forty thousand, against a limit of sixty.
+ * It does not need to be large to get past; it gets past at any size, and gets
+ * expensive as it grows. One such memory was reported costing 856 MB.
  *
- * That shape needs the whole memory to be far longer than a memory may be —
- * theirs was two hundred and ten thousand characters — so {@link TEXT_LIMIT},
- * checked first and in the gate, makes it unreachable by any caller. It is
- * written down because the next person to look will build the same thing, and
- * the answer is that the length rule is what stops it, not this one.
+ * So {@link TEXT_LIMIT} is the only thing that stops it, which is why that one
+ * is checked first and lives in the gate. Written down because the next person
+ * to look will build the same thing, and the answer is that the length rule
+ * stops it and this one never will. DECISIONS.md, "Walking past the repetition
+ * rule", has the measurements.
  */
 export const REPETITION_LIMIT = 60;
 

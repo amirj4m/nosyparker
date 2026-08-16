@@ -151,29 +151,59 @@ today; Phase 4's review loop would be one.
 
 A memory that mixes a long dense run with varied filler scores low on
 `REPETITION_LIMIT` and is still expensive to search. A review reported one
-costing 856 MB. Reproducing its score took finding out what filler it used.
+costing 856 MB.
 
-To score 15.8, a 20,000-character filler needs about 13,290 distinct
-three-character runs — two thirds of its positions unique. Measured:
+**The conclusion first, because it is the part that matters:** that shape
+passes the repetition rule at *every* length. It is not that it needs to be
+large to slip past — it slips past at any size, and gets expensive as it grows.
+So `TEXT_LIMIT` is the only thing that stops it, always, and it is checked
+first and in the gate. Same 90/10 ratio at each length:
 
-| filler, 20,000 characters | distinct runs | share | score of the whole |
+| whole memory | dense run | filler | score |
 | --- | --- | --- | --- |
-| English prose | 126 | 1% | 1,628 |
-| this project's own files | 3,296 | 16% | 63.7 |
-| random hex | 4,072 | 20% | 51.5 |
-| package-lock.json | 4,510 | 23% | 46.5 |
-| a list of UUIDs | 5,274 | 26% | 39.8 |
-| **random base64** | **16,193** | **81%** | **13.0** |
-| **random printable characters** | **19,162** | **96%** | **11.0** |
+| 10,000 | 9,050 | 950 | 10.6 |
+| 40,000 | 36,200 | 3,800 | 11.0 |
+| 210,000 | 190,050 | 19,950 | 13.1 |
+| 440,000 | 398,200 | 41,800 | 16.0 |
 
-So the filler was random data, not a document. No real document comes close —
-the most varied one to hand is a lock file at 23%, and it still scores 46.5,
-which the rule refuses anyway.
+Against a limit of 60, every one passes. The 210,000-character memory in the
+report is not a threshold for getting past the rule; it is where the dense run
+becomes big enough for the search to cost 856 MB.
 
-The shape is real and it is unreachable. It needs the whole memory to be far
-longer than a memory may be: the reported one was 210,000 characters against a
-limit of 10,000. `TEXT_LIMIT` is checked first, in the gate, so no caller can
-build it — the length rule is what stops this, not the repetition rule.
+### On unique fractions, and a correction
+
+An earlier version of this section said the shape needed filler where about two
+thirds of trigrams are unique, and gave figures for various text. Those figures
+were not comparable: distinct trigrams saturate, so the same text measured on a
+shorter sample looks more unique by arithmetic rather than by being unusual.
+Measured properly, at three fixed lengths:
+
+| text | at 10,000 | at 40,000 | at 200,000 |
+| --- | --- | --- | --- |
+| store.js | 21% | — | — |
+| package-lock.json | 25% | 20% | — |
+| mixed project files | 24% | 11% | — |
+| a list of UUIDs | 43% | 14% | 3% |
+| random hex | 37% | 10% | 2% |
+| random base64 | 89% | 67% | 25% |
+| random printable characters | 98% | 92% | 69% |
+
+Every column falls as the sample grows, which is the point: the number is a
+property of the text *and the length*, and quoting one without the other is how
+the first table went wrong.
+
+The review that caught this gave replacement figures at 40,000 characters —
+base64 at 12%, random printable at 0%. Those did not reproduce here. At 40,000
+characters this measures base64 at 67% and random printable at 92%, and the
+counts were checked twice: FTS5's own vocabulary and a direct count in
+JavaScript agree exactly, at 26,791 and 36,886 distinct trigrams. A fraction of
+0% is not reachable for random text at any length, since 40,000 characters over
+a 94-character alphabet cannot collide into near-nothing.
+
+So the methodology correction is adopted and the numbers are this project's
+own. The disagreement is recorded rather than resolved, because the conclusion
+does not turn on it: at every length measured, by either party's figures, the
+shape passes the repetition rule and only the length rule stops it.
 
 ## Why a search cannot be interrupted
 
@@ -207,3 +237,47 @@ Fixing the interruption means dropping relevance ordering, or moving search into
 a process that can be killed. Both change what search is. If real use shows the
 residual matters, that is the moment — and these numbers are the argument for
 revisiting it.
+
+## What Phase 2 learned about where a bound belongs
+
+Written down for Phase 3, which is where it will matter.
+
+The same defect was fixed three times, and each fix was placed at whichever
+doors existed that week. Item 14 bounded the query in the MCP adapter, and
+`nosyparker search` was still open. Item 42 bounded the text at both doors, and
+a library caller of `submit` was still open. It would be easy to read that as
+carelessness three times over, and the sharper reading is the review's: it was
+not that the bound was in the wrong place, it was that *"where the callers are"*
+was treated as a stable fact, and it never was. Each fix was correct about the
+doors that existed when it was written.
+
+The gate is the one place every caller passes through. That is why the length
+and repetition rules live there now.
+
+Four things follow for Phase 3, which adds an installer and config detection —
+that is, new entrances.
+
+**1. Every new entrance reaches the store through the gate.** An installer or a
+config writer does not obviously touch memories, but one that seeds a first
+memory, or validates a store path, is a caller. There is no exception for "it
+is only setup".
+
+**2. Write the test that would have caught all three failures.** It does not
+exist. It is an inventory test: enumerate every module that reaches `store.js`
+or `gate.js`, assert the list, and a new entrance then fails a test rather than
+waiting for a review to notice. The vocabulary closure test is exactly this
+idea applied to rule names, and it works — it has been verified by mutation, a
+thirteenth name fails, a removed name fails, a renamed name fails. Phase 3 gets
+the same for callers.
+
+**3. Config files are a new class of untrusted input and no existing rule
+covers them.** The gate's rules are about text a person offers as a memory.
+Nothing in them says what a malformed, hostile or merely surprising config file
+should do. Write down what the installer refuses before writing what it
+accepts.
+
+**4. The installer writes to files this project does not own.** That is a
+destructive surface this project has never had. Rule 2 of the whole project —
+nothing is deleted, nothing expires — needs its analogue stated for it: nothing
+overwrites a config the person did not ask us to change, and every write is
+reversible or backed up first.
