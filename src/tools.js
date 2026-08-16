@@ -24,6 +24,7 @@
  * shape.
  */
 
+import { credentialExplanation, detectCredential } from './credentials.js';
 import { forget, restore, submit } from './gate.js';
 import { listDecisions, listMemories, searchMemories } from './store.js';
 import { isBlank } from './text.js';
@@ -136,6 +137,21 @@ export const TOOLS = [
       const query = readText(args, 'query', 'what to look for');
       if (isBlank(query)) {
         return 'There was nothing to look for. Say what to search for.';
+      }
+
+      // The one field an agent can put text in that was not being told what
+      // this store does not take. `remember` and `forget` refuse a secret and
+      // say why; `recall` answered "Nothing matched", which is true, useless,
+      // and teaches an agent nothing — so the next thing it does is offer the
+      // same key to `remember`.
+      //
+      // The sentence is the gate's own, unchanged, so being told no here reads
+      // exactly like being told no there. Searching for a secret does not
+      // write it anywhere, which is why this refusal is about instruction
+      // rather than about a leak.
+      const credential = detectCredential(query);
+      if (credential) {
+        return `${credentialExplanation(credential)} Nothing was searched for either.`;
       }
 
       const found = searchMemories(store, owner, query);

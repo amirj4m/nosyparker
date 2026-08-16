@@ -584,3 +584,22 @@ test('a control character offered over the protocol is refused and leaves a row'
   assert.equal(log.includes('ZQHEAD'), false);
   assert.equal(log.includes('ZQTAIL'), false);
 });
+
+test('a secret offered to recall is refused in the same words as anywhere else', async (t) => {
+  const agent = await connect(t, freshStoreFile(t));
+
+  await say(agent, 'remember', { text: 'I keep my keys in 1Password' });
+
+  const key = ['AKIA', 'ZQRECALLKEY99XYZ'].join('');
+  const refused = await say(agent, 'recall', { query: `my key is ${key}` });
+
+  // "Nothing matched" was true and taught an agent nothing, so the next thing
+  // it did was offer the same key to remember.
+  assert.equal(refused.includes('Nothing matched'), false);
+  assert.match(refused, /looks like an AWS access key/u);
+  assert.match(refused, /memory, not a secret store/u);
+  assert.match(refused, /Nothing was searched for either/u);
+
+  // Ordinary searches are untouched.
+  assert.match(await say(agent, 'recall', { query: '1Password' }), /1 match/u);
+});
