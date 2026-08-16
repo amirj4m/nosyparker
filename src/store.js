@@ -747,13 +747,24 @@ export function listMemories(store, owner, options = {}) {
  * byte-identical ordering and moves the first row to 436 ms, because bm25
  * wants its global statistics up front — better, still not abandonable.
  *
- * What it costs today: about a hundred milliseconds on a store of ordinary
- * text, and 2.2 seconds on 28.6 MB of low-diversity text with a short query
- * the work limit allows. What fixing it would cost: dropping relevance
- * ordering, or moving search into a process that can be killed. Both change
- * what search is, for a hundred milliseconds, before anybody has used this on
- * their own data. If real use shows the residual matters, that is the moment
- * to revisit it, and this paragraph is the argument to revisit.
+ * What it costs, measured after the write-time rule, on stores where every
+ * memory passed it:
+ *
+ *     2,000 ordinary memories, 36 MB       112 ms  and  175 ms
+ *     400 memories of near-limit text     70,153 ms
+ *     2,000 memories of near-limit text  373,201 ms
+ *
+ * Those last two are the honest ones and they are far worse than this comment
+ * used to claim. Memory is bounded — no search exceeds about 127 MB, because
+ * FTS5 works a document at a time and the write-time rule caps what any single
+ * document can cost. Time is not: it is that per-document cost multiplied by
+ * how many documents match, and nothing caps the number of documents.
+ *
+ * Reaching six minutes takes a store deliberately filled with two thousand
+ * blobs each just under the write-time limit. That is not growth and it is not
+ * a person's memories; it is somebody feeding the thing. But it is reachable
+ * through ordinary calls, one legal memory at a time, and it cannot be
+ * interrupted once it starts.
  *
  * SECOND: there is no bound on how long a search may take, only on how much
  * memory it may need. That is not for want of trying. A time estimate needs
@@ -765,9 +776,9 @@ export function listMemories(store, owner, options = {}) {
  * the worst of both. So the memory bound is real and the time bound is
  * honestly absent.
  *
- * Neither is reachable by growth alone. Ordinary text answers in 20 to 114 ms
- * from 0.7 MB to 25 MB, in every shape measured. Both need text with very few
- * distinct trigrams in it.
+ * Neither is reachable by growth alone. Ordinary text answers in 112 to 175 ms
+ * at 36 MB, in every shape measured. Both need many memories of text with very
+ * few distinct trigrams in them, each one stored deliberately.
  *
  * @param {Store} store
  * @param {string} owner
