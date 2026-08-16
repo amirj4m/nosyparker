@@ -386,19 +386,25 @@ function only(args, allowed) {
  * fifteen hundred words, and an agent offering more than that has
  * misunderstood the tool rather than found an edge of it.
  *
- * It is not a safety limit and it does not add up to one. A hundred calls each
- * inside it put a megabyte of matching text in the store, and it is that
- * total, not any single call, that decides what a later search costs. See
- * `SEARCH_QUERY_LIMIT` in store.js, which says plainly what is and is not
- * bounded, and why the remaining hole is a design decision rather than a
- * number.
+ * It is not a safety limit and nothing here should be read as one. It once
+ * claimed to be half of a pair that made searching safe, and that was wrong
+ * twice over: a hundred calls each inside this limit put a megabyte in the
+ * store, so it bounds no total; and what a search costs turned out not to
+ * depend on how the text got there at all. What keeps searching safe is
+ * `SEARCH_WORK_LIMIT` in store.js, which prices each search against the index
+ * before running it. This limit would be worth keeping if that one did not
+ * exist, and it would not be enough.
  *
- * The query is bounded in the store rather than here: that is the function
- * that does the allocating and the only place that covers every caller. There
- * is deliberately no copy of the number in this file — a second number that
- * has to agree with the first is how the same sentence ended up in three
- * places in Phase 1. The store throws its sentence and the call below catches
- * it like any other.
+ * What it is for: an agent offering fifteen hundred words as one fact about a
+ * person has misunderstood the tool, and saying so is worth more than storing
+ * it.
+ *
+ * Searching is bounded in the store rather than here, on the function that
+ * does the work and the only place that covers every caller. There is
+ * deliberately no copy of that number in this file — a second number that has
+ * to agree with the first is how the same sentence ended up in three places in
+ * Phase 1. The store throws its sentence and the call below catches it like
+ * any other.
  */
 const TEXT_LIMIT = 10000;
 

@@ -45,8 +45,19 @@ There is nothing to install yet. nosyparker is not released: there is no
 package to fetch and no command to set it up. This section will say how, once
 there is something real to say.
 
-For now, connecting an agent to it is done by hand, and
-[CONNECTING.md](CONNECTING.md) says how.
+Until then you point an agent at it by hand. It runs from a copy of this
+folder, with Node 22 or newer and nothing else:
+
+```
+node /absolute/path/to/nosyparker/src/mcp-server.js
+```
+
+That is the command an agent runs for you, not one you leave running. You add
+it to your agent's configuration once — for Claude Code, under `mcpServers` in
+`~/.claude.json` — and it starts the server itself from then on.
+
+[CONNECTING.md](CONNECTING.md) has the exact snippet to paste and what to say
+to check it works.
 
 ## Removing it
 
