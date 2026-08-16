@@ -81,44 +81,24 @@ import { controlCharacterIn, namedCodePoint, normaliseForComparison } from './te
  */
 
 /**
- * FTS5's report on its own vocabulary, per connection and never on disk.
+ * A scratch index with the same tokeniser, and its vocabulary.
  *
- * One name, used by the statement that reads it and by the statement that
- * creates it, so the two cannot drift apart.
+ * Nothing is searched in it. One offered memory is written to it so that FTS5
+ * can be asked how often its commonest three-character run occurs — the number
+ * {@link densestTrigram} returns and the gate refuses on. Asking the tokeniser
+ * rather than counting here is deliberate: folding case in JavaScript and
+ * hoping it matched was a real defect once, and the only definition that
+ * matters is the tokeniser's own.
+ *
+ * Both are `temp`. They belong to this connection, never reach the file, and
+ * hold nothing but the last text measured.
+ *
+ * The DELETE against this table is the only one in the project outside
+ * `scripts/purge.mjs`, and it is a considered exception. See the top of this
+ * file.
  */
-const VOCABULARY = 'temp.memories_vocabulary';
-
-/**
- * A scratch index with the same tokeniser, used to tokenise a query the way
- * the real one would, and its vocabulary.
- *
- * Nothing is searched in it. A query is written to it so that FTS5 can be
- * asked what trigrams it made of it, and the answer is then priced against
- * {@link VOCABULARY}. Both are `temp`: they belong to this connection, never
- * reach the file, and hold nothing but the last query priced.
- *
- * Two things about this are exceptions to rules stated at the top of the file,
- * and both were weighed rather than missed.
- *
- * It is the only write here that is not a memory, and the only DELETE. Both
- * are on this table. The rules they bend exist to guarantee that nothing can
- * destroy or silently alter what the person told us, and neither can be
- * reached from here: this table holds one copy of the query somebody typed a
- * moment ago, it is created in `temp` so it never reaches the file, it is
- * emptied before each use and dies with the connection, and `memories` and
- * `decisions` are never touched by any statement against it.
- *
- * It also means `searchMemories`, which reads, writes here first. That is
- * plainly odd and is the price of asking the tokeniser rather than guessing at
- * it — and guessing at it was a real defect, not a hypothetical one: a query
- * folded one way here and another by FTS5 was priced at nothing and let a two
- * hundred million position search through.
- *
- * This is the only exception in the project and it is scoped to `temp`.
- * Anything proposing the same latitude against `main` should be refused.
- */
-const QUERY_TOKENS = 'temp.query_tokens';
-const QUERY_VOCABULARY = 'temp.query_vocabulary';
+const SCRATCH = 'temp.tokeniser_scratch';
+const SCRATCH_VOCABULARY = 'temp.tokeniser_vocabulary';
 
 /** Trigram search needs at least three characters to match on. */
 const MIN_SEARCH_LENGTH = 3;
@@ -126,90 +106,63 @@ const MIN_SEARCH_LENGTH = 3;
 /**
  * The longest query this store will run.
  *
- * This is not the bound that makes the search safe. `SEARCH_WORK_LIMIT` is,
- * and it was added after this one turned out to be at the wrong end of the
- * problem. This one stays because it is cheap and it caps the multiplier, but
- * on its own it does nothing.
+ * A search costs the number of trigrams in the query multiplied by how many
+ * times the commonest of them occurs inside a single stored memory. This bounds
+ * the first of those; {@link DENSEST_TRIGRAM_LIMIT}, refused at write time,
+ * bounds the second. Together they cap what any search can cost, which neither
+ * does alone.
  *
- * The cost is roughly the length of the query multiplied by how much matching
- * text is already stored, and the second factor has no limit at all. This
- * comment once said the number below was "the one thing standing between a
- * caller and the machine going down", and that was wrong. Measured, with a
- * query one character inside this bound, against one memory of a repeated
- * character:
- *
- *     stored 0.1 MB   ->   273 MB
- *     stored 0.4 MB   ->   874 MB
- *     stored 0.8 MB   ->   killed at 1225 MB
- *     stored 1.6 MB   ->   killed at 1210 MB
- *
- * That text is ordinary input: through `add`, which bounds nothing, or through
- * about a hundred `remember` calls each inside the adapter's own limit. So the
- * ten gigabyte allocation is still reachable, and no number chosen here can
- * close it, because the term this bound multiplies against keeps growing.
- *
- * Why it stays anyway: it is the cheap half. It stops a single caller turning
- * one search into a thousandfold multiplier, and it costs nothing to keep. It
- * is a mitigation, not a guarantee, and it must not be read as one.
- *
- * What the shape of the problem is, measured rather than reasoned about:
- *
- *   - Bounding the length of a single term does not help. Cut into 199 terms
- *     of four characters, the same 999 characters cost more, not less.
- *   - SQLite's own `hard_heap_limit` and `soft_heap_limit` are inert here.
- *     They are accepted and read back, and 871 MB was still allocated against
- *     a 128 MB limit, because Node's build sets DEFAULT_MEMSTATUS=0 and there
- *     is no accounting behind them.
- *   - `node:sqlite` exposes no interrupt and no progress handler, so a query
- *     already running cannot be stopped from JavaScript, and it is synchronous
- *     so nothing else in the process runs while it finishes.
- *   - Ordinary text is not affected. Real sentences, even the same sentence
- *     repeated to 1.6 MB, answer in single-digit milliseconds. Only text with
- *     very few distinct trigrams — repeated characters, base64, logs, pasted
- *     blobs — behaves this way.
- *   - The substring path this file already has for short terms is bounded and
- *     fast against exactly that text: 153 MB and 35 ms against a 12.8 MB store
- *     of one repeated character, where the index path dies at 0.8 MB.
- *
- * The answer in the end was neither a longer nor a shorter number here, but
- * asking the index what the search would cost and refusing it when the answer
- * is too much. That is `SEARCH_WORK_LIMIT`, below.
+ * A thousand characters is far more than a search is, and it also caps the term
+ * count, since a thousand characters cannot hold five hundred terms.
  */
 export const SEARCH_QUERY_LIMIT = 1000;
 
 /**
- * The most work a single search is allowed to be worth, before it is refused.
+ * The most times one three-character run may occur inside a single memory.
  *
- * This is the bound the query length could not be. What costs the memory is
- * not how long the query is but how much of one stored memory each of its
- * trigrams matches, so the only honest place to decide is with both in hand —
- * which is here, once, before the search runs.
+ * This is the number that makes searching safe, and it is checked once, at
+ * write time, on one document, exactly. There is no estimate in it.
  *
- * The measure is the number of trigrams in the query multiplied by the largest
- * average occurrences-per-memory among them, asked of the index itself rather
- * than guessed at. Measured against real searches:
+ * Why here and not at search time. FTS5 builds its position lists one document
+ * at a time, so what a search costs is set by the densest single memory it
+ * matches — not by the total across the store. That is measurable exactly when
+ * a memory is offered, and only guessable afterwards. It was guessed at once,
+ * from the mean occurrences per memory that `fts5vocab` reports, and the mean
+ * is the wrong statistic: a hundred ordinary memories each containing a
+ * trigram once dragged it down far enough to let a search through that took
+ * 878 MB. Fifty ordinary facts is the expected corpus, not an attack.
  *
- *     0.4 MB in one memory, 999-char query      418,169,716    869 MB
- *     0.1 MB in one memory, 999-char query      104,540,435    269 MB
- *     1.0 MB across 100 memories                 10,451,551    220 MB, 10.6 s
- *     25 MB of ordinary text, 999-char query        745,299     59 MB, 8 ms
- *     6.4 MB of ordinary text, 999-char query       763,280     62 MB, 7 ms
- *     25 MB of ordinary text, one word                5,140     89 MB, 72 ms
+ * Peak memory against the densest single memory, measured, with decoys present
+ * and absent to confirm they make no difference:
  *
- * The two groups are a hundredfold apart, and the number below sits between
- * them with about six times the headroom over the worst ordinary search
- * measured. Nothing a person or an agent searches for in earnest comes near
- * it: reaching it needs a memory made of very few distinct trigrams — a run of
- * one character, base64, a pasted log — which is exactly the text this was
- * always about.
+ *     densest      9,998   ->   103 MB    149 ms
+ *     densest     49,998   ->   175 MB    582 ms
+ *     densest     99,998   ->   268 MB   1045 ms
+ *     densest    399,998   ->   857 MB   4284 ms
  *
- * It refuses. It does not quietly return the cheap part of the answer, and it
- * must never be changed into something that does. Phase 1 took out a fifty
- * result cap and a two hundred row cap for that reason: a caller cannot tell a
- * complete answer from a shortened one, and neither can the person reading it.
- * A search this store will not run is a sentence saying so.
+ * And what ordinary text measures, which is what the limit has to clear:
+ *
+ *     one fact about a person, 44 chars           2
+ *     a note, 2 KB                               59
+ *     a pasted document, 10 KB                  304
+ *     a pasted document, 100 KB               3,042
+ *     10 KB of Chinese prose                    435
+ *     100 KB of base64                        1,786
+ *     100 KB of log lines                     4,444
+ *     400 KB of "the the the..."            100,000
+ *     400 KB of one repeated character      399,998
+ *
+ * Twenty thousand sits between them. The most a caller can send through the
+ * MCP tools is ten thousand characters, which measures about 304; the most a
+ * shell will pass in one argument is 128 KB, about 3,900. So no ordinary route
+ * into this store comes within five times the limit, and reaching it needs
+ * text that repeats itself rather than text that is merely long. Ordinary
+ * English prose would have to be about 650 KB in a single memory.
+ *
+ * The ceiling it buys: no search can cost more than a thousand trigrams times
+ * this, which measured about 100 MB and a quarter of a second.
  */
-export const SEARCH_WORK_LIMIT = 5_000_000;
+export const DENSEST_TRIGRAM_LIMIT = 20_000;
 
 /**
  * The shape of file this code knows how to read. Raise it whenever a column is
@@ -382,9 +335,8 @@ export function openStore({ file, now }) {
     // this connection and nothing about the file on disk changes, so no schema
     // version moves and a store written by this code still opens under the
     // version before it.
-    db.exec(`CREATE VIRTUAL TABLE ${VOCABULARY} USING fts5vocab(main, memories_fts, 'row')`);
-    db.exec(`CREATE VIRTUAL TABLE ${QUERY_TOKENS} USING fts5(text, tokenize='trigram')`);
-    db.exec(`CREATE VIRTUAL TABLE ${QUERY_VOCABULARY} USING fts5vocab(temp, query_tokens, 'row')`);
+    db.exec(`CREATE VIRTUAL TABLE ${SCRATCH} USING fts5(text, tokenize='trigram')`);
+    db.exec(`CREATE VIRTUAL TABLE ${SCRATCH_VOCABULARY} USING fts5vocab(temp, tokeniser_scratch, 'row')`);
   } catch (error) {
     // Nothing is handed back, so nothing else can close this.
     db.close();
@@ -878,8 +830,6 @@ export function searchMemories(store, owner, query, options = {}) {
     return searchBySubstring(store, owner, terms, includeArchived);
   }
 
-  refuseIfTooMuchWork(store, terms);
-
   const sql = `
     SELECT m.*
       FROM memories_fts f
@@ -933,97 +883,33 @@ function searchBySubstring(store, owner, terms, includeArchived) {
 }
 
 /**
- * Ask the index what this search would cost, and refuse it if the answer is
- * too much.
+ * How many times the commonest three-character run occurs in this text.
  *
- * The estimate is the number of trigrams the query will look for, multiplied
- * by the largest average occurrences-per-memory among them. `fts5vocab` is
- * where those counts come from: it is FTS5's own view of its vocabulary, so
- * this is the index reporting on itself rather than a guess about it. It costs
- * one statement — single-digit milliseconds against a 25 MB store — and it is
- * the only way to know the price before paying it, since a running query
- * cannot be stopped.
+ * Asked of FTS5 rather than counted here, using a scratch index with the same
+ * tokeniser, so the answer is the one the real index would give. Counting in
+ * JavaScript means folding case in JavaScript, and that was a real defect: a
+ * term folded one way here and another by the tokeniser was counted as absent.
  *
- * Occurrences per memory, not occurrences in total. That distinction is the
- * whole of it, and it was measured rather than assumed: a megabyte of repeated
- * characters spread over a hundred memories has the same total as a megabyte
- * in one, and costs 220 MB instead of 869, because FTS5 builds its position
- * lists a document at a time. Total occurrences predicted neither: an ordinary
- * search over 25 MB has a higher total than the one that took 869 MB, and
- * answers in eight milliseconds.
- *
- * Where this is not exact. It is an estimate of an upper bound, not a
- * simulation: the counts include memories that are archived or belong to
- * another owner, so it can read high, which errs towards refusing. That is the
- * safe direction and the only inexactness left. The one that erred the other
- * way — folding case here rather than asking the tokeniser — is gone.
+ * This is the only place in the project that writes outside a decision, and
+ * the only DELETE outside the purge script. Both are on a `temp` table that
+ * holds one copy of the text being weighed and dies with the connection. See
+ * the top of this file.
  *
  * @param {Store} store
- * @param {string[]} terms
+ * @param {string} text
+ * @returns {number} occurrences of the commonest trigram, or 0 for text with none
  */
-function refuseIfTooMuchWork(store, terms) {
+export function densestTrigram(store, text) {
   const { db } = handleOf(store);
 
-  // The trigrams come from the tokeniser rather than from folding the query
-  // here and hoping the two agree. They did not always: `İstanbul` folds one
-  // way in JavaScript and another in FTS5, so one of its trigrams was looked
-  // up under a name the index does not use, found nothing, and counted as
-  // free. That is the wrong direction for a guard to be wrong in — it let an
-  // expensive search through — and it is not fixable by folding more
-  // carefully, because the only definition that matters is the tokeniser's
-  // own. So the query is written into a scratch index with the same tokeniser
-  // and FTS5 is asked what it made of it. It costs about a third of a
-  // millisecond.
-  //
-  // One row per term, not one row for the whole query, so that no trigram is
-  // invented across the gap between two terms — the search looks for each term
-  // separately and so must the price.
-  // The project's one permitted DELETE, and only because this table is in
-  // `temp` and holds nothing but the last query priced. See QUERY_TOKENS.
-  db.prepare(`DELETE FROM ${QUERY_TOKENS}`).run();
-  const write = db.prepare(`INSERT INTO ${QUERY_TOKENS}(text) VALUES (?)`);
-  for (const term of terms) write.run(term);
+  db.prepare(`DELETE FROM ${SCRATCH}`).run();
+  db.prepare(`INSERT INTO ${SCRATCH}(text) VALUES (?)`).run(text);
 
-  /** @type {Map<string, number>} */
-  const wanted = new Map();
-  let trigrams = 0;
-  for (const row of /** @type {{term: string, cnt: number}[]} */ (
-    /** @type {unknown} */ (db.prepare(`SELECT term, cnt FROM ${QUERY_VOCABULARY}`).all())
-  )) {
-    const times = Number(row.cnt);
-    wanted.set(row.term, times);
-    trigrams += times;
-  }
-
-  if (wanted.size === 0) return;
-
-  const names = [...wanted.keys()];
-  const rows = db
-    .prepare(
-      `SELECT term, doc, cnt FROM ${VOCABULARY} WHERE term IN (${names.map(() => '?').join(',')})`,
-    )
-    .all(...names);
-
-  let densest = 0;
-  for (const row of /** @type {{term: string, doc: number, cnt: number}[]} */ (
-    /** @type {unknown} */ (rows)
-  )) {
-    const perMemory = Number(row.cnt) / Math.max(1, Number(row.doc));
-    if (perMemory > densest) densest = perMemory;
-  }
-
-  const work = Math.round(trigrams * densest);
-  if (work <= SEARCH_WORK_LIMIT) return;
-
-  throw new Error(
-    'That search would have to read through roughly ' +
-      `${work.toLocaleString('en')} positions inside a single memory, which is more than ` +
-      'this store will do at once, so nothing was searched for and nothing was returned. ' +
-      'Something stored is made of very few distinct three-character runs — a long run of ' +
-      'one character, base64, or a pasted log — and any search matching it costs far more ' +
-      'than an ordinary one. Search for something more specific, or forget the memory ' +
-      'holding that text. You have not been shown a partial answer: there is no answer here.',
+  const row = /** @type {{most: number|null}} */ (
+    /** @type {unknown} */ (db.prepare(`SELECT max(cnt) AS most FROM ${SCRATCH_VOCABULARY}`).get())
   );
+
+  return Number(row?.most ?? 0);
 }
 
 /**

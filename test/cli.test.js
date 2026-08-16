@@ -201,15 +201,17 @@ test('a search too long to run is refused at the terminal, in a sentence', async
   const env = { NOSYPARKER_STORE: path.join(dir, 'memory.sqlite') };
 
   // A hundred and twenty kilobytes is about as much as a shell will pass in a
-  // single argument, and against a store holding text those trigrams match it
-  // took a terminal past 1.2 GB and climbing. This is the hole the MCP bound
-  // did not cover.
-  const dense = 'x'.repeat(120_000);
+  // single argument, and it used to take a terminal past 1.2 GB and climbing.
+  // Ordinary prose of that length, so the write-time rule has no quarrel with
+  // it and what is under test is the query bound rather than the paste.
+  const sentence = 'I answer email in the morning and prefer meetings before noon. ';
+  const long = sentence.repeat(Math.ceil(120_000 / sentence.length)).slice(0, 120_000);
 
-  const stored = await runWatched([CLI, 'add', dense], { env, ceilingMB: 500 });
-  assert.equal(stored.code, 0, 'storing it is not the dangerous half');
+  const stored = await runWatched([CLI, 'add', long], { env, ceilingMB: 500 });
+  assert.equal(stored.code, 0);
+  assert.match(stored.out, /Stored\./u, 'ordinary prose that long is fine to store');
 
-  const searched = await runWatched([CLI, 'search', dense], { env, ceilingMB: 500 });
+  const searched = await runWatched([CLI, 'search', long], { env, ceilingMB: 500 });
 
   assert.equal(searched.signal, null, `the search was killed at ${searched.peak.toFixed(0)} MB`);
   assert.equal(searched.code, 1);
@@ -218,9 +220,15 @@ test('a search too long to run is refused at the terminal, in a sentence', async
   assert.equal(searched.err.includes('at Object'), false, 'a sentence, not a stack trace');
 
   // And an ordinary search of that same store still works.
-  const ordinary = await runWatched([CLI, 'search', 'xxx'], { env, ceilingMB: 500 });
+  const ordinary = await runWatched([CLI, 'search', 'meetings before noon'], { env, ceilingMB: 500 });
   assert.equal(ordinary.code, 0);
   assert.match(ordinary.out, /1 match/u);
+
+  // The other half at the terminal: text too repetitive to store is refused
+  // here too, not only through an agent.
+  const blob = await runWatched([CLI, 'add', 'x'.repeat(120_000)], { env, ceilingMB: 500 });
+  assert.match(blob.out, /same three characters occur/u);
+  assert.match(blob.out, /not how long it is/u);
 });
 
 

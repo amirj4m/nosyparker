@@ -391,8 +391,8 @@ function only(args, allowed) {
  * twice over: a hundred calls each inside this limit put a megabyte in the
  * store, so it bounds no total; and what a search costs turned out not to
  * depend on how the text got there at all. What keeps searching safe is
- * `SEARCH_WORK_LIMIT` in store.js, which prices each search against the index
- * before running it. This limit would be worth keeping if that one did not
+ * `DENSEST_TRIGRAM_LIMIT` in store.js, refused at write time, which stops any
+ * single memory being dense enough to make a later search expensive. This limit would be worth keeping if that one did not
  * exist, and it would not be enough.
  *
  * What it is for: an agent offering fifteen hundred words as one fact about a

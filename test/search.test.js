@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { forget, submit } from '../src/gate.js';
-import { searchMemories, SEARCH_QUERY_LIMIT, SEARCH_WORK_LIMIT } from '../src/store.js';
+import { densestTrigram, searchMemories, SEARCH_QUERY_LIMIT } from '../src/store.js';
 import { OWNER, runWatched, temporaryStore } from './helpers.js';
 
 const STORE_MODULE = new URL('../src/store.js', import.meta.url).href;
@@ -329,7 +329,6 @@ test('the bound is at the character, and every caller gets the same one', (t) =>
   );
 });
 
-
 test('a search that cannot be passed on whole is refused in our own words', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
@@ -361,65 +360,7 @@ test('a search that cannot be passed on whole is refused in our own words', (t) 
   assert.equal(searchMemories(store, OWNER, 'in').length, 1);
 });
 
-
-test('a search that would cost too much is refused before it costs it', async () => {
-  // Out of process and under a watch, because without the bound this call
-  // allocates 869 MB on its way to ten gigabytes, and a test that can do that
-  // in the runner is the thing that took the machine down.
-  const script = `
-    const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
-    (async () => {
-      const { openStore, searchMemories, recordDecision } = await import(${JSON.stringify(STORE_MODULE)});
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-work-'));
-      const store = openStore({ file: path.join(dir, 'memory.sqlite'), now: () => new Date().toISOString() });
-
-      // 0.4 MB of one repeated character: very few distinct trigrams, so every
-      // trigram of the query matches hundreds of thousands of positions in one
-      // memory. This is the shape that costs, and it arrives through ordinary
-      // calls.
-      recordDecision(store, (actions, at) => {
-        actions.insertMemory({ owner: 'o', text: 'x'.repeat(419430), at, supersedes: null });
-        return { owner: 'o', verdict: 'stored', rule: 'keep', explanation: '.', input_excerpt: '' };
-      });
-
-      try {
-        const found = searchMemories(store, 'o', 'x'.repeat(999));
-        console.log('RAN AND RETURNED ' + found.length);
-      } catch (error) {
-        console.log('REFUSED: ' + error.message);
-      }
-
-      // Refused before anything ran, so the store is untouched and usable.
-      console.log('STILL WORKS: ' + searchMemories(store, 'o', 'xxx').length);
-      store.close();
-      fs.rmSync(dir, { recursive: true, force: true });
-    })();
-  `;
-
-  const settled = 200;
-  const result = await runWatched(['-e', script], { ceilingMB: settled + 200 });
-
-  assert.equal(result.signal, null, `the child was killed at ${result.peak.toFixed(0)} MB`);
-  assert.match(result.out, /REFUSED: That search would have to read through roughly/u);
-  assert.match(result.out, /positions inside a single memory/u);
-
-  // The refusal has to be unmistakable. Phase 1 took out a fifty result cap
-  // and a two hundred row cap because a caller cannot tell a short answer from
-  // a complete one; this must never become that.
-  assert.match(result.out, /nothing was searched for and nothing was returned/u);
-  assert.match(result.out, /You have not been shown a partial answer/u);
-  assert.equal(result.out.includes('RAN AND RETURNED'), false, 'it must not answer partially');
-
-  // Ordinary searching of that same store is unaffected.
-  assert.match(result.out, /STILL WORKS: 1/u);
-
-  assert.ok(
-    result.peak < settled + 200,
-    `refusing it should cost almost nothing, and the child reached ${result.peak.toFixed(0)} MB`,
-  );
-});
-
-test('the bound refuses rather than returning less, however many match', (t) => {
+test('search refuses rather than returning less, however many match', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -433,44 +374,8 @@ test('the bound refuses rather than returning less, however many match', (t) => 
   assert.equal(searchMemories(store, OWNER, 'coffee morning').length, 250);
   assert.equal(searchMemories(store, OWNER, 'in').length, 250, 'the substring path too');
 
-  // And the work limit is a number this file reads rather than one it repeats.
-  assert.equal(SEARCH_WORK_LIMIT, 5_000_000);
-});
-
-
-test('the price of a search is asked of the tokeniser, not guessed at', async () => {
-  // U+0130, the Turkish dotted capital I, folds one way in JavaScript and
-  // another in FTS5. Pricing the query by folding it here looked up a trigram
-  // under a name the index does not use, found nothing, counted it free, and
-  // let the search through — a guard failing open, which is the wrong
-  // direction. Out of process and under a watch, because that is what the
-  // failure looks like.
-  const script = `
-    const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
-    (async () => {
-      const { openStore, searchMemories, recordDecision } = await import(${JSON.stringify(STORE_MODULE)});
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-fold-'));
-      const store = openStore({ file: path.join(dir, 'memory.sqlite'), now: () => new Date().toISOString() });
-      recordDecision(store, (actions, at) => {
-        actions.insertMemory({ owner: 'o', text: '\\u0130'.repeat(200000), at, supersedes: null });
-        return { owner: 'o', verdict: 'stored', rule: 'keep', explanation: '.', input_excerpt: '' };
-      });
-      try {
-        console.log('RAN AND RETURNED ' + searchMemories(store, 'o', '\\u0130'.repeat(999)).length);
-      } catch (error) {
-        console.log('REFUSED: ' + error.message);
-      }
-      store.close();
-      fs.rmSync(dir, { recursive: true, force: true });
-    })();
-  `;
-
-  const result = await runWatched(['-e', script], { ceilingMB: 400 });
-
-  assert.equal(result.signal, null, `the child was killed at ${result.peak.toFixed(0)} MB`);
-  assert.match(result.out, /REFUSED: That search would have to read through roughly/u);
-  assert.equal(result.out.includes('RAN AND RETURNED'), false, 'the guard failed open');
-  assert.ok(result.peak < 400, `refusing it should cost nothing, and it reached ${result.peak.toFixed(0)} MB`);
+  // And the write-time limit is read from the store rather than repeated here.
+  assert.ok(densestTrigram(store, 'x'.repeat(5_000)) > 4_000, 'the densest run is measurable');
 });
 
 test('an ordinary store answers quickly however it is shaped', (t) => {
@@ -497,67 +402,3 @@ test('an ordinary store answers quickly however it is shaped', (t) => {
   assert.ok(took < 3000, `searching 2000 ordinary memories took ${took} ms`);
 });
 
-
-test('the work limit sits between ordinary text and degenerate text, with room', (t) => {
-  // The limit was calibrated on measurement, and measurement goes stale. This
-  // pins both populations either side of it, so that changing the tokeniser,
-  // the estimate or the number itself fails here rather than on someone's
-  // machine. It asserts the gap, not the numbers: what matters is that
-  // ordinary searching is nowhere near being refused and degenerate searching
-  // is nowhere near being allowed.
-  // Checked before anything is built from it. If somebody sets this absurdly
-  // high, the degenerate search below stops being refused and starts being
-  // run — in the test runner's own process, where nothing can kill it. Failing
-  // here costs nothing and names exactly what changed.
-  assert.ok(SEARCH_WORK_LIMIT >= 1_000_000, 'too low and ordinary searching starts being refused');
-  assert.ok(SEARCH_WORK_LIMIT <= 50_000_000, 'too high and the machine goes down before we do');
-
-  const store = temporaryStore();
-  t.after(() => store.close());
-
-  const words = ['coffee', 'morning', 'berlin', 'meeting', 'prefers', 'quiet', 'office'];
-  for (let index = 0; index < 400; index += 1) {
-    const said = [`memory ${index}:`];
-    for (let word = 0; said.join(' ').length < 2000; word += 1) {
-      said.push(words[(index + word) % words.length]);
-    }
-    submit(store, { owner: OWNER, text: said.join(' ') });
-  }
-
-  // Ordinary searching, of the kind a person or an agent actually does. None
-  // of it may be refused, and it must not be close to being refused.
-  const ordinary = [
-    'coffee',
-    'coffee morning',
-    'berlin meeting quiet',
-    'memory 42',
-    'coffee morning berlin meeting prefers quiet office '.repeat(19).slice(0, 999),
-  ];
-  for (const query of ordinary) {
-    assert.doesNotThrow(
-      () => searchMemories(store, OWNER, query),
-      `an ordinary search was refused: ${query.slice(0, 40)}`,
-    );
-  }
-
-  // One memory of low-diversity text is all it takes, and it arrives through
-  // the ordinary door, inside every limit the adapter sets. Deliberately just
-  // one: at ten thousand characters the search is refused with room to spare,
-  // and on the day somebody raises the limit far enough to run it anyway it
-  // costs tens of megabytes rather than hundreds.
-  submit(store, { owner: OWNER, text: 'x'.repeat(10_000) });
-
-  assert.throws(
-    () => searchMemories(store, OWNER, 'x'.repeat(999)),
-    /would have to read through roughly/u,
-    'a search over degenerate text must still be refused',
-  );
-
-  // And ordinary searching of that same store is untouched by its presence.
-  for (const query of ordinary) {
-    assert.doesNotThrow(
-      () => searchMemories(store, OWNER, query),
-      `one degenerate memory should not refuse ordinary searches: ${query.slice(0, 30)}`,
-    );
-  }
-});
