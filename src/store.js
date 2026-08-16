@@ -3,9 +3,10 @@
  *
  * Two tables. `memories` holds what was stored, `decisions` holds why. A
  * memory is never removed here: it changes state, and the old state stays
- * readable. There is no DELETE statement anywhere in this file, and no code
- * path in this project deletes a row except `scripts/purge.mjs`, which a
- * person runs by hand.
+ * readable. No code path in this project deletes a memory or a decision except
+ * `scripts/purge.mjs`, which a person runs by hand. There is one DELETE in
+ * this file and it is a considered exception on a scratch table in `temp`;
+ * the reasoning is at {@link SCRATCH}.
  *
  * Nothing outside this file ever holds the database handle. It is not on the
  * Store object and it is not passed to callers: `recordDecision` hands the
@@ -25,10 +26,135 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-import { normaliseForComparison } from './text.js';
+import { controlCharacterIn, namedCodePoint, normaliseForComparison } from './text.js';
+
+// Why this driver and not another, with the measurements: DECISIONS.md,
+// "Which SQLite driver".
+
+/**
+ * A scratch index with the same tokeniser, and its vocabulary.
+ *
+ * Nothing is searched in it. One offered memory is written to it so FTS5 can
+ * be asked what three-character runs it made of the text and how often each
+ * occurs — the question {@link repetitionOf} answers and the gate refuses on.
+ * Asking the tokeniser rather than counting here is deliberate: folding case in
+ * JavaScript and hoping it matched was a real defect once, and the only
+ * definition that matters is the tokeniser's own.
+ *
+ * Both are `temp`: they belong to this connection, never reach the file, and
+ * hold nothing but the last text weighed.
+ *
+ * The DELETE against this table is the only one in the project outside
+ * `scripts/purge.mjs`, and it is a considered exception. The rule it bends
+ * exists so that nothing can destroy what the person told us, and a table
+ * holding one copy of text they offered a millisecond ago, which never reaches
+ * the file and dies with the connection, cannot. `memories` and `decisions`
+ * are never touched by any statement against it. This is the only exception
+ * and it is scoped to `temp`.
+ */
+const SCRATCH = 'temp.tokeniser_scratch';
+const SCRATCH_VOCABULARY = 'temp.tokeniser_vocabulary';
 
 /** Trigram search needs at least three characters to match on. */
 const MIN_SEARCH_LENGTH = 3;
+
+/**
+ * The longest query this store will run.
+ *
+ * A search costs the number of trigrams in the query multiplied by how dense
+ * those trigrams are in a single stored memory. This bounds the first of those
+ * and nothing currently bounds the second, so this does not on its own make
+ * searching safe and must not be read as if it did.
+ *
+ * A thousand characters is far more than a search is, and it caps the term
+ * count too, since a thousand characters cannot hold five hundred terms.
+ *
+ * What was tried against the other half, and why three attempts at it failed:
+ * DECISIONS.md, "Bounding what a search can cost".
+ */
+export const SEARCH_QUERY_LIMIT = 1000;
+
+/**
+ * How much a memory may repeat itself before it is refused as a file.
+ *
+ * The number is how many times the average three-character run occurs: the
+ * total runs in the text divided by how many different ones there are. One
+ * for a sentence, single figures for notes and source code, hundreds for a
+ * log, hundreds of thousands for a blob.
+ *
+ * What it is really deciding is whether this is a fact or a file. Somebody
+ * pasting a server log and saying "watch out, this happens sometimes" wants
+ * the pattern remembered, not the file kept — and the agent reading it is the
+ * one able to work out which sentence that is. So the store stays dumb and
+ * says no, and says what to send instead.
+ *
+ * Measured on real text rather than generated, at ten thousand characters,
+ * which is the most the tools accept:
+ *
+ *     a fact about a person                     1
+ *     a page of notes                           3
+ *     source code                               5
+ *     notes with separator lines between them   7
+ *     source indented twenty-four spaces       19
+ *     a markdown table                         25
+ *     a CSV                                    26
+ *     a bullet list of real notes              28
+ *     ------------------------------ limit     60
+ *     an application log                      133
+ *     a repeated stack trace                1,948
+ *     a systemd log                         4,545
+ *     base64                                4,762
+ *     one character repeated               399,998
+ *
+ * Sixty sits between the two with about twice the room on each side. Longer
+ * text scores higher for the same shape, since the different runs stop
+ * accumulating while the total does not: a hundred and sixty kilobytes of this
+ * project's own source is 22, and a hundred kilobyte CSV is 80 and would be
+ * refused through the command line, which takes no length limit of its own.
+ * That is the intended answer — a hundred kilobyte CSV is a file.
+ *
+ * Where it does not work, said plainly. A log with genuinely varied lines is
+ * not caught: an nginx access log with a different address and path on every
+ * line scores 6.6 at ten thousand characters, well inside the limit. This
+ * refuses files that repeat themselves, which is most of them, and not files
+ * as such.
+ *
+ * And it can be walked past on purpose, by mixing a long dense run with filler
+ * varied enough to pull the average down. That shape passes this rule at every
+ * length — 10.6 at ten thousand characters, 13.1 at two hundred and ten
+ * thousand, 16.0 at four hundred and forty thousand, against a limit of sixty.
+ * It does not need to be large to get past; it gets past at any size, and gets
+ * expensive as it grows. One such memory was reported costing 856 MB.
+ *
+ * So {@link TEXT_LIMIT} is the only thing that stops it, which is why that one
+ * is checked first and lives in the gate. Written down because the next person
+ * to look will build the same thing, and the answer is that the length rule
+ * stops it and this one never will. DECISIONS.md, "Walking past the repetition
+ * rule", has the measurements.
+ */
+export const REPETITION_LIMIT = 60;
+
+/**
+ * The longest text this store will take, and the longest reason for putting
+ * something away.
+ *
+ * A memory is one fact about a person; ten thousand characters is about
+ * fifteen hundred words, and anything offering more than that as a single fact
+ * has misunderstood the tool.
+ *
+ * Enforced by the gate, which is the only place every caller passes through.
+ * It was in the MCP adapter first, which left `nosyparker add` taking text of
+ * any length; then at both doors, which left `submit` unbounded for a library
+ * caller — and Phase 4's review loop would be one. Three times a bound was put
+ * at the entrances and a new entrance turned up behind it.
+ *
+ * What it was holding shut, so the number is not mistaken for tidiness: a
+ * memory holding a long dense run with enough variety mixed in to score under
+ * {@link REPETITION_LIMIT} is cheap to store and expensive to search, and one
+ * such memory cost 856 MB and 4.8 seconds. Ten thousand characters is the cap
+ * that makes it unreachable.
+ */
+export const TEXT_LIMIT = 10_000;
 
 /**
  * The shape of file this code knows how to read. Raise it whenever a column is
@@ -195,6 +321,13 @@ export function openStore({ file, now }) {
 
   try {
     prepareSchema(db, file);
+
+    db.exec(`CREATE VIRTUAL TABLE ${SCRATCH} USING fts5(text, tokenize='trigram')`);
+    db.exec(`CREATE VIRTUAL TABLE ${SCRATCH_VOCABULARY} USING fts5vocab(temp, tokeniser_scratch, 'row')`);
+
+    // Created in `temp`, on purpose: they belong to this connection and
+    // nothing about the file on disk changes, so no schema version moves and a
+    // store written by this code still opens under the version before it.
   } catch (error) {
     // Nothing is handed back, so nothing else can close this.
     db.close();
@@ -585,18 +718,84 @@ export function listMemories(store, owner, options = {}) {
 /**
  * Full text search. Active only unless asked otherwise.
  *
- * @param {Store} store
- * @param {string} owner
  * There is no limit and no default page size. A search that quietly returned
  * the first fifty of eighty matches would be worse than useless: the caller
  * cannot tell a complete answer from a truncated one, and neither can the
- * person reading it.
+ * person reading it. What this does instead, when a search would cost too
+ * much, is refuse it and say so.
  *
+ * Two things it does not do, known and decided rather than missed.
+ *
+ * A search cannot be stopped once it has started: `node:sqlite` exposes no
+ * interrupt and no progress handler, and it is synchronous, so nothing else in
+ * the process runs meanwhile.
+ *
+ * And what a search costs is bounded in memory but not in time. Two limits do
+ * the bounding between them: no memory may be longer than
+ * {@link TEXT_LIMIT}, and none may repeat itself past
+ * {@link REPETITION_LIMIT}. The worst that fits inside both is about nine and a
+ * half thousand dense characters in one memory, and one search of it costs
+ * around 91 MB. Ordinary stores answer in 112 to 175 ms at 36 MB.
+ *
+ * Time is the half that is not bounded, because that cost is multiplied by how
+ * many memories match and nothing caps how many there are. A thousand memories
+ * at the worst shape both limits allow take 92 seconds for one search, and it
+ * cannot be interrupted.
+ *
+ * Both limits are gate rules, so every caller passes them — the tools, the
+ * terminal, and anything that calls `submit` directly.
+ *
+ * What was tried, what each costs, and what fixing either would mean:
+ * DECISIONS.md, "Why a search cannot be interrupted".
+ *
+ * @param {Store} store
+ * @param {string} owner
  * @param {string} query
  * @param {{includeArchived?: boolean}} [options]
  * @returns {Memory[]}
  */
 export function searchMemories(store, owner, query, options = {}) {
+  // First, before the query is split, normalised or handed to anything. A
+  // guard against an oversized input has to refuse it while it is still just
+  // a string the caller passed; anything this function does to it first is
+  // an allocation the size of the input, which is the thing being refused.
+  //
+  // Length is `.length` rather than a count of characters, for the same
+  // reason: counting characters means spreading the string into an array as
+  // long as it is. `.length` counts the sixteen bit pieces, so it never
+  // reports fewer characters than there are, and a bound that errs towards
+  // refusing is the right way for this one to be wrong.
+  //
+  // Nothing has been read or written at this point. There is no transaction
+  // open, no statement prepared, and no row touched, so a refused search
+  // leaves the store exactly as it found it.
+  if (query.length > SEARCH_QUERY_LIMIT) {
+    throw new Error(
+      `That search is longer than this store will run: the limit is ${SEARCH_QUERY_LIMIT} ` +
+        `characters and this one is ${query.length}. Nothing was searched for. Look for the ` +
+        'words that matter rather than for a whole document.',
+    );
+  }
+
+  // A control character in a query does not survive being handed to FTS5
+  // either. The query is built into a quoted string for the MATCH, and a NUL
+  // ends that string early inside SQLite's own parser, which answered with
+  // `unterminated string` — a C parser's message about its own internals,
+  // handed back to a person as though it were something they had done.
+  //
+  // Refused here rather than translated, and for the same reason the gate
+  // refuses it in a memory: a query that cannot be passed on whole is not a
+  // query this store can honestly answer. One sentence, from the same idea,
+  // for every caller.
+  const unreadable = controlCharacterIn(query);
+  if (unreadable !== null) {
+    throw new Error(
+      `That search contains ${namedCodePoint(unreadable)}, which is not something text is ` +
+        'made of, so nothing was searched for. A character like that cannot be passed on ' +
+        'whole. Send the search again without it.',
+    );
+  }
+
   const terms = query.trim().split(/\s+/u).filter((term) => term !== '');
   if (terms.length === 0) return [];
 
@@ -660,6 +859,43 @@ function searchBySubstring(store, owner, terms, includeArchived) {
   return /** @type {Memory[]} */ (
     /** @type {unknown} */ (handleOf(store).db.prepare(sql).all(owner, ...wanted))
   );
+}
+
+/**
+ * How many times the average three-character run occurs in this text.
+ *
+ * The total number of runs divided by how many different ones there are, both
+ * asked of FTS5 rather than counted here, so the answer is the one the real
+ * index would give. Counting in JavaScript means folding case in JavaScript,
+ * and a term folded one way here and another by the tokeniser was counted as
+ * absent once already.
+ *
+ * The average and not the commonest run. That distinction is the whole of it
+ * and it was measured: the commonest run ranks a deeply indented source file
+ * above a document of one word repeated a hundred thousand times, because a
+ * single run of spaces dominates a file that is varied everywhere else. The
+ * average sees the variety.
+ *
+ * @param {Store} store
+ * @param {string} text
+ * @returns {number} runs per distinct run, or 0 for text too short to have any
+ */
+export function repetitionOf(store, text) {
+  const { db } = handleOf(store);
+
+  // The project's one permitted DELETE. See SCRATCH.
+  db.prepare(`DELETE FROM ${SCRATCH}`).run();
+  db.prepare(`INSERT INTO ${SCRATCH}(text) VALUES (?)`).run(text);
+
+  const row = /** @type {{different: number, total: number|null}} */ (
+    /** @type {unknown} */ (
+      db.prepare(`SELECT count(*) AS different, sum(cnt) AS total FROM ${SCRATCH_VOCABULARY}`).get()
+    )
+  );
+
+  const different = Number(row?.different ?? 0);
+  if (different === 0) return 0;
+  return Number(row.total) / different;
 }
 
 /**

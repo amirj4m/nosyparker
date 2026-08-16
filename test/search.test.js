@@ -8,8 +8,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { forget, submit } from '../src/gate.js';
-import { searchMemories } from '../src/store.js';
-import { OWNER, temporaryStore } from './helpers.js';
+import { searchMemories, SEARCH_QUERY_LIMIT } from '../src/store.js';
+import { OWNER, runWatched, temporaryStore } from './helpers.js';
+
+const STORE_MODULE = new URL('../src/store.js', import.meta.url).href;
+const GATE_MODULE = new URL('../src/gate.js', import.meta.url).href;
 
 test('search finds Persian, Arabic, Chinese and English', (t) => {
   const store = temporaryStore();
@@ -252,4 +255,188 @@ test('punctuation in a query is treated as text to look for, not as syntax', (t)
 
   assert.equal(searchMemories(store, OWNER, '"long form"').length, 1);
   assert.doesNotThrow(() => searchMemories(store, OWNER, 'NEAR(a b) OR *'));
+});
+
+test('a query the store will not run is refused before it costs anything', async () => {
+  // Run in a child, under a watch that kills it, and never in the test runner.
+  // Without the bound this exact call allocated about ten gigabytes inside
+  // SQLite and the kernel killed the machine's sessions. A test that could do
+  // that again on the day somebody removes the bound would be worse than no
+  // test at all.
+  const script = `
+    const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+    (async () => {
+      const { openStore, searchMemories } = await import(${JSON.stringify(STORE_MODULE)});
+      const { submit } = await import(${JSON.stringify(GATE_MODULE)});
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-bound-'));
+      const store = openStore({ file: path.join(dir, 'memory.sqlite'), now: () => new Date().toISOString() });
+
+      // An ordinary memory for the query to work against. Repeated characters
+      // are refused as a file now, which is right and is not what this is
+      // about.
+      submit(store, { owner: 'o', text: 'she studied architecture in Milan and answers email before noon' });
+
+      try {
+        searchMemories(store, 'o', 'x'.repeat(1000000));
+        console.log('RAN IT');
+      } catch (error) {
+        console.log('REFUSED: ' + error.message);
+      }
+
+      // Refused before anything was read or written, so the store still works.
+      console.log('STILL WORKS: ' + searchMemories(store, 'o', 'architecture').length);
+      store.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    })();
+  `;
+
+  const settled = 200;
+  const result = await runWatched(['-e', script], { ceilingMB: settled + 400 });
+
+  assert.equal(result.signal, null, `the child was killed at ${result.peak.toFixed(0)} MB`);
+  assert.match(result.out, /REFUSED: That search is longer than this store will run/u);
+  assert.match(result.out, /the limit is 1000 characters and this one is 1000000/u);
+  assert.match(result.out, /STILL WORKS: 1/u, 'an ordinary search of the same store still works');
+
+  assert.ok(
+    result.peak < settled + 400,
+    `refusing it should cost nothing, and the child reached ${result.peak.toFixed(0)} MB`,
+  );
+});
+
+test('the bound is at the character, and every caller gets the same one', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  submit(store, { owner: OWNER, text: 'I live in Berlin' });
+
+  // Checked first, before a single character is built from it, and that order
+  // is the whole safety of this test. The lengths below are derived from the
+  // constant, so if somebody raised it to something enormous this test would
+  // otherwise be the thing that built an enormous query — in the test runner's
+  // own process, where there is nothing to kill it. Failing here instead costs
+  // nothing and says exactly what changed.
+  //
+  // The number is read from the store rather than written down again. Two
+  // copies that have to agree is how one sentence became three in Phase 1.
+  assert.equal(SEARCH_QUERY_LIMIT, 1000);
+
+  // Now safe: a thousand characters either side of a bound that is a thousand.
+  assert.equal(searchMemories(store, OWNER, 'x'.repeat(SEARCH_QUERY_LIMIT)).length, 0);
+  assert.throws(
+    () => searchMemories(store, OWNER, 'x'.repeat(SEARCH_QUERY_LIMIT + 1)),
+    /longer than this store will run/u,
+  );
+});
+
+test('a search that cannot be passed on whole is refused in our own words', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  submit(store, { owner: OWNER, text: 'I live in Berlin' });
+
+  // Three characters or more takes the index path, which builds the query
+  // into a quoted string for MATCH. A NUL ended that string inside SQLite's
+  // own parser and the bare words "unterminated string" came back out to the
+  // caller — a C parser's complaint about its internals, dressed as an answer.
+  const nul = String.fromCharCode(0);
+
+  for (const query of [`Berlin${nul}x`, `ab${nul}`, `${nul}`, `one${nul}two three`]) {
+    assert.throws(
+      () => searchMemories(store, OWNER, query),
+      /** @param {unknown} error */
+      (error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        assert.match(message, /not something text is made of/u);
+        assert.match(message, /U\+0000/u);
+        assert.equal(/unterminated/iu.test(message), false, 'SQLite used to speak for itself here');
+        return true;
+      },
+    );
+  }
+
+  // Ordinary searches are untouched, on both paths.
+  assert.equal(searchMemories(store, OWNER, 'Berlin').length, 1);
+  assert.equal(searchMemories(store, OWNER, 'in').length, 1);
+});
+
+test('search refuses rather than returning less, however many match', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  // Well past the fifty and two hundred that Phase 1 removed, so a cap
+  // reintroduced anywhere would show up here as a short answer.
+  for (let index = 0; index < 250; index += 1) {
+    submit(store, { owner: OWNER, text: `memory ${index}: I drink coffee in the morning` });
+  }
+
+  assert.equal(searchMemories(store, OWNER, 'coffee').length, 250);
+  assert.equal(searchMemories(store, OWNER, 'coffee morning').length, 250);
+  assert.equal(searchMemories(store, OWNER, 'in').length, 250, 'the substring path too');
+});
+
+test('an ordinary store answers quickly however it is shaped', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  // 2.9 MB of ordinary text, the same size the review reported taking 29.5
+  // seconds. It took that long because the text was one repeated character,
+  // not because the store was large: growing is not what makes search slow.
+  const words = ['coffee', 'morning', 'berlin', 'meeting', 'prefers', 'quiet', 'office'];
+  for (let index = 0; index < 2000; index += 1) {
+    const said = [`memory ${index}:`];
+    for (let word = 0; said.join(' ').length < 1500; word += 1) {
+      said.push(words[(index + word) % words.length]);
+    }
+    submit(store, { owner: OWNER, text: said.join(' ') });
+  }
+
+  const started = Date.now();
+  const found = searchMemories(store, OWNER, 'coffee');
+  const took = Date.now() - started;
+
+  assert.equal(found.length, 2000, 'every match, not a page of them');
+  assert.ok(took < 3000, `searching 2000 ordinary memories took ${took} ms`);
+});
+
+
+
+test('the short-term path is bounded too, and nothing rests on it being cheap', async () => {
+  // Any query with a term under three characters skips the index entirely and
+  // scans with instr(). That path never had a guard on it — the safety rested
+  // on it happening to be cheap, which nothing checked. This checks it, out of
+  // process and under a watch, against the text that breaks the other path.
+  const script = `
+    const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+    (async () => {
+      const { openStore, searchMemories, recordDecision } = await import(${JSON.stringify(STORE_MODULE)});
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-short-'));
+      const store = openStore({ file: path.join(dir, 'memory.sqlite'), now: () => new Date().toISOString() });
+
+      // Written straight through the store's own action, past the gate, so
+      // this is the worst case even a store that predates the rule could hold.
+      for (let index = 0; index < 40; index += 1) {
+        recordDecision(store, (actions, at) => {
+          actions.insertMemory({ owner: 'o', text: 'x'.repeat(400_000), at, supersedes: null });
+          return { owner: 'o', verdict: 'stored', rule: 'keep', explanation: '.', input_excerpt: '' };
+        });
+      }
+
+      const started = process.hrtime.bigint();
+      // A two-character term forces every term onto the substring path.
+      const found = searchMemories(store, 'o', 'x'.repeat(900) + ' ab');
+      console.log('SCANNED ' + found.length + ' in ' + Number((process.hrtime.bigint() - started) / 1000000n) + ' ms');
+      store.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    })();
+  `;
+
+  const result = await runWatched(['-e', script], { ceilingMB: 400 });
+
+  assert.equal(result.signal, null, `the substring path reached ${result.peak.toFixed(0)} MB`);
+  assert.match(result.out, /SCANNED/u);
+  assert.ok(
+    result.peak < 400,
+    `16 MB of the worst text cost ${result.peak.toFixed(0)} MB on the substring path`,
+  );
 });

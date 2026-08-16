@@ -8,12 +8,9 @@
  * the only difference is the warning.
  */
 
-import { defaultStorePath, systemClock } from './config.js';
-import { forget, restore, submit } from './gate.js';
+import { defaultStorePath, LOCAL_OWNER, systemClock } from './config.js';
+import { forget, restore, screenQuery, submit } from './gate.js';
 import { listDecisions, listMemories, openStore, searchMemories } from './store.js';
-
-/** Phase 1 is one person on one machine, so there is one owner. */
-const LOCAL_OWNER = 'local';
 
 main(process.argv.slice(2));
 
@@ -25,7 +22,20 @@ function main(argv) {
 
   if (!command) fail('No command was given.');
 
-  const store = openStore({ file: defaultStorePath(), now: systemClock });
+  // Opening can fail, and the one way it is meant to is worth catching: a
+  // store written by a different version of this code is refused at the door,
+  // in a sentence that names the file and says what to do about it. That
+  // sentence was being printed under a stack trace, to somebody at a terminal
+  // who wanted to store a line about how they take their coffee — which is the
+  // failure the search path was already wrapped to avoid, on the same reasoning
+  // and in the same file.
+  /** @type {import('./store.js').Store} */
+  let store;
+  try {
+    store = openStore({ file: defaultStorePath(), now: systemClock });
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
 
   try {
     switch (command) {
@@ -97,7 +107,26 @@ function runSearch(store, args) {
   const query = args.join(' ');
   if (query.trim() === '') fail('Say what to look for: nosyparker search "<query>"');
 
-  const found = searchMemories(store, LOCAL_OWNER, query);
+  // The same screen an agent gets, so a secret typed at the terminal is
+  // refused and written to the log here too rather than only through a tool.
+  const refused = screenQuery(store, { owner: LOCAL_OWNER, query });
+  if (refused) {
+    process.stdout.write(`${refused.explanation}\n`);
+    return;
+  }
+
+  // The store refuses a query too long to run, or one carrying a character
+  // that cannot be passed on whole. It says so in a sentence; this puts that
+  // sentence on the terminal instead of a stack trace, which is what a person
+  // typing gets otherwise and which tells them nothing they can act on.
+  /** @type {import('./store.js').Memory[]} */
+  let found;
+  try {
+    found = searchMemories(store, LOCAL_OWNER, query);
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
+
   if (found.length === 0) {
     process.stdout.write('Nothing matched.\n');
     return;

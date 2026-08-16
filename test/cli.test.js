@@ -11,6 +11,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
+
+import { runWatched } from './helpers.js';
 
 const CLI = path.join(import.meta.dirname, '..', 'src', 'cli.js');
 
@@ -191,3 +194,84 @@ function commandRunner(t) {
     return { code: result.status, out: result.stdout, err: result.stderr };
   };
 }
+
+test('a search too long to run is refused at the terminal, in a sentence', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-cli-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const env = { NOSYPARKER_STORE: path.join(dir, 'memory.sqlite') };
+
+  // A hundred and twenty kilobytes is about as much as a shell will pass in a
+  // single argument, and a query that long used to take a terminal past 1.2 GB
+  // and climbing. What is under test is the query bound, so the memory it
+  // searches is an ordinary one.
+  const sentence = 'I answer email in the morning and prefer meetings before noon. ';
+  const long = sentence.repeat(Math.ceil(120_000 / sentence.length)).slice(0, 120_000);
+
+  const stored = await runWatched([CLI, 'add', 'I prefer meetings before noon'], { env, ceilingMB: 500 });
+  assert.equal(stored.code, 0);
+  assert.match(stored.out, /Stored\./u);
+
+  // And the same paste as a memory is refused. At the terminal it is the
+  // length that catches it first — that bound was missing here for the whole
+  // of Phase 2, and it was the only way to store something a later search
+  // could not afford.
+  // A gate refusal, so it is an answer on stdout and not an error: the same
+  // shape as being told a memory is already stored.
+  const pasted = await runWatched([CLI, 'add', long], { env, ceilingMB: 500 });
+  assert.equal(pasted.code, 0);
+  assert.match(pasted.out, /the limit is 10,000/u);
+  assert.match(pasted.out, /keep it in a file and store what matters about it/u);
+
+  // Under that length, a log is still refused for what it is.
+  const log = '2026-08-16T09:14:22.031Z INFO  request handled status=200\n'.repeat(150);
+  const shortLog = await runWatched([CLI, 'add', log.slice(0, 9_000)], { env, ceilingMB: 500 });
+  assert.match(shortLog.out, /reads as a file rather than something to remember/u);
+
+  // And a reason is bounded the same way.
+  const reason = await runWatched([CLI, 'forget', '1', long], { env, ceilingMB: 500 });
+  assert.equal(reason.code, 0);
+  assert.match(reason.out, /the limit is 10,000/u);
+
+  const searched = await runWatched([CLI, 'search', long], { env, ceilingMB: 500 });
+
+  assert.equal(searched.signal, null, `the search was killed at ${searched.peak.toFixed(0)} MB`);
+  assert.equal(searched.code, 1);
+  assert.match(searched.err, /That search is longer than this store will run/u);
+  assert.match(searched.err, /the limit is 1000 characters/u);
+  assert.equal(searched.err.includes('at Object'), false, 'a sentence, not a stack trace');
+
+  // And an ordinary search of that same store still works.
+  const ordinary = await runWatched([CLI, 'search', 'meetings before noon'], { env, ceilingMB: 500 });
+  assert.equal(ordinary.code, 0);
+  assert.match(ordinary.out, /1 match/u);
+});
+
+
+test('a store this code cannot read is refused in a sentence, not a stack trace', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-cli-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'memory.sqlite');
+
+  // A real store, stamped with a version this code does not know.
+  /** @param {string[]} args */
+  const run = (args) => spawnSync(process.execPath, [CLI, ...args], {
+    encoding: 'utf8', env: { ...process.env, NOSYPARKER_STORE: file },
+  });
+  assert.equal(run(['add', 'I live in Berlin']).status, 0);
+
+  const db = new DatabaseSync(file);
+  db.exec('PRAGMA user_version = 99');
+  db.close();
+
+  const opened = run(['list']);
+  assert.equal(opened.status, 1);
+  assert.match(opened.stderr, /written by a newer version of nosyparker/u);
+  assert.match(opened.stderr, /schema version 99/u);
+
+  // The sentence names the file, which is the whole point of it.
+  assert.ok(opened.stderr.includes(file), 'the message should name the file');
+
+  // And it is a sentence rather than a stack trace under one.
+  assert.equal(/^\s*at /mu.test(opened.stderr), false, opened.stderr);
+  assert.equal(opened.stderr.includes('throw'), false);
+});
