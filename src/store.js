@@ -25,7 +25,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-import { normaliseForComparison } from './text.js';
+import { controlCharacterIn, namedCodePoint, normaliseForComparison } from './text.js';
 
 /** Trigram search needs at least three characters to match on. */
 const MIN_SEARCH_LENGTH = 3;
@@ -668,6 +668,25 @@ export function searchMemories(store, owner, query, options = {}) {
       `That search is longer than this store will run: the limit is ${SEARCH_QUERY_LIMIT} ` +
         `characters and this one is ${query.length}. Nothing was searched for. Look for the ` +
         'words that matter rather than for a whole document.',
+    );
+  }
+
+  // A control character in a query does not survive being handed to FTS5
+  // either. The query is built into a quoted string for the MATCH, and a NUL
+  // ends that string early inside SQLite's own parser, which answered with
+  // `unterminated string` — a C parser's message about its own internals,
+  // handed back to a person as though it were something they had done.
+  //
+  // Refused here rather than translated, and for the same reason the gate
+  // refuses it in a memory: a query that cannot be passed on whole is not a
+  // query this store can honestly answer. One sentence, from the same idea,
+  // for every caller.
+  const unreadable = controlCharacterIn(query);
+  if (unreadable !== null) {
+    throw new Error(
+      `That search contains ${namedCodePoint(unreadable)}, which is not something text is ` +
+        'made of, so nothing was searched for. A character like that cannot be passed on ' +
+        'whole. Send the search again without it.',
     );
   }
 

@@ -328,3 +328,35 @@ test('the bound is at the character, and every caller gets the same one', (t) =>
     /longer than this store will run/u,
   );
 });
+
+
+test('a search that cannot be passed on whole is refused in our own words', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  submit(store, { owner: OWNER, text: 'I live in Berlin' });
+
+  // Three characters or more takes the index path, which builds the query
+  // into a quoted string for MATCH. A NUL ended that string inside SQLite's
+  // own parser and the bare words "unterminated string" came back out to the
+  // caller — a C parser's complaint about its internals, dressed as an answer.
+  const nul = String.fromCharCode(0);
+
+  for (const query of [`Berlin${nul}x`, `ab${nul}`, `${nul}`, `one${nul}two three`]) {
+    assert.throws(
+      () => searchMemories(store, OWNER, query),
+      /** @param {unknown} error */
+      (error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        assert.match(message, /not something text is made of/u);
+        assert.match(message, /U\+0000/u);
+        assert.equal(/unterminated/iu.test(message), false, 'SQLite used to speak for itself here');
+        return true;
+      },
+    );
+  }
+
+  // Ordinary searches are untouched, on both paths.
+  assert.equal(searchMemories(store, OWNER, 'Berlin').length, 1);
+  assert.equal(searchMemories(store, OWNER, 'in').length, 1);
+});
