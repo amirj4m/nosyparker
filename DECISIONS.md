@@ -50,16 +50,17 @@ degenerate corpus and query costs 868 MB under `node:sqlite` and 875 MB under
 
 ## Bounding what a search can cost
 
-*Pointed at from `SEARCH_QUERY_LIMIT` and `DENSEST_TRIGRAM_LIMIT` in
-`src/store.js`.*
+*Pointed at from `SEARCH_QUERY_LIMIT` in `src/store.js`.*
 
-A search costs the number of trigrams in the query multiplied by how many times
-the commonest of them occurs **inside a single stored memory**. FTS5 builds its
-position lists one document at a time, so the densest single memory sets the
-cost of every search that matches it.
+**This is unsolved.** Three attempts, all recorded here because all three
+looked right and none was, and because the next attempt should start from what
+they measured rather than from intuition.
 
-This took three attempts, and the first two are worth recording because both
-looked right.
+A search costs the number of trigrams in the query multiplied by how dense
+those trigrams are in a single stored memory. FTS5 builds its position lists one
+document at a time, so a single memory sets the cost of every search matching
+it — but *which* property of that memory decides the cost is exactly what none
+of the three got right.
 
 **Bounding the query alone.** A thousand-character limit, on the theory that
 the query was the multiplier. It is one of two, and the other has no ceiling.
@@ -85,55 +86,54 @@ enough to let an 878 MB search through. One repetitive pasted document plus
 fifty normal memories was enough. The store got safer the emptier it was, which
 is backwards.
 
-**Refusing the document at write time.** What makes any search expensive is one
-stored memory with a huge per-trigram count, and that is measurable exactly,
-once, on one document, when it is offered. No estimate, no mean-versus-maximum
-inference. It is also where the refusal is actionable: the person learns the
-document is too repetitive while they still have it in their hand, rather than
-through a search failing next week for reasons they cannot connect to anything.
+**Refusing the document at write time.** Measuring the densest trigram of the
+offered text exactly, once, and refusing above a limit. Shipped, then removed,
+because the metric does not separate the two populations. Measured over a real
+corpus:
 
-Confirmed that this is the right quantity — decoy memories do not move the peak
-at all (164 MB against 173 MB with two hundred of them), and the peak tracks
-the densest single memory linearly:
-
-| densest trigram | peak | time |
+| text | chars | densest trigram |
 | --- | --- | --- |
-| 9,998 | 103 MB | 149 ms |
-| 49,998 | 175 MB | 582 ms |
-| 99,998 | 268 MB | 1045 ms |
-| 399,998 | 857 MB | 4284 ms |
+| English prose, 10,000 | 10,000 | 233 |
+| English prose, 1,000,000 | 1,000,000 | 23,413 |
+| this project's README | 2,641 | 30 |
+| a source file (store.js) | 33,348 | 1,002 |
+| source indented 24 spaces, 2,000 lines | 129,779 | **44,000** |
+| source indented 24 spaces, 6,000 lines | 393,779 | **132,000** |
+| CSV, 20,000 rows | 948,917 | 20,715 |
+| a 5,000-line bullet list | 314,999 | 7,583 |
+| a log line repeated 5,000 times | 365,000 | **5,000** |
+| base64, 400 KB | 400,000 | **4,762** |
+| "the the the…", 400 KB | 400,000 | 100,000 |
+| 400 KB of one character | 400,000 | 399,998 |
 
-And what ordinary text measures, which is what the limit has to clear:
+A deeply indented source file scores 132,000 and a document of the word "the"
+repeated a hundred thousand times scores 100,000. The canonical degenerate
+cases — a repeated log line, a base64 blob — score lower per character than
+ordinary English prose. There is no threshold that admits the first group and
+refuses the second, and a relative ratio inverts the same way.
 
-| text | densest trigram |
-| --- | --- |
-| one fact about a person, 44 chars | 2 |
-| a note, 2 KB | 59 |
-| a pasted document, 10 KB | 304 |
-| a pasted document, 100 KB | 3,042 |
-| 10 KB of Chinese prose | 435 |
-| 100 KB of base64 | 1,786 |
-| 100 KB of log lines | 4,444 |
-| **limit** | **20,000** |
-| 400 KB of "the the the…" | 100,000 |
-| 400 KB of one repeated character | 399,998 |
+Measured cost confirms the metric is the wrong one. Each document searched with
+a 999-character slice of itself:
 
-The most a caller can send through the MCP tools is ten thousand characters,
-about 304. The most a shell passes in one argument is 128 KB, about 3,900. No
-ordinary route comes within five times the limit, and ordinary English prose
-would have to be about 650 KB in a single memory to reach it.
+| text | densest | peak | time |
+| --- | --- | --- | --- |
+| English prose, 1 MB | 23,413 | 92 MB | 55 ms |
+| source indented 24, 2,000 lines | 44,000 | 91 MB | 48 ms |
+| CSV, 20,000 rows | 40,000 | 119 MB | 60 ms |
+| source indented 24, 6,000 lines | 132,000 | 165 MB | 133 ms |
+| log line × 5,000 | 5,000 | 79 MB | 47 ms |
+| base64, 400 KB | 4,762 | 80 MB | 44 ms |
+| "the the the", 400 KB | 100,000 | 263 MB | 882 ms |
+| 400 KB of one character | 399,998 | 834 MB | 3,828 ms |
 
-The ceiling it buys: no search can cost more than a thousand trigrams times the
-limit, measured at 127 MB and 249 ms.
+132,000 costs less than 100,000. Any metric that cannot explain that inversion
+is measuring the wrong thing: what makes a search expensive is not how dense
+the commonest trigram is, but how much of the query is made of dense ones.
 
-Two things that are not available, both checked rather than assumed. SQLite's
-`hard_heap_limit` and `soft_heap_limit` are inert here — accepted, read back,
-and 871 MB still allocated against a 128 MB limit — because Node's build sets
-`DEFAULT_MEMSTATUS=0`. And the read-side estimate was removed rather than kept
-as a second line of defence: it was wrong, an exact read-time check is not
-available cheaply since `fts5vocab` reports no per-document maximum, and it
-carried a virtual table and ninety lines of reasoning for a guarantee the
-write-time rule now makes exactly.
+**So nothing currently bounds what a search costs.** One memory of 400 KB of a
+repeated character takes 834 MB, and larger takes the machine down. That is an
+open defect. `SEARCH_QUERY_LIMIT` caps one of the two multipliers and nothing
+caps the other.
 
 ## Why a search cannot be interrupted
 
@@ -151,19 +151,11 @@ costs 988 ms. Doing the ranking ourselves gives byte-identical ordering and
 moves the first row to 436 ms, because `bm25` wants its global statistics up
 front — better, and still not abandonable.
 
-What it costs today, on stores where every memory passed the write-time rule:
-
-| store | one search |
-| --- | --- |
-| 2,000 ordinary memories, 36 MB | 112 ms and 175 ms |
-| 400 memories of near-limit text | 70 s |
-| 2,000 memories of near-limit text | 373 s |
-
-Memory is bounded — no search exceeds about 127 MB. Time is that per-document
-cost multiplied by how many documents match, and nothing caps the number of
-documents. Six minutes needs a store deliberately filled with two thousand
-blobs each just under the limit: not growth, and not somebody's memories, but
-reachable one legal call at a time.
+What it costs today. Ordinary stores answer fast — 112 ms and 175 ms for 2,000
+memories at 36 MB. But with no bound on what a single document may cost, a
+search can run for minutes, or take the machine down, and it cannot be stopped
+once it starts. These were measured while a write-time rule was in place and
+are the optimistic numbers; without it the memory ceiling is gone too.
 
 There is no bound on time because nothing predicts it. A query with 43 million
 total occurrences answers in 7 ms while another with 105 million takes 1094 ms,

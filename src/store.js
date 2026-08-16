@@ -3,22 +3,9 @@
  *
  * Two tables. `memories` holds what was stored, `decisions` holds why. A
  * memory is never removed here: it changes state, and the old state stays
- * readable. No code path in this project deletes a memory or a decision except
- * `scripts/purge.mjs`, which a person runs by hand.
- *
- * There is one DELETE in this file, and it is a considered exception rather
- * than an oversight. It empties `temp.query_tokens`, a scratch index that
- * exists for one purpose: to hand a search query to FTS5 so the tokeniser can
- * be asked what it made of it. Read the reasoning at that constant. The rule
- * it sits under is not "no DELETE" for its own sake — it is that nothing can
- * destroy what the person told us, and a table holding a copy of the query
- * somebody typed a millisecond ago, which never reaches the file and dies with
- * the connection, cannot. `memories` and `decisions` are what the rule is
- * about and neither is touched.
- *
- * This is the only exception, and it is scoped to `temp`. A DELETE against
- * anything in `main` is the thing the whole project exists to prevent, and no
- * argument of this shape should be accepted for one.
+ * readable. There is no DELETE statement anywhere in this file, and no code
+ * path in this project deletes a row except `scripts/purge.mjs`, which a
+ * person runs by hand.
  *
  * Nothing outside this file ever holds the database handle. It is not on the
  * Store object and it is not passed to callers: `recordDecision` hands the
@@ -43,66 +30,24 @@ import { controlCharacterIn, namedCodePoint, normaliseForComparison } from './te
 // Why this driver and not another, with the measurements: DECISIONS.md,
 // "Which SQLite driver".
 
-/**
- * A scratch index with the same tokeniser, and its vocabulary.
- *
- * Nothing is searched in it. One offered memory is written to it so that FTS5
- * can be asked how often its commonest three-character run occurs — the number
- * {@link densestTrigram} returns and the gate refuses on. Asking the tokeniser
- * rather than counting here is deliberate: folding case in JavaScript and
- * hoping it matched was a real defect once, and the only definition that
- * matters is the tokeniser's own.
- *
- * Both are `temp`. They belong to this connection, never reach the file, and
- * hold nothing but the last text measured.
- *
- * The DELETE against this table is the only one in the project outside
- * `scripts/purge.mjs`, and it is a considered exception. See the top of this
- * file.
- */
-const SCRATCH = 'temp.tokeniser_scratch';
-const SCRATCH_VOCABULARY = 'temp.tokeniser_vocabulary';
-
 /** Trigram search needs at least three characters to match on. */
 const MIN_SEARCH_LENGTH = 3;
 
 /**
  * The longest query this store will run.
  *
- * A search costs the number of trigrams in the query multiplied by how many
- * times the commonest of them occurs inside a single stored memory. This
- * bounds the first; {@link DENSEST_TRIGRAM_LIMIT} bounds the second. Neither
- * is enough alone.
+ * A search costs the number of trigrams in the query multiplied by how dense
+ * those trigrams are in a single stored memory. This bounds the first of those
+ * and nothing currently bounds the second, so this does not on its own make
+ * searching safe and must not be read as if it did.
  *
  * A thousand characters is far more than a search is, and it caps the term
  * count too, since a thousand characters cannot hold five hundred terms.
  *
- * Why this was not enough on its own, and what was measured: DECISIONS.md,
- * "Bounding what a search can cost".
+ * What was tried against the other half, and why three attempts at it failed:
+ * DECISIONS.md, "Bounding what a search can cost".
  */
 export const SEARCH_QUERY_LIMIT = 1000;
-
-/**
- * The most times one three-character run may occur inside a single memory.
- *
- * This is the number that makes searching safe, and it is checked once, at
- * write time, on one document, exactly. There is no estimate in it.
- *
- * FTS5 builds its position lists one document at a time, so what a search
- * costs is set by the densest single memory it matches, not by the total
- * across the store. That is measurable exactly when a memory is offered and
- * only guessable afterwards — and it was guessed at, from the wrong statistic,
- * and let an 878 MB search through.
- *
- * Twenty thousand clears ordinary text by a wide margin: the most the MCP
- * tools accept measures about 304, the most a shell passes in one argument
- * about 3,900. Reaching it needs text that repeats itself rather than text
- * that is merely long.
- *
- * The measurements behind the number, and what ordinary text of each kind
- * scores: DECISIONS.md, "Bounding what a search can cost".
- */
-export const DENSEST_TRIGRAM_LIMIT = 20_000;
 
 /**
  * The shape of file this code knows how to read. Raise it whenever a column is
@@ -275,8 +220,6 @@ export function openStore({ file, now }) {
     // this connection and nothing about the file on disk changes, so no schema
     // version moves and a store written by this code still opens under the
     // version before it.
-    db.exec(`CREATE VIRTUAL TABLE ${SCRATCH} USING fts5(text, tokenize='trigram')`);
-    db.exec(`CREATE VIRTUAL TABLE ${SCRATCH_VOCABULARY} USING fts5vocab(temp, tokeniser_scratch, 'row')`);
   } catch (error) {
     // Nothing is handed back, so nothing else can close this.
     db.close();
@@ -679,10 +622,11 @@ export function listMemories(store, owner, options = {}) {
  * interrupt and no progress handler, and it is synchronous, so nothing else in
  * the process runs meanwhile.
  *
- * And there is no bound on how long a search may take, only on how much memory
- * it may need. Ordinary stores answer in 112 to 175 ms at 36 MB. A store
- * deliberately filled with two thousand memories each just under
- * {@link DENSEST_TRIGRAM_LIMIT} takes six minutes, and cannot be interrupted.
+ * And nothing bounds what a search costs in either memory or time. Ordinary
+ * stores answer in 112 to 175 ms at 36 MB. One memory of 400 KB of a single
+ * repeated character takes 834 MB and four seconds, and a larger one takes the
+ * machine down — which is an open defect, not a limitation, and DECISIONS.md
+ * says what is known about it.
  *
  * What was tried, what each costs, and what fixing either would mean:
  * DECISIONS.md, "Why a search cannot be interrupted".
@@ -798,36 +742,6 @@ function searchBySubstring(store, owner, terms, includeArchived) {
   return /** @type {Memory[]} */ (
     /** @type {unknown} */ (handleOf(store).db.prepare(sql).all(owner, ...wanted))
   );
-}
-
-/**
- * How many times the commonest three-character run occurs in this text.
- *
- * Asked of FTS5 rather than counted here, using a scratch index with the same
- * tokeniser, so the answer is the one the real index would give. Counting in
- * JavaScript means folding case in JavaScript, and that was a real defect: a
- * term folded one way here and another by the tokeniser was counted as absent.
- *
- * This is the only place in the project that writes outside a decision, and
- * the only DELETE outside the purge script. Both are on a `temp` table that
- * holds one copy of the text being weighed and dies with the connection. See
- * the top of this file.
- *
- * @param {Store} store
- * @param {string} text
- * @returns {number} occurrences of the commonest trigram, or 0 for text with none
- */
-export function densestTrigram(store, text) {
-  const { db } = handleOf(store);
-
-  db.prepare(`DELETE FROM ${SCRATCH}`).run();
-  db.prepare(`INSERT INTO ${SCRATCH}(text) VALUES (?)`).run(text);
-
-  const row = /** @type {{most: number|null}} */ (
-    /** @type {unknown} */ (db.prepare(`SELECT max(cnt) AS most FROM ${SCRATCH_VOCABULARY}`).get())
-  );
-
-  return Number(row?.most ?? 0);
 }
 
 /**

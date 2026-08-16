@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { forget, submit } from '../src/gate.js';
-import { densestTrigram, searchMemories, SEARCH_QUERY_LIMIT } from '../src/store.js';
+import { searchMemories, SEARCH_QUERY_LIMIT } from '../src/store.js';
 import { OWNER, runWatched, temporaryStore } from './helpers.js';
 
 const STORE_MODULE = new URL('../src/store.js', import.meta.url).href;
@@ -373,9 +373,6 @@ test('search refuses rather than returning less, however many match', (t) => {
   assert.equal(searchMemories(store, OWNER, 'coffee').length, 250);
   assert.equal(searchMemories(store, OWNER, 'coffee morning').length, 250);
   assert.equal(searchMemories(store, OWNER, 'in').length, 250, 'the substring path too');
-
-  // And the write-time limit is read from the store rather than repeated here.
-  assert.ok(densestTrigram(store, 'x'.repeat(5_000)) > 4_000, 'the densest run is measurable');
 });
 
 test('an ordinary store answers quickly however it is shaped', (t) => {

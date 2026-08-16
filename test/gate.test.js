@@ -8,13 +8,7 @@ import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
 import { forget, restore, submit } from '../src/gate.js';
-import {
-  DENSEST_TRIGRAM_LIMIT,
-  densestTrigram,
-  getMemory,
-  listDecisions,
-  listMemories,
-} from '../src/store.js';
+import { getMemory, listDecisions, listMemories } from '../src/store.js';
 import { OWNER, temporaryStore } from './helpers.js';
 
 test('rule 1: a credential is refused', (t) => {
@@ -325,20 +319,25 @@ test('every call writes exactly one decision row, refusals included', (t) => {
   }
 });
 
-test('the gate has twelve rule names and no more', () => {
-  // Twelve outcomes, so twelve names. Nine were written down in the
+test('the gate has eleven rule names and no more', () => {
+  // Eleven outcomes, so eleven names. Nine were written down in the
   // specification; `restored` is the tenth, because a restore that works has
   // to say which rule answered it and none of the other nine is that rule.
-  // `control-character` is the eleventh and `too-repetitive` the twelfth, and
-  // the vocabulary was opened for each deliberately — see the note at the top
-  // of gate.js for why each is a rule rather than a check somewhere else.
+  // `control-character` is the eleventh and the vocabulary was opened for it
+  // deliberately — see the note at the top of gate.js for why it is a rule
+  // rather than a check somewhere else.
+  //
+  // It was twelve for a while. `too-repetitive` was added to refuse text that
+  // would make later searches slow, and taken out again when measurement
+  // showed it ranked a deeply indented source file as worse than a document of
+  // one word repeated a hundred thousand times. Closing the vocabulary back to
+  // eleven is part of removing it.
   //
   // Written out in full on purpose. Loosening this to a count, or to a subset
   // that new names slip past, is how the check stops being one.
   const VOCABULARY = [
     'credential',
     'control-character',
-    'too-repetitive',
     'empty',
     'already-stored',
     'replaces-unknown',
@@ -535,7 +534,6 @@ test('what is stored is what reads back, for every memory in the file', (t) => {
   }
 });
 
-
 test('rule 3 also covers a reason that says nothing, and leaves its row', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
@@ -559,79 +557,3 @@ test('rule 3 also covers a reason that says nothing, and leaves its row', (t) =>
   assert.equal(forget(store, { owner: OWNER, id, reason: 'I eat fish again' }).verdict, 'forgotten');
 });
 
-
-test('rule 4: text too repetitive to search is refused, and leaves a row', (t) => {
-  const store = temporaryStore();
-  t.after(() => store.close());
-
-  const refused = submit(store, { owner: OWNER, text: 'x'.repeat(100_000) });
-
-  assert.equal(refused.verdict, 'refused');
-  assert.equal(refused.rule, 'too-repetitive');
-  assert.equal(listMemories(store, OWNER, { includeArchived: true }).length, 0);
-
-  // The sentence has to be about repetition, not length, or a person pasting
-  // a long ordinary document reads it and changes the wrong thing.
-  assert.match(refused.explanation, /same three characters occur/u);
-  assert.match(refused.explanation, /not how long it is/u);
-  assert.match(refused.explanation, /ordinary writing of this length is fine/u);
-
-  const [decision] = listDecisions(store, OWNER);
-  assert.equal(decision.rule, 'too-repetitive');
-});
-
-test('rule 4 clears ordinary text by a wide margin, in any language', (t) => {
-  const store = temporaryStore();
-  t.after(() => store.close());
-
-  const sentence = 'I answer email in the morning and prefer meetings before noon. ';
-  const chinese = '我住在柏林并且喜欢安静的办公室因为我需要思考。';
-  const fine = [
-    ['one fact', 'I prefer to be written to in short sentences'],
-    ['a 2 KB note', sentence.repeat(33).slice(0, 2_000)],
-    ['a 10 KB paste', sentence.repeat(162).slice(0, 10_000)],
-    ['a 100 KB paste', sentence.repeat(1_613).slice(0, 100_000)],
-    ['10 KB of Chinese', chinese.repeat(455).slice(0, 10_000)],
-    ['100 KB of log lines', '2026-08-16T09:00:00Z INFO request handled ok\n'.repeat(2_223).slice(0, 100_000)],
-  ];
-
-  for (const [what, text] of fine) {
-    const result = submit(store, { owner: OWNER, text });
-    assert.equal(result.verdict, 'stored', `${what} should have been stored`);
-    assert.ok(
-      densestTrigram(store, text) < DENSEST_TRIGRAM_LIMIT / 4,
-      `${what} is closer to the limit than it should be: ${densestTrigram(store, text)}`,
-    );
-  }
-});
-
-test('rule 4 catches what actually poisons a search, including prose that repeats', (t) => {
-  const store = temporaryStore();
-  t.after(() => store.close());
-
-  const bad = [
-    ['400 KB of one character', 'x'.repeat(400_000)],
-    ['400 KB of "the the the"', 'the '.repeat(100_000)],
-    ['a 30 KB run inside ordinary text', `I pasted this in by mistake: ${'y'.repeat(30_000)} sorry`],
-  ];
-
-  for (const [what, text] of bad) {
-    assert.equal(submit(store, { owner: OWNER, text }).rule, 'too-repetitive', `${what} got through`);
-  }
-  assert.equal(listMemories(store, OWNER, { includeArchived: true }).length, 0);
-});
-
-test('rule 4 is measured on the offered memory alone, not on the store around it', (t) => {
-  const store = temporaryStore();
-  t.after(() => store.close());
-
-  // This is where the read-time estimate went wrong: ordinary memories
-  // containing the same run dragged the average down and let the dense one
-  // through. A per-document measurement cannot be moved by its neighbours.
-  for (let index = 0; index < 100; index += 1) {
-    submit(store, { owner: OWNER, text: `note ${index} mentioning xxx in passing` });
-  }
-
-  assert.equal(submit(store, { owner: OWNER, text: 'x'.repeat(100_000) }).rule, 'too-repetitive');
-  assert.equal(listMemories(store, OWNER).length, 100, 'and the ordinary ones are untouched');
-});

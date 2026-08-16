@@ -733,6 +733,5 @@ test('the descriptions say what an agent will otherwise learn by being refused',
 
   const remember = of('remember');
   assert.match(remember, /ten thousand characters/u);
-  assert.match(remember, /repeats itself/u, 'remember refuses repetitive text and never said so');
   assert.match(remember, /credential/iu);
 });

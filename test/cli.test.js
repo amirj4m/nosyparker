@@ -223,12 +223,6 @@ test('a search too long to run is refused at the terminal, in a sentence', async
   const ordinary = await runWatched([CLI, 'search', 'meetings before noon'], { env, ceilingMB: 500 });
   assert.equal(ordinary.code, 0);
   assert.match(ordinary.out, /1 match/u);
-
-  // The other half at the terminal: text too repetitive to store is refused
-  // here too, not only through an agent.
-  const blob = await runWatched([CLI, 'add', 'x'.repeat(120_000)], { env, ceilingMB: 500 });
-  assert.match(blob.out, /same three characters occur/u);
-  assert.match(blob.out, /not how long it is/u);
 });
 
 

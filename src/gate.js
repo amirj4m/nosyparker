@@ -16,11 +16,10 @@
  *   1. credential        refused, and the text is not written down anywhere
  *   2. control-character refused, and the text is not written down either
  *   3. empty             refused
- *   4. too-repetitive    refused, because it would make every later search slow
- *   5. already-stored    refused
- *   6. replaces-unknown  refused, so a wrong id cannot retire the wrong memory
- *   7. replaces          stored, and the named memory is superseded
- *   8. keep              stored
+ *   4. already-stored    refused
+ *   5. replaces-unknown  refused, so a wrong id cannot retire the wrong memory
+ *   6. replaces          stored, and the named memory is superseded
+ *   7. keep              stored
  *
  * Rule 2 is the eleventh name in a vocabulary that was closed at ten, and it
  * was opened on purpose. It is here rather than in the adapter because the
@@ -37,16 +36,6 @@
  * rule at all: an agent that walks into this leaves a mark. The blank-reason
  * check in the adapter is not a rule and left nothing, which is exactly how a
  * NUL walked past it.
- *
- * Rule 4 is the twelfth name, and it is here for the same kind of reason.
- * What makes a search expensive is one stored memory in which some
- * three-character run occurs a very large number of times; FTS5 works a
- * document at a time, so the densest single memory sets the cost of every
- * search that matches it. That is exactly measurable when the memory is
- * offered and only guessable afterwards — and guessing it wrong let a search
- * through that took 878 MB. So it is decided here, once, on one document, and
- * the person hears about it while they still have the thing in their hand
- * rather than through a search failing next week for no reason they can see.
  *
  * `forget` and `restore` are separate entry points and are not part of the
  * submit path. Both are content to repeat themselves: forgetting something
@@ -66,14 +55,7 @@
  */
 
 import { detectCredential, credentialExplanation, credentialPlaceholder } from './credentials.js';
-import {
-  DENSEST_TRIGRAM_LIMIT,
-  densestTrigram,
-  findDuplicate,
-  getMemory,
-  PURGED_REPLACEMENT_REASON,
-  recordDecision,
-} from './store.js';
+import { findDuplicate, getMemory, PURGED_REPLACEMENT_REASON, recordDecision } from './store.js';
 import { controlCharacterIn, isBlank, namedCodePoint } from './text.js';
 
 /**
@@ -228,30 +210,7 @@ export function submit(store, { owner, text, replaces = null }) {
         };
       }
 
-      // 4. too-repetitive. Before the duplicate check rather than after, so
-      // that the expensive question is asked of text we are still willing to
-      // consider — and because a caller retrying a refused paste should meet
-      // the same answer each time rather than a different one.
-      const densest = densestTrigram(store, text);
-      if (densest > DENSEST_TRIGRAM_LIMIT) {
-        return {
-          owner,
-          verdict: 'refused',
-          rule: 'too-repetitive',
-          explanation:
-            `Nothing was stored. The same three characters occur ${densest.toLocaleString('en')} ` +
-            `times over in that text, and this store will not take more than ` +
-            `${DENSEST_TRIGRAM_LIMIT.toLocaleString('en')} — past that, every later search of ` +
-            'your memories has to read through all of it and slows down for good. This is ' +
-            'about how much the text repeats itself, not how long it is: ordinary writing ' +
-            'of this length is fine, and a document that is mostly one thing over and over ' +
-            'is not. If it is a log, a key dump or a pasted blob, keep it in a file and ' +
-            'store the fact about it instead.',
-          input_excerpt: excerpt(text),
-        };
-      }
-
-      // 5. already-stored. Read here, inside the lock, so that two identical
+      // 4. already-stored. Read here, inside the lock, so that two identical
       // submissions arriving together cannot both find nothing.
       const duplicate = findDuplicate(store, owner, text);
       if (duplicate) {
@@ -267,7 +226,7 @@ export function submit(store, { owner, text, replaces = null }) {
         };
       }
 
-      // 6. replaces-unknown. The default read is active only, which is exactly
+      // 5. replaces-unknown. The default read is active only, which is exactly
       // what this rule needs: a replaced or forgotten id is not a valid target.
       const target = replaces === null ? null : getMemory(store, owner, replaces);
       if (replaces !== null && target === null) {
@@ -283,7 +242,7 @@ export function submit(store, { owner, text, replaces = null }) {
         };
       }
 
-      // 7. replaces.
+      // 6. replaces.
       if (target !== null) {
         const newId = actions.insertMemory({ owner, text, at, supersedes: target.id });
         actions.retire({ owner, id: target.id, at, supersededBy: newId });
@@ -301,7 +260,7 @@ export function submit(store, { owner, text, replaces = null }) {
         };
       }
 
-      // 8. keep.
+      // 7. keep.
       return {
         owner,
         verdict: 'stored',
