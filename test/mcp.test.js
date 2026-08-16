@@ -715,3 +715,24 @@ test('a secret offered to recall leaves the same mark as one offered to remember
   await say(agent, 'recall', { query: 'coffee' });
   assert.equal((await say(agent, 'why', {})).split('\n\n').length, 3, 'a clean search is not a decision');
 });
+
+
+test('the descriptions say what an agent will otherwise learn by being refused', async (t) => {
+  const agent = await connect(t, freshStoreFile(t));
+  const { tools } = await agent.listTools();
+  /** @param {string} name */
+  const of = (name) => tools.find((tool) => tool.name === name)?.description ?? '';
+
+  // Every refusal an agent can meet should be findable before it meets one.
+  // Learning by being told no is the retry loop these descriptions exist to
+  // prevent.
+  const recall = of('recall');
+  assert.match(recall, /credential/iu, 'recall refuses secrets and never said so');
+  assert.match(recall, /thousand characters/u, 'recall has a length limit and never said so');
+  assert.match(recall, /refused for what it would cost/u, 'a search can be refused for cost');
+
+  const remember = of('remember');
+  assert.match(remember, /ten thousand characters/u);
+  assert.match(remember, /repeats itself/u, 'remember refuses repetitive text and never said so');
+  assert.match(remember, /credential/iu);
+});
