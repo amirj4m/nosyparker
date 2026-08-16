@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
 
 import { runWatched } from './helpers.js';
 
@@ -220,4 +221,34 @@ test('a search too long to run is refused at the terminal, in a sentence', async
   const ordinary = await runWatched([CLI, 'search', 'xxx'], { env, ceilingMB: 500 });
   assert.equal(ordinary.code, 0);
   assert.match(ordinary.out, /1 match/u);
+});
+
+
+test('a store this code cannot read is refused in a sentence, not a stack trace', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-cli-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'memory.sqlite');
+
+  // A real store, stamped with a version this code does not know.
+  /** @param {string[]} args */
+  const run = (args) => spawnSync(process.execPath, [CLI, ...args], {
+    encoding: 'utf8', env: { ...process.env, NOSYPARKER_STORE: file },
+  });
+  assert.equal(run(['add', 'I live in Berlin']).status, 0);
+
+  const db = new DatabaseSync(file);
+  db.exec('PRAGMA user_version = 99');
+  db.close();
+
+  const opened = run(['list']);
+  assert.equal(opened.status, 1);
+  assert.match(opened.stderr, /written by a newer version of nosyparker/u);
+  assert.match(opened.stderr, /schema version 99/u);
+
+  // The sentence names the file, which is the whole point of it.
+  assert.ok(opened.stderr.includes(file), 'the message should name the file');
+
+  // And it is a sentence rather than a stack trace under one.
+  assert.equal(/^\s*at /mu.test(opened.stderr), false, opened.stderr);
+  assert.equal(opened.stderr.includes('throw'), false);
 });

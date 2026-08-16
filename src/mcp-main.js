@@ -87,7 +87,22 @@ const INSTRUCTIONS = [
   'intended behaviour rather than a failure to work around.',
 ].join('\n');
 
-const store = openStore({ file: defaultStorePath(), now: systemClock });
+// The same catch as the command line tool's, and it matters more here. A
+// store this code cannot read is refused at the door with a sentence naming
+// the file; thrown, it goes to stderr as a stack trace, and a client shows a
+// server that would not start with no reason a person can act on. Written as
+// one line on stderr — never stdout, which belongs to the protocol — it lands
+// in the client's log where somebody will actually find it.
+/** @type {import('./store.js').Store} */
+let store;
+try {
+  store = openStore({ file: defaultStorePath(), now: systemClock });
+} catch (error) {
+  process.stderr.write(
+    `nosyparker: ${error instanceof Error ? error.message : String(error)}\n`,
+  );
+  process.exit(1);
+}
 
 const server = new Server(
   { name: 'nosyparker', version },

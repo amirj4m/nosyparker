@@ -22,7 +22,20 @@ function main(argv) {
 
   if (!command) fail('No command was given.');
 
-  const store = openStore({ file: defaultStorePath(), now: systemClock });
+  // Opening can fail, and the one way it is meant to is worth catching: a
+  // store written by a different version of this code is refused at the door,
+  // in a sentence that names the file and says what to do about it. That
+  // sentence was being printed under a stack trace, to somebody at a terminal
+  // who wanted to store a line about how they take their coffee — which is the
+  // failure the search path was already wrapped to avoid, on the same reasoning
+  // and in the same file.
+  /** @type {import('./store.js').Store} */
+  let store;
+  try {
+    store = openStore({ file: defaultStorePath(), now: systemClock });
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
 
   try {
     switch (command) {
