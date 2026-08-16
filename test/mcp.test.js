@@ -275,11 +275,10 @@ test('a query far too long to be a search is refused, and nothing is allocated f
   const agent = await connect(t, freshStoreFile(t));
   const pid = /** @type {number} */ (serverPids.get(agent));
 
-  // A memory of one repeated character indexes as thousands of identical
-  // trigrams. That is the other half of the bug: it is what a long query
-  // matches against, and the position lists for the match are what SQLite
-  // built ten gigabytes of.
-  await say(agent, 'remember', { text: 'x'.repeat(9000) });
+  // An ordinary memory, long enough for a long query to have something to
+  // work against. Repeated characters would be refused as a file now, which
+  // is right and is not what this test is about.
+  await say(agent, 'remember', { text: ordinary(9000) });
 
   const settled = residentMB(pid);
   const watch = watchResident(pid, settled + 400);
@@ -303,19 +302,19 @@ test('a query far too long to be a search is refused, and nothing is allocated f
   assert.match(many, /longer than this store will run/u);
 
   // And an ordinary search of the same store still works.
-  assert.match(await say(agent, 'recall', { query: 'xxx' }), /1 match/u);
+  assert.match(await say(agent, 'recall', { query: 'architecture in Milan' }), /1 match/u);
 });
 
 test('text and reasons are bounded, at the character rather than near it', async (t) => {
   const agent = await connect(t, freshStoreFile(t));
 
-  assert.match(await say(agent, 'remember', { text: 'a'.repeat(10_000) }), /Stored\./u);
+  assert.match(await say(agent, 'remember', { text: ordinary(10_000) }), /Stored\./u);
   assert.match(
-    await say(agent, 'remember', { text: 'b'.repeat(10_001) }),
+    await say(agent, 'remember', { text: ordinary(10_001) }),
     /limit is 10000 characters/u,
   );
   assert.match(
-    await say(agent, 'forget', { id: 1, reason: 'c'.repeat(10_001) }),
+    await say(agent, 'forget', { id: 1, reason: ordinary(10_001) }),
     /limit is 10000 characters/u,
   );
   assert.match(await say(agent, 'recall', { query: 'd'.repeat(1000) }), /Nothing matched/u);
@@ -325,7 +324,7 @@ test('text and reasons are bounded, at the character rather than near it', async
   assert.equal((await say(agent, 'why', {})).split('\n\n').length, 1);
 
   // Memory 1 was not put away by the refused reason.
-  assert.match(await say(agent, 'list', {}), /^1\. a{10}/mu);
+  assert.match(await say(agent, 'list', {}), /^1\. 0 I answer email/mu);
 });
 
 test('a message too large for the connection says so instead of dying quietly', async (t) => {
@@ -735,3 +734,24 @@ test('the descriptions say what an agent will otherwise learn by being refused',
   assert.match(remember, /ten thousand characters/u);
   assert.match(remember, /credential/iu);
 });
+
+/**
+ * Text of a given length that reads like something a person would write, for
+ * tests that need bulk rather than a particular string. Repeated characters
+ * would now be refused as a file, which is correct and is not what those tests
+ * are about.
+ *
+ * @param {number} length
+ * @returns {string}
+ */
+function ordinary(length) {
+  const said = ['I answer email before noon', 'the deadline moved to Thursday',
+    'she prefers short meetings', 'we cycle to the office on Fridays',
+    'my passport expires in April', 'the invoice was paid last week',
+    'winters here are grey and long', 'she studied architecture in Milan'];
+  let text = '';
+  for (let index = 0; text.length < length; index += 1) {
+    text += `${index} ${said[index % said.length]}. `;
+  }
+  return text.slice(0, length);
+}

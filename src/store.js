@@ -3,9 +3,10 @@
  *
  * Two tables. `memories` holds what was stored, `decisions` holds why. A
  * memory is never removed here: it changes state, and the old state stays
- * readable. There is no DELETE statement anywhere in this file, and no code
- * path in this project deletes a row except `scripts/purge.mjs`, which a
- * person runs by hand.
+ * readable. No code path in this project deletes a memory or a decision except
+ * `scripts/purge.mjs`, which a person runs by hand. There is one DELETE in
+ * this file and it is a considered exception on a scratch table in `temp`;
+ * the reasoning is at {@link SCRATCH}.
  *
  * Nothing outside this file ever holds the database handle. It is not on the
  * Store object and it is not passed to callers: `recordDecision` hands the
@@ -30,6 +31,30 @@ import { controlCharacterIn, namedCodePoint, normaliseForComparison } from './te
 // Why this driver and not another, with the measurements: DECISIONS.md,
 // "Which SQLite driver".
 
+/**
+ * A scratch index with the same tokeniser, and its vocabulary.
+ *
+ * Nothing is searched in it. One offered memory is written to it so FTS5 can
+ * be asked what three-character runs it made of the text and how often each
+ * occurs — the question {@link repetitionOf} answers and the gate refuses on.
+ * Asking the tokeniser rather than counting here is deliberate: folding case in
+ * JavaScript and hoping it matched was a real defect once, and the only
+ * definition that matters is the tokeniser's own.
+ *
+ * Both are `temp`: they belong to this connection, never reach the file, and
+ * hold nothing but the last text weighed.
+ *
+ * The DELETE against this table is the only one in the project outside
+ * `scripts/purge.mjs`, and it is a considered exception. The rule it bends
+ * exists so that nothing can destroy what the person told us, and a table
+ * holding one copy of text they offered a millisecond ago, which never reaches
+ * the file and dies with the connection, cannot. `memories` and `decisions`
+ * are never touched by any statement against it. This is the only exception
+ * and it is scoped to `temp`.
+ */
+const SCRATCH = 'temp.tokeniser_scratch';
+const SCRATCH_VOCABULARY = 'temp.tokeniser_vocabulary';
+
 /** Trigram search needs at least three characters to match on. */
 const MIN_SEARCH_LENGTH = 3;
 
@@ -48,6 +73,53 @@ const MIN_SEARCH_LENGTH = 3;
  * DECISIONS.md, "Bounding what a search can cost".
  */
 export const SEARCH_QUERY_LIMIT = 1000;
+
+/**
+ * How much a memory may repeat itself before it is refused as a file.
+ *
+ * The number is how many times the average three-character run occurs: the
+ * total runs in the text divided by how many different ones there are. One
+ * for a sentence, single figures for notes and source code, hundreds for a
+ * log, hundreds of thousands for a blob.
+ *
+ * What it is really deciding is whether this is a fact or a file. Somebody
+ * pasting a server log and saying "watch out, this happens sometimes" wants
+ * the pattern remembered, not the file kept — and the agent reading it is the
+ * one able to work out which sentence that is. So the store stays dumb and
+ * says no, and says what to send instead.
+ *
+ * Measured on real text rather than generated, at ten thousand characters,
+ * which is the most the tools accept:
+ *
+ *     a fact about a person                     1
+ *     a page of notes                           3
+ *     source code                               5
+ *     notes with separator lines between them   7
+ *     source indented twenty-four spaces       19
+ *     a markdown table                         25
+ *     a CSV                                    26
+ *     a bullet list of real notes              28
+ *     ------------------------------ limit     60
+ *     an application log                      133
+ *     a repeated stack trace                1,948
+ *     a systemd log                         4,545
+ *     base64                                4,762
+ *     one character repeated               399,998
+ *
+ * Sixty sits between the two with about twice the room on each side. Longer
+ * text scores higher for the same shape, since the different runs stop
+ * accumulating while the total does not: a hundred and sixty kilobytes of this
+ * project's own source is 22, and a hundred kilobyte CSV is 80 and would be
+ * refused through the command line, which takes no length limit of its own.
+ * That is the intended answer — a hundred kilobyte CSV is a file.
+ *
+ * Where it does not work, said plainly: a log with genuinely varied lines is
+ * not caught. An nginx access log with a different address and path on every
+ * line scores 6.6 at ten thousand characters, well inside the limit. This
+ * refuses files that repeat themselves, which is most of them, and not files
+ * as such.
+ */
+export const REPETITION_LIMIT = 60;
 
 /**
  * The shape of file this code knows how to read. Raise it whenever a column is
@@ -214,6 +286,9 @@ export function openStore({ file, now }) {
 
   try {
     prepareSchema(db, file);
+
+    db.exec(`CREATE VIRTUAL TABLE ${SCRATCH} USING fts5(text, tokenize='trigram')`);
+    db.exec(`CREATE VIRTUAL TABLE ${SCRATCH_VOCABULARY} USING fts5vocab(temp, tokeniser_scratch, 'row')`);
 
     // FTS5's own view of its vocabulary, which is what tells a search what it
     // would cost before it runs. Created in `temp`, on purpose: it belongs to
@@ -742,6 +817,43 @@ function searchBySubstring(store, owner, terms, includeArchived) {
   return /** @type {Memory[]} */ (
     /** @type {unknown} */ (handleOf(store).db.prepare(sql).all(owner, ...wanted))
   );
+}
+
+/**
+ * How many times the average three-character run occurs in this text.
+ *
+ * The total number of runs divided by how many different ones there are, both
+ * asked of FTS5 rather than counted here, so the answer is the one the real
+ * index would give. Counting in JavaScript means folding case in JavaScript,
+ * and a term folded one way here and another by the tokeniser was counted as
+ * absent once already.
+ *
+ * The average and not the commonest run. That distinction is the whole of it
+ * and it was measured: the commonest run ranks a deeply indented source file
+ * above a document of one word repeated a hundred thousand times, because a
+ * single run of spaces dominates a file that is varied everywhere else. The
+ * average sees the variety.
+ *
+ * @param {Store} store
+ * @param {string} text
+ * @returns {number} runs per distinct run, or 0 for text too short to have any
+ */
+export function repetitionOf(store, text) {
+  const { db } = handleOf(store);
+
+  // The project's one permitted DELETE. See SCRATCH.
+  db.prepare(`DELETE FROM ${SCRATCH}`).run();
+  db.prepare(`INSERT INTO ${SCRATCH}(text) VALUES (?)`).run(text);
+
+  const row = /** @type {{different: number, total: number|null}} */ (
+    /** @type {unknown} */ (
+      db.prepare(`SELECT count(*) AS different, sum(cnt) AS total FROM ${SCRATCH_VOCABULARY}`).get()
+    )
+  );
+
+  const different = Number(row?.different ?? 0);
+  if (different === 0) return 0;
+  return Number(row.total) / different;
 }
 
 /**

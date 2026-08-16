@@ -8,7 +8,13 @@ import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
 import { forget, restore, submit } from '../src/gate.js';
-import { getMemory, listDecisions, listMemories } from '../src/store.js';
+import {
+  getMemory,
+  listDecisions,
+  listMemories,
+  REPETITION_LIMIT,
+  repetitionOf,
+} from '../src/store.js';
 import { OWNER, temporaryStore } from './helpers.js';
 
 test('rule 1: a credential is refused', (t) => {
@@ -319,25 +325,27 @@ test('every call writes exactly one decision row, refusals included', (t) => {
   }
 });
 
-test('the gate has eleven rule names and no more', () => {
-  // Eleven outcomes, so eleven names. Nine were written down in the
+test('the gate has twelve rule names and no more', () => {
+  // Twelve outcomes, so twelve names. Nine were written down in the
   // specification; `restored` is the tenth, because a restore that works has
   // to say which rule answered it and none of the other nine is that rule.
-  // `control-character` is the eleventh and the vocabulary was opened for it
-  // deliberately — see the note at the top of gate.js for why it is a rule
-  // rather than a check somewhere else.
+  // `control-character` is the eleventh and `file-not-fact` the twelfth, each
+  // opened deliberately — see the note at the top of gate.js for why each is a
+  // rule rather than a check somewhere else.
   //
-  // It was twelve for a while. `too-repetitive` was added to refuse text that
-  // would make later searches slow, and taken out again when measurement
+  // The twelfth slot was used once before, by `too-repetitive`, which refused
+  // text that looked expensive to search. It was removed when measurement
   // showed it ranked a deeply indented source file as worse than a document of
-  // one word repeated a hundred thousand times. Closing the vocabulary back to
-  // eleven is part of removing it.
+  // one word repeated a hundred thousand times, and the vocabulary closed back
+  // to eleven before opening again for this one. That history is why this list
+  // is written out rather than counted.
   //
-  // Written out in full on purpose. Loosening this to a count, or to a subset
-  // that new names slip past, is how the check stops being one.
+  // Loosening this to a count, or to a subset that new names slip past, is how
+  // the check stops being one.
   const VOCABULARY = [
     'credential',
     'control-character',
+    'file-not-fact',
     'empty',
     'already-stored',
     'replaces-unknown',
@@ -557,3 +565,115 @@ test('rule 3 also covers a reason that says nothing, and leaves its row', (t) =>
   assert.equal(forget(store, { owner: OWNER, id, reason: 'I eat fish again' }).verdict, 'forgotten');
 });
 
+
+
+test('rule 4: a file pasted as a memory is refused, and leaves a row', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const log = '2026-08-16T09:14:22.031Z INFO  request handled  status=200 duration=14ms\n';
+  const refused = submit(store, { owner: OWNER, text: log.repeat(400) });
+
+  assert.equal(refused.verdict, 'refused');
+  assert.equal(refused.rule, 'file-not-fact');
+  assert.equal(listMemories(store, OWNER, { includeArchived: true }).length, 0);
+
+  // The sentence is the product speaking. It has to tell a person what to do
+  // instead, and tell an agent to summarise rather than paste again.
+  assert.match(refused.explanation, /reads as a file rather than something to remember/u);
+  assert.match(refused.explanation, /keeps facts, not documents/u);
+  assert.match(refused.explanation, /Read it, decide what matters/u);
+  assert.match(refused.explanation, /same file again will get the same answer/u);
+  assert.equal(/trigram|ratio|character run/iu.test(refused.explanation), false, 'no jargon');
+
+  const [decision] = listDecisions(store, OWNER);
+  assert.equal(decision.rule, 'file-not-fact');
+});
+
+test('rule 4 admits the things people actually write', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const notes = fs.readFileSync(new URL('../DECISIONS.md', import.meta.url), 'utf8');
+  const source = fs.readFileSync(new URL('../src/store.js', import.meta.url), 'utf8');
+  /** @type {(n: number, make: (i: number) => string) => string} */
+  const rows = (n, make) => Array.from({ length: n }, (_, i) => make(i)).join('\n');
+
+  const fine = [
+    ['a fact', 'I prefer to be written to in short sentences'],
+    ['a short fact with a number', 'I am 25 years old'],
+    ['a page of notes', notes.slice(0, 5_000)],
+    ['this project\'s own notes', notes.slice(0, 8_000)],
+    ['source code', source.slice(0, 10_000)],
+    ['deeply indented source', rows(160, (i) => ' '.repeat(24) + `const value${i} = compute(${i}, options);`)],
+    ['a markdown table', rows(240, (i) => `| person${i} | Berlin | engineer | 2026 |`)],
+    ['a CSV', rows(220, (i) => `person${i},Berlin,engineer,2026-01-01,platform`)],
+    ['a bullet list of notes', rows(190, (i) => `- remember to call the ${i} supplier about the invoice`)],
+    ['notes with separator lines', rows(40, (i) => `${'-'.repeat(80)}\nnote ${i} about the meeting that followed, who was there and what they agreed to do next, with the actions listed underneath and a date against each one`)],
+    ['Chinese notes', '我住在柏林并且喜欢安静的办公室因为我需要思考。'.repeat(3).concat('会议最好安排在上午，他不喜欢视频通话。')],
+  ];
+
+  for (const [what, text] of fine) {
+    const result = submit(store, { owner: OWNER, text });
+    assert.equal(result.verdict, 'stored', `${what} should have been stored, got ${result.rule}`);
+
+    // Room to spare, not just inside the line — except for one case, called
+    // out below, which is the closest legitimate text found and is worth
+    // knowing about rather than hiding behind a looser bound.
+    const score = repetitionOf(store, text);
+    const room = what === 'notes with separator lines' ? REPETITION_LIMIT : REPETITION_LIMIT / 2;
+    assert.ok(score < room, `${what} scored ${score.toFixed(0)} against a limit of ${REPETITION_LIMIT}`);
+  }
+
+  // A page that is a third rule-off lines scores about 42 against a limit of
+  // 60. It is the narrowest margin any ordinary text showed, and if the limit
+  // ever moves down this is what breaks first.
+  const heavy = fine.find(([what]) => what === 'notes with separator lines') ?? ['', ''];
+  assert.ok(repetitionOf(store, heavy[1]) > REPETITION_LIMIT / 2, 'the known-closest case moved');
+});
+
+test('rule 4 refuses the files people paste, in any script', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const files = [
+    ['an application log', '2026-08-16T09:14:22.031Z INFO  request handled  status=200\n'.repeat(400)],
+    ['a systemd log', 'Aug 16 09:14:22 amirjam systemd[1]: Started Session 42 of user amirjam.\n'.repeat(400)],
+    ['a repeated stack trace', 'Error: connection reset\n    at Socket.onError (/srv/app/pg.js:142:17)\n'.repeat(300)],
+    ['one character', 'x'.repeat(20_000)],
+    ['one Chinese character', '柏'.repeat(20_000)],
+    ['one Persian letter', 'ق'.repeat(20_000)],
+    ['two characters alternating', 'ab'.repeat(10_000)],
+  ];
+
+  for (const [what, text] of files) {
+    assert.equal(submit(store, { owner: OWNER, text }).rule, 'file-not-fact', `${what} got through`);
+  }
+
+  // A base64 dump is refused too, but by rule 1 rather than this one: an
+  // unbroken run of mixed case and digits is what a credential looks like.
+  // Worth pinning, because it means the two rules cover it between them and
+  // neither needs to be widened for it.
+  const dump = 'QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqa2xtbm9w'.repeat(300);
+  assert.equal(submit(store, { owner: OWNER, text: dump }).rule, 'credential');
+
+  assert.equal(listMemories(store, OWNER, { includeArchived: true }).length, 0);
+});
+
+test('rule 4 is measured on the offered text alone, and the limit has room either side', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  // Checked before anything is built from it, so a limit moved far in either
+  // direction fails here and says which rather than in the assertions below.
+  assert.ok(REPETITION_LIMIT >= 30, 'lower and ordinary notes start being refused as files');
+  assert.ok(REPETITION_LIMIT <= 120, 'higher and a pasted log stops being refused');
+
+  for (let index = 0; index < 50; index += 1) {
+    submit(store, { owner: OWNER, text: `note ${index} about the supplier and the invoice` });
+  }
+
+  // Neighbours cannot move it: this is one document weighed on its own.
+  assert.equal(submit(store, { owner: OWNER, text: 'x'.repeat(20_000) }).rule, 'file-not-fact');
+  assert.equal(listMemories(store, OWNER).length, 50);
+});

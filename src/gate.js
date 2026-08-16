@@ -16,10 +16,11 @@
  *   1. credential        refused, and the text is not written down anywhere
  *   2. control-character refused, and the text is not written down either
  *   3. empty             refused
- *   4. already-stored    refused
- *   5. replaces-unknown  refused, so a wrong id cannot retire the wrong memory
- *   6. replaces          stored, and the named memory is superseded
- *   7. keep              stored
+ *   4. file-not-fact     refused, because it is a document rather than a fact
+ *   5. already-stored    refused
+ *   6. replaces-unknown  refused, so a wrong id cannot retire the wrong memory
+ *   7. replaces          stored, and the named memory is superseded
+ *   8. keep              stored
  *
  * Rule 2 is the eleventh name in a vocabulary that was closed at ten, and it
  * was opened on purpose. It is here rather than in the adapter because the
@@ -36,6 +37,16 @@
  * rule at all: an agent that walks into this leaves a mark. The blank-reason
  * check in the adapter is not a rule and left nothing, which is exactly how a
  * NUL walked past it.
+ *
+ * Rule 4 is the twelfth name, and it is the one rule here that is about what
+ * this product is rather than about what is safe to store. Somebody pastes a
+ * server log and says "watch out, this happens sometimes". The thing worth
+ * keeping is the sentence about the pattern, not the file — and the agent that
+ * read the log is the party able to work out which sentence that is. So the
+ * gate stays dumb, refuses the file, and says what to send instead. It is
+ * measured by how much the text repeats itself, which is how a file pretending
+ * to be a fact gives itself away, but the judgement is the product's and not a
+ * safety limit.
  *
  * `forget` and `restore` are separate entry points and are not part of the
  * submit path. Both are content to repeat themselves: forgetting something
@@ -55,7 +66,14 @@
  */
 
 import { detectCredential, credentialExplanation, credentialPlaceholder } from './credentials.js';
-import { findDuplicate, getMemory, PURGED_REPLACEMENT_REASON, recordDecision } from './store.js';
+import {
+  findDuplicate,
+  getMemory,
+  PURGED_REPLACEMENT_REASON,
+  recordDecision,
+  REPETITION_LIMIT,
+  repetitionOf,
+} from './store.js';
 import { controlCharacterIn, isBlank, namedCodePoint } from './text.js';
 
 /**
@@ -210,7 +228,29 @@ export function submit(store, { owner, text, replaces = null }) {
         };
       }
 
-      // 4. already-stored. Read here, inside the lock, so that two identical
+      // 4. file-not-fact. Before the duplicate check, so somebody re-pasting
+      // the same log meets the same answer each time rather than a different
+      // one, and so the expensive question is asked of text still under
+      // consideration.
+      const repetition = repetitionOf(store, text);
+      if (repetition > REPETITION_LIMIT) {
+        return {
+          owner,
+          verdict: 'refused',
+          rule: 'file-not-fact',
+          explanation:
+            'Nothing was stored, because that reads as a file rather than something to ' +
+            'remember: the same few characters over and over, the way a log or an export or ' +
+            'a dump looks. nosyparker keeps facts, not documents — one thing about you or ' +
+            'your work, in a sentence, so an agent can find it later. If something in that ' +
+            'file is worth keeping, store that instead: what the pattern is, when it happens, ' +
+            'what to do about it. Read it, decide what matters, and send that one sentence. ' +
+            'Sending the same file again will get the same answer.',
+          input_excerpt: excerpt(text),
+        };
+      }
+
+      // 5. already-stored. Read here, inside the lock, so that two identical
       // submissions arriving together cannot both find nothing.
       const duplicate = findDuplicate(store, owner, text);
       if (duplicate) {
@@ -226,7 +266,7 @@ export function submit(store, { owner, text, replaces = null }) {
         };
       }
 
-      // 5. replaces-unknown. The default read is active only, which is exactly
+      // 6. replaces-unknown. The default read is active only, which is exactly
       // what this rule needs: a replaced or forgotten id is not a valid target.
       const target = replaces === null ? null : getMemory(store, owner, replaces);
       if (replaces !== null && target === null) {
@@ -242,7 +282,7 @@ export function submit(store, { owner, text, replaces = null }) {
         };
       }
 
-      // 6. replaces.
+      // 7. replaces.
       if (target !== null) {
         const newId = actions.insertMemory({ owner, text, at, supersedes: target.id });
         actions.retire({ owner, id: target.id, at, supersededBy: newId });
@@ -260,7 +300,7 @@ export function submit(store, { owner, text, replaces = null }) {
         };
       }
 
-      // 7. keep.
+      // 8. keep.
       return {
         owner,
         verdict: 'stored',
@@ -285,7 +325,7 @@ export function submit(store, { owner, text, replaces = null }) {
  * thing about an agent offering a secret.
  *
  * It reuses rule 1 rather than adding a name. It is the same judgement about
- * the same kind of text, and the vocabulary stays at twelve.
+ * the same kind of text, so the vocabulary is not opened for it.
  *
  * The query itself is never written down, exactly as in `submit`.
  *

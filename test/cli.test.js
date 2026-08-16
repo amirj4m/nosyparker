@@ -201,15 +201,19 @@ test('a search too long to run is refused at the terminal, in a sentence', async
   const env = { NOSYPARKER_STORE: path.join(dir, 'memory.sqlite') };
 
   // A hundred and twenty kilobytes is about as much as a shell will pass in a
-  // single argument, and it used to take a terminal past 1.2 GB and climbing.
-  // Ordinary prose of that length, so the write-time rule has no quarrel with
-  // it and what is under test is the query bound rather than the paste.
+  // single argument, and a query that long used to take a terminal past 1.2 GB
+  // and climbing. What is under test is the query bound, so the memory it
+  // searches is an ordinary one.
   const sentence = 'I answer email in the morning and prefer meetings before noon. ';
   const long = sentence.repeat(Math.ceil(120_000 / sentence.length)).slice(0, 120_000);
 
-  const stored = await runWatched([CLI, 'add', long], { env, ceilingMB: 500 });
+  const stored = await runWatched([CLI, 'add', 'I prefer meetings before noon'], { env, ceilingMB: 500 });
   assert.equal(stored.code, 0);
-  assert.match(stored.out, /Stored\./u, 'ordinary prose that long is fine to store');
+  assert.match(stored.out, /Stored\./u);
+
+  // And the same paste as a memory is refused, because it is a file.
+  const pasted = await runWatched([CLI, 'add', long], { env, ceilingMB: 500 });
+  assert.match(pasted.out, /reads as a file rather than something to remember/u);
 
   const searched = await runWatched([CLI, 'search', long], { env, ceilingMB: 500 });
 

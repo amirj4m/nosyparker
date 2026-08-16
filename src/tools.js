@@ -82,8 +82,14 @@ export const TOOLS = [
       'refused. A fact already stored word for word is refused and the memory already',
       'held is left alone.',
       '',
-      'A fact longer than ten thousand characters is refused: that is a document,',
-      'not a fact about a person. Ordinary writing of any reasonable length is fine.',
+      'Store facts, never files. Text longer than ten thousand characters is',
+      'refused, and so is text that repeats itself the way a log, an export or a',
+      'dump does, however short. If the person pastes a log and says something',
+      'about it, the thing to store is the sentence — what the pattern is, when it',
+      'happens, what to do about it — which you are the one who can work out. Read',
+      'the file, keep the fact, and offer them that. Sending the file again will',
+      'get the same answer. Ordinary writing of any reasonable length is fine:',
+      'notes, a table, a list, source code all store without trouble.',
       '',
       'Every call either way is recorded, and `why` reads that record back.',
     ].join('\n'),
@@ -396,10 +402,9 @@ function only(args, allowed) {
  * claimed to be half of a pair that made searching safe, and that was wrong
  * twice over: a hundred calls each inside this limit put a megabyte in the
  * store, so it bounds no total; and what a search costs turned out not to
- * depend on how the text got there at all. What keeps searching safe is
- * `DENSEST_TRIGRAM_LIMIT` in store.js, refused at write time, which stops any
- * single memory being dense enough to make a later search expensive. This limit would be worth keeping if that one did not
- * exist, and it would not be enough.
+ * depend on how the text got there at all. Nothing here makes searching safe —
+ * see DECISIONS.md, "Bounding what a search can cost", which is honest about
+ * what is and is not bounded.
  *
  * What it is for: an agent offering fifteen hundred words as one fact about a
  * person has misunderstood the tool, and saying so is worth more than storing

@@ -271,10 +271,10 @@ test('a query the store will not run is refused before it costs anything', async
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-bound-'));
       const store = openStore({ file: path.join(dir, 'memory.sqlite'), now: () => new Date().toISOString() });
 
-      // A memory of one repeated character indexes as thousands of identical
-      // trigrams. It is what a long query matches against, and matching is
-      // where the memory went.
-      submit(store, { owner: 'o', text: 'x'.repeat(9000) });
+      // An ordinary memory for the query to work against. Repeated characters
+      // are refused as a file now, which is right and is not what this is
+      // about.
+      submit(store, { owner: 'o', text: 'she studied architecture in Milan and answers email before noon' });
 
       try {
         searchMemories(store, 'o', 'x'.repeat(1000000));
@@ -284,7 +284,7 @@ test('a query the store will not run is refused before it costs anything', async
       }
 
       // Refused before anything was read or written, so the store still works.
-      console.log('STILL WORKS: ' + searchMemories(store, 'o', 'xxx').length);
+      console.log('STILL WORKS: ' + searchMemories(store, 'o', 'architecture').length);
       store.close();
       fs.rmSync(dir, { recursive: true, force: true });
     })();
