@@ -9,7 +9,7 @@
  */
 
 import { defaultStorePath, LOCAL_OWNER, systemClock } from './config.js';
-import { forget, restore, submit } from './gate.js';
+import { forget, restore, screenQuery, submit } from './gate.js';
 import { listDecisions, listMemories, openStore, searchMemories } from './store.js';
 
 main(process.argv.slice(2));
@@ -107,10 +107,18 @@ function runSearch(store, args) {
   const query = args.join(' ');
   if (query.trim() === '') fail('Say what to look for: nosyparker search "<query>"');
 
-  // The store refuses a query too long to run, because running it is what
-  // took the machine down. It says so in a sentence; this puts that sentence
-  // on the terminal instead of a stack trace, which is what a person typing
-  // gets otherwise and which tells them nothing they can act on.
+  // The same screen an agent gets, so a secret typed at the terminal is
+  // refused and written to the log here too rather than only through a tool.
+  const refused = screenQuery(store, { owner: LOCAL_OWNER, query });
+  if (refused) {
+    process.stdout.write(`${refused.explanation}\n`);
+    return;
+  }
+
+  // The store refuses a query too long to run, or one carrying a character
+  // that cannot be passed on whole. It says so in a sentence; this puts that
+  // sentence on the terminal instead of a stack trace, which is what a person
+  // typing gets otherwise and which tells them nothing they can act on.
   /** @type {import('./store.js').Memory[]} */
   let found;
   try {

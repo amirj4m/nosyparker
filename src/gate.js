@@ -315,6 +315,51 @@ export function submit(store, { owner, text, replaces = null }) {
 }
 
 /**
+ * Screen a search before it runs, and write down anything refused.
+ *
+ * A search is not a decision about a memory and this does not pretend it is:
+ * it changes nothing, and on a clean query it writes nothing at all. What it
+ * does is close an asymmetry that was hard to defend. The same key offered to
+ * `remember` left a row and offered to `recall` left none, so `why` — the one
+ * place a person can look to see what their agents have been doing — showed
+ * one and not the other, and which door was used is the least interesting
+ * thing about an agent offering a secret.
+ *
+ * It reuses rule 1 rather than adding a name. It is the same judgement about
+ * the same kind of text, and the vocabulary stays at twelve.
+ *
+ * The query itself is never written down, exactly as in `submit`.
+ *
+ * @param {Store} store
+ * @param {object} request
+ * @param {string} request.owner
+ * @param {string} request.query
+ * @returns {GateResult|null} a refusal to hand back, or null to go ahead
+ */
+export function screenQuery(store, { owner, query }) {
+  if (detectCredential(owner) === null && detectCredential(query) === null) return null;
+
+  return asResult(
+    recordDecision(store, () => {
+      const badOwner = refuseCredentialOwner(owner);
+      if (badOwner) return badOwner;
+
+      const credential = /** @type {import('./credentials.js').CredentialMatch} */ (
+        detectCredential(query)
+      );
+
+      return {
+        owner,
+        verdict: 'refused',
+        rule: 'credential',
+        explanation: `${credentialExplanation(credential)} Nothing was searched for either.`,
+        input_excerpt: credentialPlaceholder(credential),
+      };
+    }),
+  );
+}
+
+/**
  * Ask for a memory to stop being shown.
  *
  * The row stays. It leaves the search results and the active list, keeps its

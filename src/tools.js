@@ -40,8 +40,7 @@
  * shape.
  */
 
-import { credentialExplanation, detectCredential } from './credentials.js';
-import { forget, restore, submit } from './gate.js';
+import { forget, restore, screenQuery, submit } from './gate.js';
 import { listDecisions, listMemories, searchMemories } from './store.js';
 import { isBlank } from './text.js';
 
@@ -155,20 +154,13 @@ export const TOOLS = [
         return 'There was nothing to look for. Say what to search for.';
       }
 
-      // The one field an agent can put text in that was not being told what
-      // this store does not take. `remember` and `forget` refuse a secret and
-      // say why; `recall` answered "Nothing matched", which is true, useless,
-      // and teaches an agent nothing — so the next thing it does is offer the
-      // same key to `remember`.
-      //
-      // The sentence is the gate's own, unchanged, so being told no here reads
-      // exactly like being told no there. Searching for a secret does not
-      // write it anywhere, which is why this refusal is about instruction
-      // rather than about a leak.
-      const credential = detectCredential(query);
-      if (credential) {
-        return `${credentialExplanation(credential)} Nothing was searched for either.`;
-      }
+      // Screened by the gate, which also writes the row. `recall` answering
+      // "Nothing matched" to a key was true, useless, and taught an agent
+      // nothing — so the next thing it did was offer the same key to
+      // `remember`. That refusal used to live here and left no trace, which
+      // meant `why` showed a secret offered to one tool and not to another.
+      const refused = screenQuery(store, { owner, query });
+      if (refused) return refused.explanation;
 
       const found = searchMemories(store, owner, query);
       if (found.length === 0) return 'Nothing matched.';

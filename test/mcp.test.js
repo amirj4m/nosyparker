@@ -694,3 +694,24 @@ test('a client that goes away does not leave the server working', async (t) => {
     `the server kept going for ${outlived} ms after the client left, against ${oneSearch} ms for one search`,
   );
 });
+
+
+test('a secret offered to recall leaves the same mark as one offered to remember', async (t) => {
+  const agent = await connect(t, freshStoreFile(t));
+
+  const key = ['AKIA', 'ZQBOTHDOORS9XYZ1'].join('');
+
+  assert.match(await say(agent, 'remember', { text: `my key is ${key}` }), /looks like an AWS access key/u);
+  assert.match(await say(agent, 'recall', { query: `my key is ${key}` }), /looks like an AWS access key/u);
+  assert.match(await say(agent, 'recall', { query: `my key is ${key}` }), /Nothing was searched for either/u);
+
+  // Both doors, both in the log, and the key in neither.
+  const log = await say(agent, 'why', {});
+  assert.equal((log.match(/refused \(credential\)/gu) ?? []).length, 3);
+  assert.equal(log.includes(key), false);
+  assert.match(log, /\[not recorded: recognised as an AWS access key\]/u);
+
+  // An ordinary search still writes nothing at all.
+  await say(agent, 'recall', { query: 'coffee' });
+  assert.equal((await say(agent, 'why', {})).split('\n\n').length, 3, 'a clean search is not a decision');
+});
