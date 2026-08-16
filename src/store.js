@@ -40,45 +40,8 @@ import { DatabaseSync } from 'node:sqlite';
 
 import { controlCharacterIn, namedCodePoint, normaliseForComparison } from './text.js';
 
-/**
- * A note on the driver, because the question will be asked again.
- *
- * A U+0000 in a text value is written faithfully and read back cut off at the
- * NUL. Measured, one file, both drivers writing and both reading, 42
- * characters offered:
- *
- *     on disk, either writer   42 bytes, and hex() shows all of them
- *     read by node:sqlite      20 characters
- *     read by better-sqlite3   42 characters
- *
- * So the storage is faithful and the truncation is in this binding, which
- * takes the length of the C string rather than asking SQLite how many bytes
- * there are. SQLite's own `length()` on a TEXT value stops at the NUL too, so
- * the engine is not blameless, but `length(CAST(text AS BLOB))` and `hex()`
- * both report the whole thing: nothing is lost, it is only hidden on the way
- * out.
- *
- * We stay on node:sqlite, and the reason is not inertia. Nothing can put a NUL
- * in a memory any more — the gate refuses one, with a row, before it reaches
- * this file — so the difference between the two drivers cannot be reached
- * through this program. And if it ever needs reading anyway, this binding can
- * do it: `SELECT CAST(text AS BLOB)` and decoding the bytes in JavaScript
- * returns all 42 characters, faithfully, for a row written by either driver.
- * The fix is available at our own layer and does not need a dependency.
- *
- * What swapping would cost, since it was weighed rather than assumed: 27 MB
- * and a native module against nothing at all, on a project whose distribution
- * story is that a stranger runs one command. It ships prebuilt binaries for
- * every platform this needs, Windows included, and falls back to compiling
- * with node-gyp when none matches — which is a class of install failure this
- * project does not have today.
- *
- * What swapping would not buy: anything at all for the memory defect. The same
- * 0.4 MB degenerate corpus and 999-character query costs 868 MB under
- * node:sqlite and 875 MB under better-sqlite3. It is the same SQLite and the
- * same FTS5 underneath, so the trigram position lists are identical. The
- * database is not the problem there and a different binding is not the fix.
- */
+// Why this driver and not another, with the measurements: DECISIONS.md,
+// "Which SQLite driver".
 
 /**
  * A scratch index with the same tokeniser, and its vocabulary.
@@ -107,13 +70,15 @@ const MIN_SEARCH_LENGTH = 3;
  * The longest query this store will run.
  *
  * A search costs the number of trigrams in the query multiplied by how many
- * times the commonest of them occurs inside a single stored memory. This bounds
- * the first of those; {@link DENSEST_TRIGRAM_LIMIT}, refused at write time,
- * bounds the second. Together they cap what any search can cost, which neither
- * does alone.
+ * times the commonest of them occurs inside a single stored memory. This
+ * bounds the first; {@link DENSEST_TRIGRAM_LIMIT} bounds the second. Neither
+ * is enough alone.
  *
- * A thousand characters is far more than a search is, and it also caps the term
- * count, since a thousand characters cannot hold five hundred terms.
+ * A thousand characters is far more than a search is, and it caps the term
+ * count too, since a thousand characters cannot hold five hundred terms.
+ *
+ * Why this was not enough on its own, and what was measured: DECISIONS.md,
+ * "Bounding what a search can cost".
  */
 export const SEARCH_QUERY_LIMIT = 1000;
 
@@ -123,44 +88,19 @@ export const SEARCH_QUERY_LIMIT = 1000;
  * This is the number that makes searching safe, and it is checked once, at
  * write time, on one document, exactly. There is no estimate in it.
  *
- * Why here and not at search time. FTS5 builds its position lists one document
- * at a time, so what a search costs is set by the densest single memory it
- * matches — not by the total across the store. That is measurable exactly when
- * a memory is offered, and only guessable afterwards. It was guessed at once,
- * from the mean occurrences per memory that `fts5vocab` reports, and the mean
- * is the wrong statistic: a hundred ordinary memories each containing a
- * trigram once dragged it down far enough to let a search through that took
- * 878 MB. Fifty ordinary facts is the expected corpus, not an attack.
+ * FTS5 builds its position lists one document at a time, so what a search
+ * costs is set by the densest single memory it matches, not by the total
+ * across the store. That is measurable exactly when a memory is offered and
+ * only guessable afterwards — and it was guessed at, from the wrong statistic,
+ * and let an 878 MB search through.
  *
- * Peak memory against the densest single memory, measured, with decoys present
- * and absent to confirm they make no difference:
+ * Twenty thousand clears ordinary text by a wide margin: the most the MCP
+ * tools accept measures about 304, the most a shell passes in one argument
+ * about 3,900. Reaching it needs text that repeats itself rather than text
+ * that is merely long.
  *
- *     densest      9,998   ->   103 MB    149 ms
- *     densest     49,998   ->   175 MB    582 ms
- *     densest     99,998   ->   268 MB   1045 ms
- *     densest    399,998   ->   857 MB   4284 ms
- *
- * And what ordinary text measures, which is what the limit has to clear:
- *
- *     one fact about a person, 44 chars           2
- *     a note, 2 KB                               59
- *     a pasted document, 10 KB                  304
- *     a pasted document, 100 KB               3,042
- *     10 KB of Chinese prose                    435
- *     100 KB of base64                        1,786
- *     100 KB of log lines                     4,444
- *     400 KB of "the the the..."            100,000
- *     400 KB of one repeated character      399,998
- *
- * Twenty thousand sits between them. The most a caller can send through the
- * MCP tools is ten thousand characters, which measures about 304; the most a
- * shell will pass in one argument is 128 KB, about 3,900. So no ordinary route
- * into this store comes within five times the limit, and reaching it needs
- * text that repeats itself rather than text that is merely long. Ordinary
- * English prose would have to be about 650 KB in a single memory.
- *
- * The ceiling it buys: no search can cost more than a thousand trigrams times
- * this, which measured about 100 MB and a quarter of a second.
+ * The measurements behind the number, and what ordinary text of each kind
+ * scores: DECISIONS.md, "Bounding what a search can cost".
  */
 export const DENSEST_TRIGRAM_LIMIT = 20_000;
 
@@ -735,50 +675,17 @@ export function listMemories(store, owner, options = {}) {
  *
  * Two things it does not do, known and decided rather than missed.
  *
- * FIRST: a search cannot be stopped once it has started. `node:sqlite` has no
- * interrupt and no progress handler — the binding offers open, close, prepare,
- * exec, function, location, aggregate, the session calls and the extension
- * calls, and nothing else — while the SQLite underneath it is 3.51.3 and has
- * both in C. It is synchronous, so nothing else in the process runs meanwhile.
+ * A search cannot be stopped once it has started: `node:sqlite` exposes no
+ * interrupt and no progress handler, and it is synchronous, so nothing else in
+ * the process runs meanwhile.
  *
- * What was tried. `iterate()` is the only in-process lever and `ORDER BY rank`
- * defeats it: the first row arrives at 979 ms of a 993 ms query, so stopping
- * after five rows still costs 988 ms. Ranking the rows here instead gives
- * byte-identical ordering and moves the first row to 436 ms, because bm25
- * wants its global statistics up front — better, still not abandonable.
+ * And there is no bound on how long a search may take, only on how much memory
+ * it may need. Ordinary stores answer in 112 to 175 ms at 36 MB. A store
+ * deliberately filled with two thousand memories each just under
+ * {@link DENSEST_TRIGRAM_LIMIT} takes six minutes, and cannot be interrupted.
  *
- * What it costs, measured after the write-time rule, on stores where every
- * memory passed it:
- *
- *     2,000 ordinary memories, 36 MB       112 ms  and  175 ms
- *     400 memories of near-limit text     70,153 ms
- *     2,000 memories of near-limit text  373,201 ms
- *
- * Those last two are the honest ones and they are far worse than this comment
- * used to claim. Memory is bounded — no search exceeds about 127 MB, because
- * FTS5 works a document at a time and the write-time rule caps what any single
- * document can cost. Time is not: it is that per-document cost multiplied by
- * how many documents match, and nothing caps the number of documents.
- *
- * Reaching six minutes takes a store deliberately filled with two thousand
- * blobs each just under the write-time limit. That is not growth and it is not
- * a person's memories; it is somebody feeding the thing. But it is reachable
- * through ordinary calls, one legal memory at a time, and it cannot be
- * interrupted once it starts.
- *
- * SECOND: there is no bound on how long a search may take, only on how much
- * memory it may need. That is not for want of trying. A time estimate needs
- * something that predicts time, and total occurrences does not: one query with
- * a total of 43 million answers in 7 ms while another with a total of 105
- * million takes 1094 ms, because an AND across selective terms stops early and
- * a single dense term does not. A limit built on that number would refuse
- * ordinary searches on large stores while still allowing slow ones, which is
- * the worst of both. So the memory bound is real and the time bound is
- * honestly absent.
- *
- * Neither is reachable by growth alone. Ordinary text answers in 112 to 175 ms
- * at 36 MB, in every shape measured. Both need many memories of text with very
- * few distinct trigrams in them, each one stored deliberately.
+ * What was tried, what each costs, and what fixing either would mean:
+ * DECISIONS.md, "Why a search cannot be interrupted".
  *
  * @param {Store} store
  * @param {string} owner
