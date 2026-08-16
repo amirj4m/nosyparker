@@ -215,10 +215,12 @@ test('a search too long to run is refused at the terminal, in a sentence', async
   // length that catches it first — that bound was missing here for the whole
   // of Phase 2, and it was the only way to store something a later search
   // could not afford.
+  // A gate refusal, so it is an answer on stdout and not an error: the same
+  // shape as being told a memory is already stored.
   const pasted = await runWatched([CLI, 'add', long], { env, ceilingMB: 500 });
-  assert.equal(pasted.code, 1);
-  assert.match(pasted.err, /The limit is 10,000/u);
-  assert.match(pasted.err, /keep it in a file and store what matters about it/u);
+  assert.equal(pasted.code, 0);
+  assert.match(pasted.out, /the limit is 10,000/u);
+  assert.match(pasted.out, /keep it in a file and store what matters about it/u);
 
   // Under that length, a log is still refused for what it is.
   const log = '2026-08-16T09:14:22.031Z INFO  request handled status=200\n'.repeat(150);
@@ -227,8 +229,8 @@ test('a search too long to run is refused at the terminal, in a sentence', async
 
   // And a reason is bounded the same way.
   const reason = await runWatched([CLI, 'forget', '1', long], { env, ceilingMB: 500 });
-  assert.equal(reason.code, 1);
-  assert.match(reason.err, /The limit is 10,000/u);
+  assert.equal(reason.code, 0);
+  assert.match(reason.out, /the limit is 10,000/u);
 
   const searched = await runWatched([CLI, 'search', long], { env, ceilingMB: 500 });
 

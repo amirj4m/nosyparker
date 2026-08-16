@@ -104,7 +104,7 @@ test('rule 1 leaves ordinary sentences about secrets alone', (t) => {
   }
 });
 
-test('rule 3: whitespace only is refused', (t) => {
+test('rule 4: whitespace only is refused', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -115,7 +115,7 @@ test('rule 3: whitespace only is refused', (t) => {
   assert.equal(listMemories(store, OWNER).length, 0);
 });
 
-test('rule 4: the same sentence again is refused, and points at the original', (t) => {
+test('rule 6: the same sentence again is refused, and points at the original', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -128,7 +128,7 @@ test('rule 4: the same sentence again is refused, and points at the original', (
   assert.equal(listMemories(store, OWNER).length, 1);
 });
 
-test('rule 4 does not treat different punctuation as the same sentence', (t) => {
+test('rule 6 does not treat different punctuation as the same sentence', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -139,7 +139,7 @@ test('rule 4 does not treat different punctuation as the same sentence', (t) => 
   assert.equal(listMemories(store, OWNER).length, 2);
 });
 
-test('rule 4 only compares against active memories', (t) => {
+test('rule 6 only compares against active memories', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -150,7 +150,7 @@ test('rule 4 only compares against active memories', (t) => {
   assert.equal(again.verdict, 'stored');
 });
 
-test('rule 5: replacing an id that is not there is refused', (t) => {
+test('rule 7: replacing an id that is not there is refused', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -161,7 +161,7 @@ test('rule 5: replacing an id that is not there is refused', (t) => {
   assert.equal(listMemories(store, OWNER).length, 0);
 });
 
-test('rule 5 also covers another owner and an already archived memory', (t) => {
+test('rule 7 also covers another owner and an already archived memory', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -184,7 +184,7 @@ test('rule 5 also covers another owner and an already archived memory', (t) => {
   assert.equal(late.rule, 'replaces-unknown');
 });
 
-test('rule 6: replacing a real memory supersedes it and links both ways', (t) => {
+test('rule 8: replacing a real memory supersedes it and links both ways', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -212,7 +212,7 @@ test('rule 6: replacing a real memory supersedes it and links both ways', (t) =>
   );
 });
 
-test('rule 7: anything else is stored', (t) => {
+test('rule 9: anything else is stored', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -423,7 +423,7 @@ test('the excerpt counts characters, and never cuts one in half', (t) => {
 // from its code point rather than pasting it into the source.
 const NUL = String.fromCharCode(0);
 
-test('rule 2: text that will not read back whole is refused, and leaves a row', (t) => {
+test('rule 3: text that will not read back whole is refused, and leaves a row', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -444,7 +444,7 @@ test('rule 2: text that will not read back whole is refused, and leaves a row', 
   assert.equal(decision.input_excerpt.includes('ZQTAIL'), false);
 });
 
-test('rule 2 covers the other invisible characters, and leaves ordinary text alone', (t) => {
+test('rule 3 covers the other invisible characters, and leaves ordinary text alone', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -458,7 +458,7 @@ test('rule 2 covers the other invisible characters, and leaves ordinary text alo
   assert.equal(submit(store, { owner: OWNER, text: '我住在柏林 🎉' }).verdict, 'stored');
 });
 
-test('rule 2 closes the ways a NUL walked past the other rules', (t) => {
+test('rule 3 closes the ways a NUL walked past the other rules', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -542,7 +542,7 @@ test('what is stored is what reads back, for every memory in the file', (t) => {
   }
 });
 
-test('rule 3 also covers a reason that says nothing, and leaves its row', (t) => {
+test('rule 4 also covers a reason that says nothing, and leaves its row', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -567,12 +567,12 @@ test('rule 3 also covers a reason that says nothing, and leaves its row', (t) =>
 
 
 
-test('rule 4: a file pasted as a memory is refused, and leaves a row', (t) => {
+test('rule 5: a file pasted as a memory is refused, and leaves a row', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
   const log = '2026-08-16T09:14:22.031Z INFO  request handled  status=200 duration=14ms\n';
-  const refused = submit(store, { owner: OWNER, text: log.repeat(400) });
+  const refused = submit(store, { owner: OWNER, text: log.repeat(120) });
 
   assert.equal(refused.verdict, 'refused');
   assert.equal(refused.rule, 'file-not-fact');
@@ -598,14 +598,17 @@ test('rule 4: a file pasted as a memory is refused, and leaves a row', (t) => {
   assert.equal(decision.rule, 'file-not-fact');
 });
 
-test('rule 4 admits the things people actually write', (t) => {
+test('rule 5 admits the things people actually write', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
   const notes = fs.readFileSync(new URL('../DECISIONS.md', import.meta.url), 'utf8');
   const source = fs.readFileSync(new URL('../src/store.js', import.meta.url), 'utf8');
+  // Cut to sit under the length limit, because these are about rule 5 and not
+  // about rule 1: a sample that tripped the length check would pass this test
+  // for the wrong reason.
   /** @type {(n: number, make: (i: number) => string) => string} */
-  const rows = (n, make) => Array.from({ length: n }, (_, i) => make(i)).join('\n');
+  const rows = (n, make) => Array.from({ length: n }, (_, i) => make(i)).join('\n').slice(0, 9_500);
 
   const fine = [
     ['a fact', 'I prefer to be written to in short sentences'],
@@ -613,7 +616,7 @@ test('rule 4 admits the things people actually write', (t) => {
     ['a page of notes', notes.slice(0, 5_000)],
     ['this project\'s own notes', notes.slice(0, 8_000)],
     ['source code', source.slice(0, 10_000)],
-    ['deeply indented source', rows(160, (i) => ' '.repeat(24) + `const value${i} = compute(${i}, options);`)],
+    ['deeply indented source', rows(140, (i) => ' '.repeat(24) + `const value${i} = compute(${i}, options);`)],
     ['a markdown table', rows(240, (i) => `| person${i} | Berlin | engineer | 2026 |`)],
     ['a CSV', rows(220, (i) => `person${i},Berlin,engineer,2026-01-01,platform`)],
     ['a bullet list of notes', rows(190, (i) => `- remember to call the ${i} supplier about the invoice`)],
@@ -640,18 +643,18 @@ test('rule 4 admits the things people actually write', (t) => {
   assert.ok(repetitionOf(store, heavy[1]) > REPETITION_LIMIT / 2, 'the known-closest case moved');
 });
 
-test('rule 4 refuses the files people paste, in any script', (t) => {
+test('rule 5 refuses the files people paste, in any script', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
   const files = [
     ['an application log', '2026-08-16T09:14:22.031Z INFO  request handled  status=200\n'.repeat(400)],
-    ['a systemd log', 'Aug 16 09:14:22 amirjam systemd[1]: Started Session 42 of user amirjam.\n'.repeat(400)],
-    ['a repeated stack trace', 'Error: connection reset\n    at Socket.onError (/srv/app/pg.js:142:17)\n'.repeat(300)],
-    ['one character', 'x'.repeat(20_000)],
-    ['one Chinese character', '柏'.repeat(20_000)],
-    ['one Persian letter', 'ق'.repeat(20_000)],
-    ['two characters alternating', 'ab'.repeat(10_000)],
+    ['a systemd log', 'Aug 16 09:14:22 amirjam systemd[1]: Started Session 42 of user amirjam.\n'.repeat(120)],
+    ['a repeated stack trace', 'Error: connection reset\n    at Socket.onError (/srv/app/pg.js:142:17)\n'.repeat(120)],
+    ['one character', 'x'.repeat(9_000)],
+    ['one Chinese character', '柏'.repeat(9_000)],
+    ['one Persian letter', 'ق'.repeat(9_000)],
+    ['two characters alternating', 'ab'.repeat(4_500)],
   ];
 
   for (const [what, text] of files) {
@@ -662,13 +665,13 @@ test('rule 4 refuses the files people paste, in any script', (t) => {
   // unbroken run of mixed case and digits is what a credential looks like.
   // Worth pinning, because it means the two rules cover it between them and
   // neither needs to be widened for it.
-  const dump = 'QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqa2xtbm9w'.repeat(300);
+  const dump = 'QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqa2xtbm9w'.repeat(150);
   assert.equal(submit(store, { owner: OWNER, text: dump }).rule, 'credential');
 
   assert.equal(listMemories(store, OWNER, { includeArchived: true }).length, 0);
 });
 
-test('rule 4 is measured on the offered text alone, and the limit has room either side', (t) => {
+test('rule 5 is measured on the offered text alone, and the limit has room either side', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -682,6 +685,6 @@ test('rule 4 is measured on the offered text alone, and the limit has room eithe
   }
 
   // Neighbours cannot move it: this is one document weighed on its own.
-  assert.equal(submit(store, { owner: OWNER, text: 'x'.repeat(20_000) }).rule, 'file-not-fact');
+  assert.equal(submit(store, { owner: OWNER, text: 'x'.repeat(9_000) }).rule, 'file-not-fact');
   assert.equal(listMemories(store, OWNER).length, 50);
 });

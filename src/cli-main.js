@@ -10,7 +10,7 @@
 
 import { defaultStorePath, LOCAL_OWNER, systemClock } from './config.js';
 import { forget, restore, screenQuery, submit } from './gate.js';
-import { listDecisions, listMemories, openStore, searchMemories, TEXT_LIMIT } from './store.js';
+import { listDecisions, listMemories, openStore, searchMemories } from './store.js';
 
 main(process.argv.slice(2));
 
@@ -94,7 +94,6 @@ function runAdd(store, args) {
 
   const text = words.join(' ');
   if (words.length === 0) fail('Say what you want to store: nosyparker add "<text>"');
-  refuseIfTooLong(text, 'A memory');
 
   const result = submit(store, { owner: LOCAL_OWNER, text, replaces });
   printOutcome(result);
@@ -193,7 +192,6 @@ function runForget(store, args) {
 
   const reason = reasonParts.join(' ');
   if (reason.trim() === '') fail('Say why: nosyparker forget <id> "<reason>"');
-  refuseIfTooLong(reason, 'A reason');
 
   printOutcome(forget(store, { owner: LOCAL_OWNER, id: toId(rawId), reason }));
 }
@@ -250,26 +248,6 @@ function formatMemory(memory) {
  */
 function refuseExtra(command, extra) {
   if (extra.length > 0) fail(`"${command}" does not take ${extra[0]}.`);
-}
-
-/**
- * The same bound the tools apply, from the same constant.
- *
- * This was missing here for the whole of Phase 2, and it was the only way to
- * put a memory in the store that a later search could not afford: dense enough
- * to be expensive, varied enough to pass the gate, and longer than any tool
- * would have accepted. See TEXT_LIMIT in store.js.
- *
- * @param {string} text
- * @param {string} what
- */
-function refuseIfTooLong(text, what) {
-  if (text.length <= TEXT_LIMIT) return;
-  fail(
-    `${what} is one thing about you, in a sentence, and that is ${text.length.toLocaleString('en')} ` +
-      `characters. The limit is ${TEXT_LIMIT.toLocaleString('en')}. If you have a document, keep ` +
-      'it in a file and store what matters about it instead.',
-  );
 }
 
 /**

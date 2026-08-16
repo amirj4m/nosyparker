@@ -13,14 +13,15 @@
  * The rules are tried top to bottom and the first one that applies wins. The
  * order is part of the design, not an implementation detail:
  *
- *   1. credential        refused, and the text is not written down anywhere
- *   2. control-character refused, and the text is not written down either
- *   3. empty             refused
- *   4. file-not-fact     refused, because it is a document rather than a fact
- *   5. already-stored    refused
- *   6. replaces-unknown  refused, so a wrong id cannot retire the wrong memory
- *   7. replaces          stored, and the named memory is superseded
- *   8. keep              stored
+ *   1. file-not-fact     too long, refused before anything else reads it
+ *   2. credential        refused, and the text is not written down anywhere
+ *   3. control-character refused, and the text is not written down either
+ *   4. empty             refused
+ *   5. file-not-fact     too repetitive, refused as a document rather than a fact
+ *   6. already-stored    refused
+ *   7. replaces-unknown  refused, so a wrong id cannot retire the wrong memory
+ *   8. replaces          stored, and the named memory is superseded
+ *   9. keep              stored
  *
  * Rule 2 is the eleventh name in a vocabulary that was closed at ten, and it
  * was opened on purpose. It is here rather than in the adapter because the
@@ -38,7 +39,24 @@
  * check in the adapter is not a rule and left nothing, which is exactly how a
  * NUL walked past it.
  *
- * Rule 4 is the twelfth name, and it is the one rule here that is about what
+ * `file-not-fact` appears twice on purpose. It is one judgement — this is a
+ * document, not a fact — reached two ways, by length and by repetition, so it
+ * is one name rather than two. The same reuse the blank-reason check made of
+ * `empty`, and the vocabulary stays at twelve.
+ *
+ * Length is first because it is the only check that costs nothing, and because
+ * it bounds what every check after it reads. Before this it was enforced at
+ * the two entry points instead, which meant `submit` called as a library
+ * function was bounded by neither, and it meant the credential patterns ran
+ * over inputs of any size. Both are closed by moving it here. This is the
+ * third time a bound has been put at the entrances and a new entrance has
+ * appeared behind it; the gate is the one place everything passes through.
+ *
+ * It does not quote the text it refuses. The first hundred and sixty
+ * characters of a very long paste can be a secret as easily as anything else,
+ * and there is no reading of a document that is safe to put in the log.
+ *
+ * Rule 5 is the twelfth name, and it is the one rule here that is about what
  * this product is rather than about what is safe to store. Somebody pastes a
  * server log and says "watch out, this happens sometimes". The thing worth
  * keeping is the sentence about the pattern, not the file — and the agent that
@@ -73,6 +91,7 @@ import {
   recordDecision,
   REPETITION_LIMIT,
   repetitionOf,
+  TEXT_LIMIT,
 } from './store.js';
 import { controlCharacterIn, isBlank, namedCodePoint } from './text.js';
 
@@ -198,7 +217,25 @@ export function submit(store, { owner, text, replaces = null }) {
       const badOwner = refuseCredentialOwner(owner);
       if (badOwner) return badOwner;
 
-      // 1. credential, on the text. This runs before anything else touches it,
+      // 1. file-not-fact, by length. First because it is free, and because
+      // everything below it reads the text: the credential patterns would
+      // otherwise run over an input of any size at all.
+      if (text.length > TEXT_LIMIT) {
+        return {
+          owner,
+          verdict: 'refused',
+          rule: 'file-not-fact',
+          explanation:
+            `Nothing was stored. That is ${text.length.toLocaleString('en')} characters, and a ` +
+            `memory is one thing about you, in a sentence — the limit is ` +
+            `${TEXT_LIMIT.toLocaleString('en')}. nosyparker keeps facts, not documents. If you ` +
+            'have a file, keep it in a file and store what matters about it instead: what it ' +
+            'is, where it came from, what it means.',
+          input_excerpt: '[not recorded: longer than this store takes]',
+        };
+      }
+
+      // 2. credential, on the text. This runs before anything else reads it,
       // and it is the only branch that replaces the excerpt with a placeholder.
       const credential = detectCredential(text);
       if (credential) {
@@ -211,13 +248,13 @@ export function submit(store, { owner, text, replaces = null }) {
         };
       }
 
-      // 2. control-character. After the credential check, so plain secrets are
+      // 3. control-character. After the credential check, so plain secrets are
       // still named as secrets, and before everything else, because nothing
       // below this can reason about text that will not read back whole.
       const unreadable = refuseControlCharacter(owner, text);
       if (unreadable) return unreadable;
 
-      // 3. empty.
+      // 4. empty.
       if (isBlank(text)) {
         return {
           owner,
@@ -228,7 +265,7 @@ export function submit(store, { owner, text, replaces = null }) {
         };
       }
 
-      // 4. file-not-fact. Before the duplicate check, so somebody re-pasting
+      // 5. file-not-fact, by repetition. Before the duplicate check, so somebody re-pasting
       // the same log meets the same answer each time rather than a different
       // one, and so the expensive question is asked of text still under
       // consideration.
@@ -252,7 +289,7 @@ export function submit(store, { owner, text, replaces = null }) {
         };
       }
 
-      // 5. already-stored. Read here, inside the lock, so that two identical
+      // 6. already-stored. Read here, inside the lock, so that two identical
       // submissions arriving together cannot both find nothing.
       const duplicate = findDuplicate(store, owner, text);
       if (duplicate) {
@@ -268,7 +305,7 @@ export function submit(store, { owner, text, replaces = null }) {
         };
       }
 
-      // 6. replaces-unknown. The default read is active only, which is exactly
+      // 7. replaces-unknown. The default read is active only, which is exactly
       // what this rule needs: a replaced or forgotten id is not a valid target.
       const target = replaces === null ? null : getMemory(store, owner, replaces);
       if (replaces !== null && target === null) {
@@ -284,7 +321,7 @@ export function submit(store, { owner, text, replaces = null }) {
         };
       }
 
-      // 7. replaces.
+      // 8. replaces.
       if (target !== null) {
         const newId = actions.insertMemory({ owner, text, at, supersedes: target.id });
         actions.retire({ owner, id: target.id, at, supersededBy: newId });
@@ -302,7 +339,7 @@ export function submit(store, { owner, text, replaces = null }) {
         };
       }
 
-      // 8. keep.
+      // 9. keep.
       return {
         owner,
         verdict: 'stored',
@@ -379,7 +416,24 @@ export function forget(store, { owner, id, reason }) {
       const badOwner = refuseCredentialOwner(owner);
       if (badOwner) return badOwner;
 
-      // 1. credential. A reason is free text from a caller like any other, and
+      // 1. file-not-fact, by length, for the same reasons as in submit: it is
+      // free, and it bounds what the checks below read. A reason is stored on
+      // the row as well as in the log, so its length matters as much.
+      if (reason.length > TEXT_LIMIT) {
+        return {
+          owner,
+          verdict: 'refused',
+          rule: 'file-not-fact',
+          explanation:
+            `Nothing was changed. That reason is ${reason.length.toLocaleString('en')} ` +
+            `characters and the limit is ${TEXT_LIMIT.toLocaleString('en')}. A reason is a ` +
+            'sentence somebody reads later to understand why a memory was put away, not a ' +
+            'document.',
+          input_excerpt: '[not recorded: longer than this store takes]',
+        };
+      }
+
+      // 2. credential. A reason is free text from a caller like any other, and
       // it is written to the row as well as to the log, so it is guarded the
       // same way. This comes first here for the same reason it comes first in
       // submit: nothing else may touch the text before it has been checked.
@@ -394,14 +448,14 @@ export function forget(store, { owner, id, reason }) {
         };
       }
 
-      // 2. control-character. The reason is written to the row as well as to
+      // 3. control-character. The reason is written to the row as well as to
       // the log, so it can be cut in half by a NUL exactly as a memory can —
       // and a reason that reads back as blank is a memory put away for no
       // stated reason. The adapter's own blank check was walked past this way.
       const unreadable = refuseControlCharacter(owner, reason);
       if (unreadable) return unreadable;
 
-      // 3. empty. The same rule as an empty memory and the same name, because
+      // 4. empty. The same rule as an empty memory and the same name, because
       // it is the same judgement: there was nothing there.
       //
       // It was in the adapter, where it refused without writing anything down

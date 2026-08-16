@@ -19,15 +19,12 @@
  * text where text is wanted, an id that could be an id, nothing extra. It
  * refuses a blank query, which is an answer to a caller rather than a
  * judgement about the store: nothing is stored, changed or even read, so there
- * is no row for the log to hold. And it enforces `TEXT_LIMIT`, which is a
- * judgement about the store and is not made here — the number lives in
- * store.js and the command line tool enforces the same one, because a limit
- * only one door applies is not a limit. That it is checked at the doors rather
- * than in the gate means a library caller of `submit` is bounded by neither;
- * there is no such caller today.
+ * is no row for the log to hold.
  *
- * The credential screen on `recall` was here too and moved to the gate, where
- * it writes its row.
+ * Nothing else. The length limit was enforced here and moved to the gate, as
+ * the credential screen on `recall` did before it, and both for the same
+ * reason: a judgement about what a memory may be belongs where every caller
+ * passes, not at whichever doors happen to exist today.
  *
  * The explanations are the gate's own wherever the gate has one, credentials
  * included. A refusal shown to a person through an agent says word for word
@@ -47,7 +44,7 @@
  */
 
 import { forget, restore, screenQuery, submit } from './gate.js';
-import { listDecisions, listMemories, searchMemories, TEXT_LIMIT } from './store.js';
+import { listDecisions, listMemories, searchMemories } from './store.js';
 import { isBlank } from './text.js';
 
 /**
@@ -119,13 +116,7 @@ export const TOOLS = [
 
       // Blank text is not checked here. The gate refuses it, and refusing it
       // here instead would be a decision taken with nothing written down.
-      const text = readText(
-        args,
-        'text',
-        'the fact to store',
-        TEXT_LIMIT,
-        'A memory is one fact about the person, not a document. Store the fact.',
-      );
+      const text = readText(args, 'text', 'the fact to store');
       const replaces = args.replaces === undefined ? null : readId(args, 'replaces');
 
       return outcome(submit(store, { owner, text, replaces }));
@@ -230,13 +221,7 @@ export const TOOLS = [
       only(args, ['id', 'reason']);
 
       const id = readId(args, 'id');
-      const reason = readText(
-        args,
-        'reason',
-        'why it should stop being shown',
-        TEXT_LIMIT,
-        'A reason is a sentence the person would recognise, not a document.',
-      );
+      const reason = readText(args, 'reason', 'why it should stop being shown');
 
       return outcome(forget(store, { owner, id, reason }));
     },
@@ -398,30 +383,14 @@ function only(args, allowed) {
  * @param {Record<string, unknown>} args
  * @param {string} name
  * @param {string} whatItIsFor
- * @param {number} [limit] longest value accepted, when this tool sets one
- * @param {string} [whyBounded] how to finish the sentence when it is too long
  * @returns {string}
  */
-function readText(args, name, whatItIsFor, limit, whyBounded) {
+function readText(args, name, whatItIsFor) {
   const value = args[name];
   if (typeof value !== 'string') {
     throw new Error(
       `"${name}" has to be text saying ${whatItIsFor}, and this call gave ` +
         `${describe(value)}. Nothing was done.`,
-    );
-  }
-
-  // Measured with `.length`, deliberately, and not by counting characters the
-  // way the gate's excerpt does. Counting characters means spreading the
-  // string into an array as long as it is, which is an allocation the size of
-  // the input — the exact thing this check exists to refuse. `.length` counts
-  // the sixteen bit pieces, so it never reports fewer than there are
-  // characters, and a bound that errs towards refusing is the right way for
-  // this one to be wrong.
-  if (limit !== undefined && value.length > limit) {
-    throw new Error(
-      `"${name}" is longer than this takes: the limit is ${limit} characters and nothing ` +
-        `was done. ${whyBounded}`,
     );
   }
 

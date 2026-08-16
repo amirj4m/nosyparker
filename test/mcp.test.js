@@ -309,19 +309,26 @@ test('text and reasons are bounded, at the character rather than near it', async
   const agent = await connect(t, freshStoreFile(t));
 
   assert.match(await say(agent, 'remember', { text: ordinary(10_000) }), /Stored\./u);
+  // The gate refuses these now, not the adapter, so they read as answers
+  // rather than as bad arguments — and each leaves its row.
   assert.match(
     await say(agent, 'remember', { text: ordinary(10_001) }),
-    /limit is 10000 characters/u,
+    /the limit is 10,000/u,
   );
   assert.match(
     await say(agent, 'forget', { id: 1, reason: ordinary(10_001) }),
-    /limit is 10000 characters/u,
+    /the limit is 10,000/u,
   );
   assert.match(await say(agent, 'recall', { query: 'd'.repeat(1000) }), /Nothing matched/u);
   assert.match(await say(agent, 'recall', { query: 'd'.repeat(1001) }), /longer than this store will run/u);
 
-  // Refused before the gate, so none of them is a decision.
-  assert.equal((await say(agent, 'why', {})).split('\n\n').length, 1);
+  // Two of those three are decisions now and leave rows: the store, and the
+  // two refusals for length. The over-long query is not, because a search is
+  // not a decision about a memory.
+  const log = await say(agent, 'why', {});
+  assert.equal(log.split('\n\n').length, 3);
+  assert.equal((log.match(/refused \(file-not-fact\)/gu) ?? []).length, 2);
+  assert.match(log, /\[not recorded: longer than this store takes\]/u);
 
   // Memory 1 was not put away by the refused reason.
   assert.match(await say(agent, 'list', {}), /^1\. 0 I answer email/mu);

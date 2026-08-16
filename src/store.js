@@ -129,22 +129,17 @@ export const REPETITION_LIMIT = 60;
  * fifteen hundred words, and anything offering more than that as a single fact
  * has misunderstood the tool.
  *
- * It lives here rather than in the MCP adapter, which is where it was, because
- * that left `nosyparker add` taking text of any length at all — and that was
- * the only way to reach the worst case the project has: a memory holding a
- * long dense run padded with enough variety to score under
- * {@link REPETITION_LIMIT}. Four hundred kilobytes of one character with forty
- * kilobytes of ordinary text mixed in scores 34.5, well inside the rule, and
- * cost 856 MB and 4.8 seconds to search. Through the tools it was never
- * reachable, because ten thousand characters caps it. Through the terminal it
- * was, and nothing stopped it.
+ * Enforced by the gate, which is the only place every caller passes through.
+ * It was in the MCP adapter first, which left `nosyparker add` taking text of
+ * any length; then at both doors, which left `submit` unbounded for a library
+ * caller — and Phase 4's review loop would be one. Three times a bound was put
+ * at the entrances and a new entrance turned up behind it.
  *
- * That is the whole of the fix and it is one number. It went unmade through
- * three rounds spent on estimates at the read side, which is worth writing
- * down next to it.
- *
- * One definition, read by both entry points. Two numbers that have to agree is
- * how the same sentence ended up in three places in Phase 1.
+ * What it was holding shut, so the number is not mistaken for tidiness: a
+ * memory holding a long dense run with enough variety mixed in to score under
+ * {@link REPETITION_LIMIT} is cheap to store and expensive to search, and one
+ * such memory cost 856 MB and 4.8 seconds. Ten thousand characters is the cap
+ * that makes it unreachable.
  */
 export const TEXT_LIMIT = 10_000;
 
@@ -734,9 +729,8 @@ export function listMemories(store, owner, options = {}) {
  * at the worst shape both limits allow take 92 seconds for one search, and it
  * cannot be interrupted.
  *
- * Both limits are enforced at the two entry points and not in the gate, so
- * `submit` called directly as a library function is bounded by neither. There
- * is no such caller today.
+ * Both limits are gate rules, so every caller passes them — the tools, the
+ * terminal, and anything that calls `submit` directly.
  *
  * What was tried, what each costs, and what fixing either would mean:
  * DECISIONS.md, "Why a search cannot be interrupted".
