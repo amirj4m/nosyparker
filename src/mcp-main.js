@@ -139,6 +139,34 @@ server.setRequestHandler(ListToolsRequestSchema, () => ({
  */
 let inTurn = Promise.resolve();
 
+/**
+ * Whether there is still anybody on the other end.
+ *
+ * The transport listens to stdin for data and for errors, and for nothing
+ * else, so a client that simply goes away — closing its end of the pipe rather
+ * than sending a cancellation — is never noticed. Nothing sets the abort
+ * signals, nothing calls `onclose`, and every call already queued runs to
+ * completion for a reader who left. Measured: six searches asked for and
+ * abandoned by the client ending kept the server working for 912 ms after it
+ * had gone, and that grows with the queue.
+ *
+ * A search cannot be stopped once it has started — the binding has no
+ * interrupt — so not starting one is the only lever there is, and it only
+ * works if the leaving is noticed. That is what this watches for.
+ */
+let clientPresent = true;
+
+const clientHasGone = () => {
+  if (!clientPresent) return;
+  clientPresent = false;
+  // Closes the transport, which fires onclose, which closes the store. The
+  // check below stops anything still queued from touching it.
+  server.close().catch(() => {});
+};
+
+process.stdin.on('end', clientHasGone);
+process.stdin.on('close', clientHasGone);
+
 server.setRequestHandler(CallToolRequestSchema, (request, extra) => {
   const mine = inTurn.then(async () => {
     // Registered now, after whatever ran before this finished, so the event
@@ -153,6 +181,10 @@ server.setRequestHandler(CallToolRequestSchema, (request, extra) => {
     // This does not stop a search already running. It cannot: the binding has
     // no interrupt and no progress handler. It stops the ones behind it that
     // nobody is waiting for any more.
+    if (!clientPresent) {
+      return said('The client had already gone, so nothing was done.', true);
+    }
+
     if (extra.signal.aborted) {
       return said('That call was withdrawn before it started, so nothing was done.', true);
     }

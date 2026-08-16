@@ -641,3 +641,56 @@ test('a number that is not an id is refused before it reaches the log', async (t
   assert.match(await say(agent, 'forget', { id: 1, reason: 'moved' }), /will not be shown/u);
   assert.match(await say(agent, 'restore', { id: Number.MAX_SAFE_INTEGER }), /no memory/u);
 });
+
+
+test('a client that goes away does not leave the server working', async (t) => {
+  const file = freshStoreFile(t);
+
+  // Slow searching on purpose: low-diversity text, every memory legal, and a
+  // short query that the work limit allows. This is the shape that cannot be
+  // interrupted once it starts, so it is the shape worth checking is never
+  // started for nobody.
+  const store = openStore({ file, now: () => new Date().toISOString() });
+  for (let index = 0; index < 200; index += 1) {
+    recordDecision(store, (actions, at) => {
+      actions.insertMemory({ owner: 'local', text: 'x'.repeat(10_000), at, supersedes: null });
+      return { owner: 'local', verdict: 'stored', rule: 'keep', explanation: '.', input_excerpt: '' };
+    });
+  }
+  store.close();
+
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [SERVER],
+    env: { ...process.env, NOSYPARKER_STORE: file },
+  });
+  const client = new Client({ name: 'nosyparker-test', version: '0' });
+  await client.connect(transport);
+  const pid = /** @type {number} */ (transport.pid);
+  const running = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+  const started = Date.now();
+  await client.callTool({ name: 'recall', arguments: { query: 'xxxxxxxxxx' } });
+  const oneSearch = Math.max(50, Date.now() - started);
+
+  // Six searches asked for and then abandoned by the client simply ending.
+  // There is no cancellation here: the pipe closes and that is all.
+  for (let index = 0; index < 6; index += 1) {
+    client.callTool({ name: 'recall', arguments: { query: 'xxxxxxxxxx' } }).catch(() => {});
+  }
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  const wentAway = Date.now();
+  await client.close();
+
+  while (running() && Date.now() - wentAway < 30_000) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  const outlived = Date.now() - wentAway;
+
+  assert.equal(running(), false, 'the server should not outlive the client that started it');
+  assert.ok(
+    outlived < oneSearch * 3,
+    `the server kept going for ${outlived} ms after the client left, against ${oneSearch} ms for one search`,
+  );
+});
