@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { forget, submit } from '../src/gate.js';
-import { searchMemories, SEARCH_QUERY_LIMIT } from '../src/store.js';
+import { searchMemories, SEARCH_QUERY_LIMIT, SEARCH_WORK_LIMIT } from '../src/store.js';
 import { OWNER, runWatched, temporaryStore } from './helpers.js';
 
 const STORE_MODULE = new URL('../src/store.js', import.meta.url).href;
@@ -359,4 +359,80 @@ test('a search that cannot be passed on whole is refused in our own words', (t) 
   // Ordinary searches are untouched, on both paths.
   assert.equal(searchMemories(store, OWNER, 'Berlin').length, 1);
   assert.equal(searchMemories(store, OWNER, 'in').length, 1);
+});
+
+
+test('a search that would cost too much is refused before it costs it', async () => {
+  // Out of process and under a watch, because without the bound this call
+  // allocates 869 MB on its way to ten gigabytes, and a test that can do that
+  // in the runner is the thing that took the machine down.
+  const script = `
+    const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+    (async () => {
+      const { openStore, searchMemories, recordDecision } = await import(${JSON.stringify(STORE_MODULE)});
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-work-'));
+      const store = openStore({ file: path.join(dir, 'memory.sqlite'), now: () => new Date().toISOString() });
+
+      // 0.4 MB of one repeated character: very few distinct trigrams, so every
+      // trigram of the query matches hundreds of thousands of positions in one
+      // memory. This is the shape that costs, and it arrives through ordinary
+      // calls.
+      recordDecision(store, (actions, at) => {
+        actions.insertMemory({ owner: 'o', text: 'x'.repeat(419430), at, supersedes: null });
+        return { owner: 'o', verdict: 'stored', rule: 'keep', explanation: '.', input_excerpt: '' };
+      });
+
+      try {
+        const found = searchMemories(store, 'o', 'x'.repeat(999));
+        console.log('RAN AND RETURNED ' + found.length);
+      } catch (error) {
+        console.log('REFUSED: ' + error.message);
+      }
+
+      // Refused before anything ran, so the store is untouched and usable.
+      console.log('STILL WORKS: ' + searchMemories(store, 'o', 'xxx').length);
+      store.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    })();
+  `;
+
+  const settled = 200;
+  const result = await runWatched(['-e', script], { ceilingMB: settled + 200 });
+
+  assert.equal(result.signal, null, `the child was killed at ${result.peak.toFixed(0)} MB`);
+  assert.match(result.out, /REFUSED: That search would have to read through roughly/u);
+  assert.match(result.out, /positions inside a single memory/u);
+
+  // The refusal has to be unmistakable. Phase 1 took out a fifty result cap
+  // and a two hundred row cap because a caller cannot tell a short answer from
+  // a complete one; this must never become that.
+  assert.match(result.out, /nothing was searched for and nothing was returned/u);
+  assert.match(result.out, /You have not been shown a partial answer/u);
+  assert.equal(result.out.includes('RAN AND RETURNED'), false, 'it must not answer partially');
+
+  // Ordinary searching of that same store is unaffected.
+  assert.match(result.out, /STILL WORKS: 1/u);
+
+  assert.ok(
+    result.peak < settled + 200,
+    `refusing it should cost almost nothing, and the child reached ${result.peak.toFixed(0)} MB`,
+  );
+});
+
+test('the bound refuses rather than returning less, however many match', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  // Well past the fifty and two hundred that Phase 1 removed, so a cap
+  // reintroduced anywhere would show up here as a short answer.
+  for (let index = 0; index < 250; index += 1) {
+    submit(store, { owner: OWNER, text: `memory ${index}: I drink coffee in the morning` });
+  }
+
+  assert.equal(searchMemories(store, OWNER, 'coffee').length, 250);
+  assert.equal(searchMemories(store, OWNER, 'coffee morning').length, 250);
+  assert.equal(searchMemories(store, OWNER, 'in').length, 250, 'the substring path too');
+
+  // And the work limit is a number this file reads rather than one it repeats.
+  assert.equal(SEARCH_WORK_LIMIT, 5_000_000);
 });

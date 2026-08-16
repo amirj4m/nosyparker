@@ -67,21 +67,31 @@ import { controlCharacterIn, namedCodePoint, normaliseForComparison } from './te
  * database is not the problem there and a different binding is not the fix.
  */
 
+/**
+ * FTS5's report on its own vocabulary, per connection and never on disk.
+ *
+ * One name, used by the statement that reads it and by the statement that
+ * creates it, so the two cannot drift apart.
+ */
+const VOCABULARY = 'temp.memories_vocabulary';
+
 /** Trigram search needs at least three characters to match on. */
 const MIN_SEARCH_LENGTH = 3;
 
 /**
  * The longest query this store will run.
  *
- * Read the next paragraph before trusting this for anything.
+ * This is not the bound that makes the search safe. `SEARCH_WORK_LIMIT` is,
+ * and it was added after this one turned out to be at the wrong end of the
+ * problem. This one stays because it is cheap and it caps the multiplier, but
+ * on its own it does nothing.
  *
- * THIS DOES NOT MAKE THE SEARCH SAFE. It reduces the largest input a caller
- * can hand in; it does not bound what the search costs. This comment used to
- * say it was "the one thing standing between a caller and the machine going
- * down", and that was wrong. The cost is roughly the length of the query
- * multiplied by how much matching text is already stored, and the second
- * factor has no limit at all. Measured, with a query one character inside
- * this bound, against one memory of a repeated character:
+ * The cost is roughly the length of the query multiplied by how much matching
+ * text is already stored, and the second factor has no limit at all. This
+ * comment once said the number below was "the one thing standing between a
+ * caller and the machine going down", and that was wrong. Measured, with a
+ * query one character inside this bound, against one memory of a repeated
+ * character:
  *
  *     stored 0.1 MB   ->   273 MB
  *     stored 0.4 MB   ->   874 MB
@@ -116,11 +126,45 @@ const MIN_SEARCH_LENGTH = 3;
  *     fast against exactly that text: 153 MB and 35 ms against a 12.8 MB store
  *     of one repeated character, where the index path dies at 0.8 MB.
  *
- * That last line is the shape of a real fix, and it is a change to how search
- * works rather than a limit to tighten, so it is the owner's to decide and is
- * deliberately not made here.
+ * The answer in the end was neither a longer nor a shorter number here, but
+ * asking the index what the search would cost and refusing it when the answer
+ * is too much. That is `SEARCH_WORK_LIMIT`, below.
  */
 export const SEARCH_QUERY_LIMIT = 1000;
+
+/**
+ * The most work a single search is allowed to be worth, before it is refused.
+ *
+ * This is the bound the query length could not be. What costs the memory is
+ * not how long the query is but how much of one stored memory each of its
+ * trigrams matches, so the only honest place to decide is with both in hand —
+ * which is here, once, before the search runs.
+ *
+ * The measure is the number of trigrams in the query multiplied by the largest
+ * average occurrences-per-memory among them, asked of the index itself rather
+ * than guessed at. Measured against real searches:
+ *
+ *     0.4 MB in one memory, 999-char query      418,169,716    869 MB
+ *     0.1 MB in one memory, 999-char query      104,540,435    269 MB
+ *     1.0 MB across 100 memories                 10,451,551    220 MB, 10.6 s
+ *     25 MB of ordinary text, 999-char query        745,299     59 MB, 8 ms
+ *     6.4 MB of ordinary text, 999-char query       763,280     62 MB, 7 ms
+ *     25 MB of ordinary text, one word                5,140     89 MB, 72 ms
+ *
+ * The two groups are a hundredfold apart, and the number below sits between
+ * them with about six times the headroom over the worst ordinary search
+ * measured. Nothing a person or an agent searches for in earnest comes near
+ * it: reaching it needs a memory made of very few distinct trigrams — a run of
+ * one character, base64, a pasted log — which is exactly the text this was
+ * always about.
+ *
+ * It refuses. It does not quietly return the cheap part of the answer, and it
+ * must never be changed into something that does. Phase 1 took out a fifty
+ * result cap and a two hundred row cap for that reason: a caller cannot tell a
+ * complete answer from a shortened one, and neither can the person reading it.
+ * A search this store will not run is a sentence saying so.
+ */
+export const SEARCH_WORK_LIMIT = 5_000_000;
 
 /**
  * The shape of file this code knows how to read. Raise it whenever a column is
@@ -287,6 +331,13 @@ export function openStore({ file, now }) {
 
   try {
     prepareSchema(db, file);
+
+    // FTS5's own view of its vocabulary, which is what tells a search what it
+    // would cost before it runs. Created in `temp`, on purpose: it belongs to
+    // this connection and nothing about the file on disk changes, so no schema
+    // version moves and a store written by this code still opens under the
+    // version before it.
+    db.exec(`CREATE VIRTUAL TABLE ${VOCABULARY} USING fts5vocab(main, memories_fts, 'row')`);
   } catch (error) {
     // Nothing is handed back, so nothing else can close this.
     db.close();
@@ -743,6 +794,8 @@ export function searchMemories(store, owner, query, options = {}) {
     return searchBySubstring(store, owner, terms, includeArchived);
   }
 
+  refuseIfTooMuchWork(store, terms);
+
   const sql = `
     SELECT m.*
       FROM memories_fts f
@@ -792,6 +845,82 @@ function searchBySubstring(store, owner, terms, includeArchived) {
   const wanted = terms.map((term) => normaliseForComparison(term));
   return /** @type {Memory[]} */ (
     /** @type {unknown} */ (handleOf(store).db.prepare(sql).all(owner, ...wanted))
+  );
+}
+
+/**
+ * Ask the index what this search would cost, and refuse it if the answer is
+ * too much.
+ *
+ * The estimate is the number of trigrams the query will look for, multiplied
+ * by the largest average occurrences-per-memory among them. `fts5vocab` is
+ * where those counts come from: it is FTS5's own view of its vocabulary, so
+ * this is the index reporting on itself rather than a guess about it. It costs
+ * one statement — single-digit milliseconds against a 25 MB store — and it is
+ * the only way to know the price before paying it, since a running query
+ * cannot be stopped.
+ *
+ * Occurrences per memory, not occurrences in total. That distinction is the
+ * whole of it, and it was measured rather than assumed: a megabyte of repeated
+ * characters spread over a hundred memories has the same total as a megabyte
+ * in one, and costs 220 MB instead of 869, because FTS5 builds its position
+ * lists a document at a time. Total occurrences predicted neither: an ordinary
+ * search over 25 MB has a higher total than the one that took 869 MB, and
+ * answers in eight milliseconds.
+ *
+ * Where this is not exact. It is an estimate of an upper bound, not a
+ * simulation. The counts include memories that are archived or belong to
+ * another owner, so it can read high, which errs towards refusing. And case
+ * folding here is JavaScript's, while the tokeniser does its own, so a term
+ * whose folding differs can be looked up and missed — that errs the other way
+ * and would let a search through. Both are known and neither is close to the
+ * hundredfold gap the limit sits in.
+ *
+ * @param {Store} store
+ * @param {string[]} terms
+ */
+function refuseIfTooMuchWork(store, terms) {
+  /** @type {Map<string, number>} */
+  const wanted = new Map();
+  let trigrams = 0;
+
+  for (const term of terms) {
+    const folded = term.toLowerCase();
+    for (let at = 0; at + MIN_SEARCH_LENGTH <= folded.length; at += 1) {
+      const gram = folded.slice(at, at + MIN_SEARCH_LENGTH);
+      wanted.set(gram, (wanted.get(gram) ?? 0) + 1);
+      trigrams += 1;
+    }
+  }
+
+  if (wanted.size === 0) return;
+
+  const names = [...wanted.keys()];
+  const rows = handleOf(store)
+    .db.prepare(
+      `SELECT term, doc, cnt FROM ${VOCABULARY} WHERE term IN (${names.map(() => '?').join(',')})`,
+    )
+    .all(...names);
+
+  let densest = 0;
+  for (const row of /** @type {{term: string, doc: number, cnt: number}[]} */ (
+    /** @type {unknown} */ (rows)
+  )) {
+    const perMemory = Number(row.cnt) / Math.max(1, Number(row.doc));
+    if (perMemory > densest) densest = perMemory;
+  }
+
+  const work = Math.round(trigrams * densest);
+  if (work <= SEARCH_WORK_LIMIT) return;
+
+  throw new Error(
+    'That search would have to read through roughly ' +
+      `${work.toLocaleString('en')} positions inside a single memory, which is more than ` +
+      'this store will do at once, so nothing was searched for and nothing was returned. ' +
+      'Something stored is made of very few distinct three-character runs — a long run of ' +
+      'one character, base64, or a pasted log — and any search matching it costs far more ' +
+      'than an ordinary one. Search for something more specific, or forget the memory ' +
+      'holding that text. You have not been shown a partial answer: there is no answer here.',
   );
 }
 
