@@ -130,10 +130,22 @@ a 999-character slice of itself:
 is measuring the wrong thing: what makes a search expensive is not how dense
 the commonest trigram is, but how much of the query is made of dense ones.
 
-**So nothing currently bounds what a search costs.** One memory of 400 KB of a
-repeated character takes 834 MB, and larger takes the machine down. That is an
-open defect. `SEARCH_QUERY_LIMIT` caps one of the two multipliers and nothing
-caps the other.
+**What bounds it now.** Not one rule but three limits that only work together:
+`SEARCH_QUERY_LIMIT` caps how many trigrams a query may have, `TEXT_LIMIT` caps
+how long one memory may be, and `REPETITION_LIMIT` caps how much one memory may
+repeat itself. Take away any one and the worst case returns — which is what
+happened when `TEXT_LIMIT` was enforced in the MCP adapter but not at the
+terminal, leaving a 856 MB search reachable through `nosyparker add`.
+
+The worst that now fits inside all three is about nine and a half thousand
+dense characters in a single memory, which costs around 91 MB to search.
+
+Two things this does not cover. Time is still unbounded: the per-memory cost is
+multiplied by how many memories match, and a thousand memories at the worst
+allowed shape take 92 seconds for one search. And the two write-side limits are
+enforced at the two entry points rather than in the gate, so `submit` called
+directly as a library function is bounded by neither. There is no such caller
+today; Phase 4's review loop would be one.
 
 ## Why a search cannot be interrupted
 
@@ -152,10 +164,10 @@ moves the first row to 436 ms, because `bm25` wants its global statistics up
 front — better, and still not abandonable.
 
 What it costs today. Ordinary stores answer fast — 112 ms and 175 ms for 2,000
-memories at 36 MB. But with no bound on what a single document may cost, a
-search can run for minutes, or take the machine down, and it cannot be stopped
-once it starts. These were measured while a write-time rule was in place and
-are the optimistic numbers; without it the memory ceiling is gone too.
+memories at 36 MB. Memory is bounded by the three limits above, at around
+91 MB for the worst single memory they allow. Time is not: a thousand memories
+at that shape take 92 seconds for one search, and it cannot be stopped once it
+starts.
 
 There is no bound on time because nothing predicts it. A query with 43 million
 total occurrences answers in 7 ms while another with 105 million takes 1094 ms,

@@ -3,8 +3,8 @@
 A place to keep the things you tell an AI agent about yourself, so you do not
 have to tell it again tomorrow.
 
-It keeps everything it is told and forgets nothing on its own. Nothing in it
-expires, and nothing is ever removed behind your back.
+What it accepts, it keeps. Nothing in it expires, and nothing is ever removed
+behind your back. It does turn some things away, and it says so at the time.
 
 ## What it can do
 
@@ -23,12 +23,14 @@ one, the others know. Six things an agent can do:
 
 Offers can be refused. Anything shaped like a password, a key or a card number
 is not stored, and is not written into the record either; so is empty text, and
-so is something you have already said word for word.
+so is something you have already said word for word. Files are refused too: if
+an agent pastes a log or an export, it is told to keep the fact and leave the
+file — this is a memory, not a filing cabinet.
 
 There is also a command line tool, so you can read and change your memories
 without an agent in the way.
 
-Nothing here deletes anything. If you want a memory gone for good, that is one
+Nothing here deletes a memory. If you want one gone for good, that is a
 command you run yourself:
 
 ```

@@ -14,14 +14,20 @@
  * where it is the `empty` rule and leaves its row, because refusing to put a
  * memory away is a decision about a memory.
  *
- * What is left here is what belongs here, and it is worth being exact about
- * the line. This file checks that arguments are the shape the schema says —
- * text where text is wanted, an id that could be an id, nothing extra — and it
- * refuses two things of its own on the way into `recall`: a query that is
- * blank, and a query that looks like a credential. Neither is a decision about
- * a memory. Nothing is stored, nothing is changed, nothing is even read, so
- * there is no row for the log to hold and no gate rule that would fit. They
- * are answers to a caller, not judgements about the store.
+ * What is left here is worth being exact about, because it is more than
+ * nothing. This file checks that arguments are the shape the schema says —
+ * text where text is wanted, an id that could be an id, nothing extra. It
+ * refuses a blank query, which is an answer to a caller rather than a
+ * judgement about the store: nothing is stored, changed or even read, so there
+ * is no row for the log to hold. And it enforces `TEXT_LIMIT`, which is a
+ * judgement about the store and is not made here — the number lives in
+ * store.js and the command line tool enforces the same one, because a limit
+ * only one door applies is not a limit. That it is checked at the doors rather
+ * than in the gate means a library caller of `submit` is bounded by neither;
+ * there is no such caller today.
+ *
+ * The credential screen on `recall` was here too and moved to the gate, where
+ * it writes its row.
  *
  * The explanations are the gate's own wherever the gate has one, credentials
  * included. A refusal shown to a person through an agent says word for word

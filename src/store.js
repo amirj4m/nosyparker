@@ -722,11 +722,21 @@ export function listMemories(store, owner, options = {}) {
  * interrupt and no progress handler, and it is synchronous, so nothing else in
  * the process runs meanwhile.
  *
- * And nothing bounds what a search costs in either memory or time. Ordinary
- * stores answer in 112 to 175 ms at 36 MB. One memory of 400 KB of a single
- * repeated character takes 834 MB and four seconds, and a larger one takes the
- * machine down — which is an open defect, not a limitation, and DECISIONS.md
- * says what is known about it.
+ * And what a search costs is bounded in memory but not in time. Two limits do
+ * the bounding between them: no memory may be longer than
+ * {@link TEXT_LIMIT}, and none may repeat itself past
+ * {@link REPETITION_LIMIT}. The worst that fits inside both is about nine and a
+ * half thousand dense characters in one memory, and one search of it costs
+ * around 91 MB. Ordinary stores answer in 112 to 175 ms at 36 MB.
+ *
+ * Time is the half that is not bounded, because that cost is multiplied by how
+ * many memories match and nothing caps how many there are. A thousand memories
+ * at the worst shape both limits allow take 92 seconds for one search, and it
+ * cannot be interrupted.
+ *
+ * Both limits are enforced at the two entry points and not in the gate, so
+ * `submit` called directly as a library function is bounded by neither. There
+ * is no such caller today.
  *
  * What was tried, what each costs, and what fixing either would mean:
  * DECISIONS.md, "Why a search cannot be interrupted".

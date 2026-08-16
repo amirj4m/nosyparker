@@ -3,8 +3,10 @@
  *
  * It opens the same store the command line tool opens, hands the client the
  * list of tools, and passes each call to the one function that runs it. That
- * is the whole of it. Every rule about what may be stored, and every guarantee
- * about how it is written down, is behind the gate and is not restated here.
+ * is the whole of it. Every judgement about what a memory may say is behind
+ * the gate, with its decision row, and is not restated here — the one thing
+ * the tools enforce themselves is the length limit, from the same constant the
+ * command line tool reads.
  *
  * Started through `mcp-server.js`, which quietens one Node warning before
  * anything here loads `node:sqlite`.
