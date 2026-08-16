@@ -583,8 +583,16 @@ test('rule 4: a file pasted as a memory is refused, and leaves a row', (t) => {
   assert.match(refused.explanation, /reads as a file rather than something to remember/u);
   assert.match(refused.explanation, /keeps facts, not documents/u);
   assert.match(refused.explanation, /Read it, decide what matters/u);
-  assert.match(refused.explanation, /same file again will get the same answer/u);
+  assert.match(refused.explanation, /same text again will get the same answer/u);
   assert.equal(/trigram|ratio|character run/iu.test(refused.explanation), false, 'no jargon');
+
+  // It has to be true of the other thing that scores high: a sequence over a
+  // very small alphabet, which is random rather than repetitive. Saying "the
+  // same few characters over and over" about a DNA read would be false.
+  const dna = 'ACGT'.repeat(1_000).split('').sort(() => 0.5).join('').slice(0, 4_000);
+  const other = submit(store, { owner: OWNER, text: dna });
+  assert.equal(other.rule, 'file-not-fact');
+  assert.match(other.explanation, /built from a very small set of characters/u);
 
   const [decision] = listDecisions(store, OWNER);
   assert.equal(decision.rule, 'file-not-fact');

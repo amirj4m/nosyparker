@@ -82,9 +82,12 @@ const INSTRUCTIONS = [
   'briefly that you did; they cannot see this memory while they are talking to',
   'you.',
   '',
-  'Credentials are refused by design. Anything shaped like a key, a password or a',
-  'card number is not stored and is not written down anywhere, and that is the',
-  'intended behaviour rather than a failure to work around.',
+  'Two things are refused by design rather than by accident. Anything shaped',
+  'like a key, a password or a card number is not stored and is not written down',
+  'anywhere. And files are not stored: paste a log or an export and it will be',
+  'refused, because this keeps facts rather than documents. When that happens,',
+  'read the file yourself, work out the one thing worth remembering, and store',
+  'that sentence instead. Neither refusal is a failure to work around.',
 ].join('\n');
 
 // The same catch as the command line tool's, and it matters more here. A

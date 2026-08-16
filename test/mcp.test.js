@@ -728,11 +728,21 @@ test('the descriptions say what an agent will otherwise learn by being refused',
   const recall = of('recall');
   assert.match(recall, /credential/iu, 'recall refuses secrets and never said so');
   assert.match(recall, /thousand characters/u, 'recall has a length limit and never said so');
-  assert.match(recall, /refused for what it would cost/u, 'a search can be refused for cost');
+  // It must not promise refusals that do not exist either. A cost refusal was
+  // described here for a while after the rule behind it was removed.
+  assert.equal(/refused for what it would cost/u.test(recall), false, 'a refusal that is not real');
 
   const remember = of('remember');
   assert.match(remember, /ten thousand characters/u);
   assert.match(remember, /credential/iu);
+  assert.match(remember, /repeats itself/u, 'remember refuses files and should say so');
+
+  // The introduction is the one thing a client shows before any tool is
+  // considered, and pasting a log is the refusal an agent meets most.
+  const introduction = agent.getInstructions() ?? '';
+  assert.match(introduction, /files are not stored/u);
+  assert.match(introduction, /read the file yourself/u);
+  assert.ok(introduction.length < 1400, `the introduction is ${introduction.length} characters`);
 });
 
 /**

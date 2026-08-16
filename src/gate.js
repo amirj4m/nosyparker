@@ -240,12 +240,14 @@ export function submit(store, { owner, text, replaces = null }) {
           rule: 'file-not-fact',
           explanation:
             'Nothing was stored, because that reads as a file rather than something to ' +
-            'remember: the same few characters over and over, the way a log or an export or ' +
-            'a dump looks. nosyparker keeps facts, not documents — one thing about you or ' +
-            'your work, in a sentence, so an agent can find it later. If something in that ' +
-            'file is worth keeping, store that instead: what the pattern is, when it happens, ' +
-            'what to do about it. Read it, decide what matters, and send that one sentence. ' +
-            'Sending the same file again will get the same answer.',
+            'remember. There is very little variety in it: either the same few characters ' +
+            'over and over, the way a log or an export or a dump looks, or a long stretch ' +
+            'built from a very small set of characters, the way a sequence or an encoding ' +
+            'does. nosyparker keeps facts, not documents — one thing about you or your ' +
+            'work, in a sentence, so an agent can find it later. If something in that text ' +
+            'is worth keeping, store that instead: what it is, where it came from, what it ' +
+            'means. Read it, decide what matters, and send that one sentence. Sending the ' +
+            'same text again will get the same answer.',
           input_excerpt: excerpt(text),
         };
       }
