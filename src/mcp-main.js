@@ -102,7 +102,65 @@ server.setRequestHandler(ListToolsRequestSchema, () => ({
   })),
 }));
 
-server.setRequestHandler(CallToolRequestSchema, (request) => {
+/**
+ * The tool calls, run strictly one after another.
+ *
+ * `node:sqlite` is synchronous, so they were already going to run one at a
+ * time; what this adds is a point between them where this process is not
+ * inside a tool call, and a place to ask whether the next one is still wanted.
+ *
+ * Why a chain rather than just yielding at the top of the handler, which is
+ * what this did first and which passed on a quiet machine and failed under
+ * load. Every call that has arrived gets its handler started immediately, so
+ * four of them queue four yields in the same turn — and callbacks already
+ * queued together run back to back, with no chance for the loop to read from
+ * stdin in between. The cancellations were sitting unread in the pipe the
+ * whole time. Chaining means the wait for the next call is only registered
+ * once the previous one has finished, so the loop has to go round — through
+ * the poll where stdin is read — before it comes back. That is the difference
+ * between a check that means something and one that is always false.
+ *
+ * @type {Promise<void>}
+ */
+let inTurn = Promise.resolve();
+
+server.setRequestHandler(CallToolRequestSchema, (request, extra) => {
+  const mine = inTurn.then(async () => {
+    // Registered now, after whatever ran before this finished, so the event
+    // loop must complete a turn — and read what has arrived — before it
+    // resumes here.
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // Three searches an agent had already given up on kept a core at 100% for
+    // fifteen seconds after it stopped listening, and an agent that retries
+    // makes that worse rather than better.
+    //
+    // This does not stop a search already running. It cannot: the binding has
+    // no interrupt and no progress handler. It stops the ones behind it that
+    // nobody is waiting for any more.
+    if (extra.signal.aborted) {
+      return said('That call was withdrawn before it started, so nothing was done.', true);
+    }
+
+    return answer(request);
+  });
+
+  // The next call waits for this one however it ends. A failure here is
+  // already turned into a sentence below, but the chain must not be left
+  // rejected either way, or every call after it would be dropped.
+  inTurn = mine.then(
+    () => {},
+    () => {},
+  );
+
+  return mine;
+});
+
+/**
+ * @param {{params: {name: string, arguments?: Record<string, unknown>}}} request
+ * @returns {{content: {type: 'text', text: string}[], isError: boolean}}
+ */
+function answer(request) {
   const { name, arguments: args } = request.params;
 
   const tool = TOOLS.find((candidate) => candidate.name === name);
@@ -123,7 +181,7 @@ server.setRequestHandler(CallToolRequestSchema, (request) => {
     // — so all that is left is to say what went wrong and stay up.
     return said(explain(error), true);
   }
-});
+}
 
 // A fault on the connection itself, rather than in a tool call. The tools
 // answer their own failures in a sentence; this is for the ones that happen

@@ -14,6 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { openStore, recordDecision } from '../src/store.js';
 import { residentMB, watchResident } from './helpers.js';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -495,3 +496,52 @@ function contains(bytes, value) {
     bytes.includes(Buffer.from(value, 'latin1'))
   );
 }
+
+test('calls an agent has given up on do not keep the server busy', async (t) => {
+  const file = freshStoreFile(t);
+
+  // Low-diversity text, every memory inside the adapter's limit. A search of
+  // it is slow for the reason Item 15 records and cannot be interrupted:
+  // node:sqlite is synchronous and its binding exposes no way to stop a
+  // running statement. What can be stopped is starting the next one.
+  const store = openStore({ file, now: () => new Date().toISOString() });
+  for (let index = 0; index < 16; index += 1) {
+    recordDecision(store, (actions, at) => {
+      actions.insertMemory({ owner: 'local', text: 'x'.repeat(10_000), at, supersedes: null });
+      return { owner: 'local', verdict: 'stored', rule: 'keep', explanation: '.', input_excerpt: '' };
+    });
+  }
+  store.close();
+
+  const agent = await connect(t, file);
+  const watch = watchResident(/** @type {number} */ (serverPids.get(agent)), 900);
+  t.after(() => watch.stop());
+
+  const slow = { query: 'x'.repeat(999) };
+
+  const started = Date.now();
+  await say(agent, 'recall', slow);
+  const oneSearch = Date.now() - started;
+
+  // Four of them, each abandoned almost immediately.
+  const abandoned = Date.now();
+  await Promise.all(
+    Array.from({ length: 4 }, () =>
+      agent.callTool({ name: 'recall', arguments: slow }, undefined, { timeout: 200 }).catch(() => {}),
+    ),
+  );
+
+  // The question that matters to a person: is it answering again? One search
+  // is already running and has to finish. The other three were given up on
+  // and must not be started.
+  const askedAgain = Date.now();
+  assert.equal(await say(agent, 'list', {}), await say(agent, 'list', {}));
+  const waited = Date.now() - askedAgain;
+  const total = Date.now() - abandoned;
+
+  assert.ok(
+    total < oneSearch * 2.5,
+    `four abandoned searches held the server for ${total} ms, against ${oneSearch} ms for one`,
+  );
+  assert.ok(waited < oneSearch * 2.5, `an ordinary call waited ${waited} ms behind them`);
+});
