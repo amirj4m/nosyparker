@@ -3,9 +3,22 @@
  *
  * Two tables. `memories` holds what was stored, `decisions` holds why. A
  * memory is never removed here: it changes state, and the old state stays
- * readable. There is no DELETE statement anywhere in this file, and no code
- * path in this project deletes a row except `scripts/purge.mjs`, which a
- * person runs by hand.
+ * readable. No code path in this project deletes a memory or a decision except
+ * `scripts/purge.mjs`, which a person runs by hand.
+ *
+ * There is one DELETE in this file, and it is a considered exception rather
+ * than an oversight. It empties `temp.query_tokens`, a scratch index that
+ * exists for one purpose: to hand a search query to FTS5 so the tokeniser can
+ * be asked what it made of it. Read the reasoning at that constant. The rule
+ * it sits under is not "no DELETE" for its own sake — it is that nothing can
+ * destroy what the person told us, and a table holding a copy of the query
+ * somebody typed a millisecond ago, which never reaches the file and dies with
+ * the connection, cannot. `memories` and `decisions` are what the rule is
+ * about and neither is touched.
+ *
+ * This is the only exception, and it is scoped to `temp`. A DELETE against
+ * anything in `main` is the thing the whole project exists to prevent, and no
+ * argument of this shape should be accepted for one.
  *
  * Nothing outside this file ever holds the database handle. It is not on the
  * Store object and it is not passed to callers: `recordDecision` hands the
@@ -84,10 +97,25 @@ const VOCABULARY = 'temp.memories_vocabulary';
  * {@link VOCABULARY}. Both are `temp`: they belong to this connection, never
  * reach the file, and hold nothing but the last query priced.
  *
- * This is the only write in this file that is not a memory, and it is worth
- * being plain about that. It touches neither `memories` nor `decisions`, so
- * the guarantee at the top of the file — that nothing changes a memory without
- * writing down why — is untouched by it.
+ * Two things about this are exceptions to rules stated at the top of the file,
+ * and both were weighed rather than missed.
+ *
+ * It is the only write here that is not a memory, and the only DELETE. Both
+ * are on this table. The rules they bend exist to guarantee that nothing can
+ * destroy or silently alter what the person told us, and neither can be
+ * reached from here: this table holds one copy of the query somebody typed a
+ * moment ago, it is created in `temp` so it never reaches the file, it is
+ * emptied before each use and dies with the connection, and `memories` and
+ * `decisions` are never touched by any statement against it.
+ *
+ * It also means `searchMemories`, which reads, writes here first. That is
+ * plainly odd and is the price of asking the tokeniser rather than guessing at
+ * it — and guessing at it was a real defect, not a hypothetical one: a query
+ * folded one way here and another by FTS5 was priced at nothing and let a two
+ * hundred million position search through.
+ *
+ * This is the only exception in the project and it is scoped to `temp`.
+ * Anything proposing the same latitude against `main` should be refused.
  */
 const QUERY_TOKENS = 'temp.query_tokens';
 const QUERY_VOCABULARY = 'temp.query_vocabulary';
@@ -913,6 +941,8 @@ function refuseIfTooMuchWork(store, terms) {
   // One row per term, not one row for the whole query, so that no trigram is
   // invented across the gap between two terms — the search looks for each term
   // separately and so must the price.
+  // The project's one permitted DELETE, and only because this table is in
+  // `temp` and holds nothing but the last query priced. See QUERY_TOKENS.
   db.prepare(`DELETE FROM ${QUERY_TOKENS}`).run();
   const write = db.prepare(`INSERT INTO ${QUERY_TOKENS}(text) VALUES (?)`);
   for (const term of terms) write.run(term);
