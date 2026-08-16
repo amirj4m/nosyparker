@@ -12,6 +12,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
+import { runWatched } from './helpers.js';
+
 const CLI = path.join(import.meta.dirname, '..', 'src', 'cli.js');
 
 test('storing, listing, searching and reading the log', (t) => {
@@ -191,3 +193,31 @@ function commandRunner(t) {
     return { code: result.status, out: result.stdout, err: result.stderr };
   };
 }
+
+test('a search too long to run is refused at the terminal, in a sentence', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-cli-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const env = { NOSYPARKER_STORE: path.join(dir, 'memory.sqlite') };
+
+  // A hundred and twenty kilobytes is about as much as a shell will pass in a
+  // single argument, and against a store holding text those trigrams match it
+  // took a terminal past 1.2 GB and climbing. This is the hole the MCP bound
+  // did not cover.
+  const dense = 'x'.repeat(120_000);
+
+  const stored = await runWatched([CLI, 'add', dense], { env, ceilingMB: 500 });
+  assert.equal(stored.code, 0, 'storing it is not the dangerous half');
+
+  const searched = await runWatched([CLI, 'search', dense], { env, ceilingMB: 500 });
+
+  assert.equal(searched.signal, null, `the search was killed at ${searched.peak.toFixed(0)} MB`);
+  assert.equal(searched.code, 1);
+  assert.match(searched.err, /That search is longer than this store will run/u);
+  assert.match(searched.err, /the limit is 1000 characters/u);
+  assert.equal(searched.err.includes('at Object'), false, 'a sentence, not a stack trace');
+
+  // And an ordinary search of that same store still works.
+  const ordinary = await runWatched([CLI, 'search', 'xxx'], { env, ceilingMB: 500 });
+  assert.equal(ordinary.code, 0);
+  assert.match(ordinary.out, /1 match/u);
+});

@@ -94,7 +94,18 @@ function runSearch(store, args) {
   const query = args.join(' ');
   if (query.trim() === '') fail('Say what to look for: nosyparker search "<query>"');
 
-  const found = searchMemories(store, LOCAL_OWNER, query);
+  // The store refuses a query too long to run, because running it is what
+  // took the machine down. It says so in a sentence; this puts that sentence
+  // on the terminal instead of a stack trace, which is what a person typing
+  // gets otherwise and which tells them nothing they can act on.
+  /** @type {import('./store.js').Memory[]} */
+  let found;
+  try {
+    found = searchMemories(store, LOCAL_OWNER, query);
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
+
   if (found.length === 0) {
     process.stdout.write('Nothing matched.\n');
     return;

@@ -8,8 +8,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { forget, submit } from '../src/gate.js';
-import { searchMemories } from '../src/store.js';
-import { OWNER, temporaryStore } from './helpers.js';
+import { searchMemories, SEARCH_QUERY_LIMIT } from '../src/store.js';
+import { OWNER, runWatched, temporaryStore } from './helpers.js';
+
+const STORE_MODULE = new URL('../src/store.js', import.meta.url).href;
+const GATE_MODULE = new URL('../src/gate.js', import.meta.url).href;
 
 test('search finds Persian, Arabic, Chinese and English', (t) => {
   const store = temporaryStore();
@@ -252,4 +255,76 @@ test('punctuation in a query is treated as text to look for, not as syntax', (t)
 
   assert.equal(searchMemories(store, OWNER, '"long form"').length, 1);
   assert.doesNotThrow(() => searchMemories(store, OWNER, 'NEAR(a b) OR *'));
+});
+
+test('a query the store will not run is refused before it costs anything', async () => {
+  // Run in a child, under a watch that kills it, and never in the test runner.
+  // Without the bound this exact call allocated about ten gigabytes inside
+  // SQLite and the kernel killed the machine's sessions. A test that could do
+  // that again on the day somebody removes the bound would be worse than no
+  // test at all.
+  const script = `
+    const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+    (async () => {
+      const { openStore, searchMemories } = await import(${JSON.stringify(STORE_MODULE)});
+      const { submit } = await import(${JSON.stringify(GATE_MODULE)});
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-bound-'));
+      const store = openStore({ file: path.join(dir, 'memory.sqlite'), now: () => new Date().toISOString() });
+
+      // A memory of one repeated character indexes as thousands of identical
+      // trigrams. It is what a long query matches against, and matching is
+      // where the memory went.
+      submit(store, { owner: 'o', text: 'x'.repeat(9000) });
+
+      try {
+        searchMemories(store, 'o', 'x'.repeat(1000000));
+        console.log('RAN IT');
+      } catch (error) {
+        console.log('REFUSED: ' + error.message);
+      }
+
+      // Refused before anything was read or written, so the store still works.
+      console.log('STILL WORKS: ' + searchMemories(store, 'o', 'xxx').length);
+      store.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    })();
+  `;
+
+  const settled = 200;
+  const result = await runWatched(['-e', script], { ceilingMB: settled + 400 });
+
+  assert.equal(result.signal, null, `the child was killed at ${result.peak.toFixed(0)} MB`);
+  assert.match(result.out, /REFUSED: That search is longer than this store will run/u);
+  assert.match(result.out, /the limit is 1000 characters and this one is 1000000/u);
+  assert.match(result.out, /STILL WORKS: 1/u, 'an ordinary search of the same store still works');
+
+  assert.ok(
+    result.peak < settled + 400,
+    `refusing it should cost nothing, and the child reached ${result.peak.toFixed(0)} MB`,
+  );
+});
+
+test('the bound is at the character, and every caller gets the same one', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  submit(store, { owner: OWNER, text: 'I live in Berlin' });
+
+  // Checked first, before a single character is built from it, and that order
+  // is the whole safety of this test. The lengths below are derived from the
+  // constant, so if somebody raised it to something enormous this test would
+  // otherwise be the thing that built an enormous query — in the test runner's
+  // own process, where there is nothing to kill it. Failing here instead costs
+  // nothing and says exactly what changed.
+  //
+  // The number is read from the store rather than written down again. Two
+  // copies that have to agree is how one sentence became three in Phase 1.
+  assert.equal(SEARCH_QUERY_LIMIT, 1000);
+
+  // Now safe: a thousand characters either side of a bound that is a thousand.
+  assert.equal(searchMemories(store, OWNER, 'x'.repeat(SEARCH_QUERY_LIMIT)).length, 0);
+  assert.throws(
+    () => searchMemories(store, OWNER, 'x'.repeat(SEARCH_QUERY_LIMIT + 1)),
+    /longer than this store will run/u,
+  );
 });

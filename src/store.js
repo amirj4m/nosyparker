@@ -31,6 +31,37 @@ import { normaliseForComparison } from './text.js';
 const MIN_SEARCH_LENGTH = 3;
 
 /**
+ * The longest query this store will run.
+ *
+ * Not a tuning parameter, and not a policy about how people ought to search.
+ * It is the one thing standing between a caller and the machine going down.
+ *
+ * `searchMemories` hands the query to FTS5 as a single quoted phrase, and the
+ * index is a trigram one, so a query of N characters becomes a phrase of N-2
+ * consecutive tokens and SQLite allocates position lists for every one of
+ * them. Against a store holding text those trigrams match, a one megabyte
+ * query allocated about ten gigabytes in a single step and the kernel killed
+ * the process, taking everything else on the machine with it. That memory is
+ * SQLite's own, not the JavaScript heap's — measured at 1509 MB resident with
+ * the heap capped at 256 MB — so no Node memory limit was ever going to catch
+ * it, and there is nothing above this layer that can.
+ *
+ * It lives here, on the function that does the allocating, because that is the
+ * only place that covers every caller. It was in the MCP adapter first, which
+ * left `nosyparker search` with the same hole: one hundred and twenty
+ * kilobytes in a single argument — all a shell will pass in one — took a
+ * terminal past 1.2 GB and climbing.
+ *
+ * A thousand characters was measured, not guessed. At this length the search
+ * costs nothing above what the process already holds; four kilobytes trebles
+ * it. It also bounds the term count, since a thousand characters cannot hold
+ * more than five hundred terms, and two hundred thousand of them used to hold
+ * a core for over a minute. No search a person types, and no search an agent
+ * has any reason to run, comes near it.
+ */
+export const SEARCH_QUERY_LIMIT = 1000;
+
+/**
  * The shape of file this code knows how to read. Raise it whenever a column is
  * added, removed or changed.
  *
@@ -597,6 +628,28 @@ export function listMemories(store, owner, options = {}) {
  * @returns {Memory[]}
  */
 export function searchMemories(store, owner, query, options = {}) {
+  // First, before the query is split, normalised or handed to anything. A
+  // guard against an oversized input has to refuse it while it is still just
+  // a string the caller passed; anything this function does to it first is
+  // an allocation the size of the input, which is the thing being refused.
+  //
+  // Length is `.length` rather than a count of characters, for the same
+  // reason: counting characters means spreading the string into an array as
+  // long as it is. `.length` counts the sixteen bit pieces, so it never
+  // reports fewer characters than there are, and a bound that errs towards
+  // refusing is the right way for this one to be wrong.
+  //
+  // Nothing has been read or written at this point. There is no transaction
+  // open, no statement prepared, and no row touched, so a refused search
+  // leaves the store exactly as it found it.
+  if (query.length > SEARCH_QUERY_LIMIT) {
+    throw new Error(
+      `That search is longer than this store will run: the limit is ${SEARCH_QUERY_LIMIT} ` +
+        `characters and this one is ${query.length}. Nothing was searched for. Look for the ` +
+        'words that matter rather than for a whole document.',
+    );
+  }
+
   const terms = query.trim().split(/\s+/u).filter((term) => term !== '');
   if (terms.length === 0) return [];
 

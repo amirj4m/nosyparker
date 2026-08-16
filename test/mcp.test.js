@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { execFileSync } from 'node:child_process';
+import { residentMB, watchResident } from './helpers.js';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -283,7 +283,7 @@ test('a query far too long to be a search is refused, and nothing is allocated f
   const answer = await say(agent, 'recall', { query: 'x'.repeat(1_000_000) });
   watch.stop();
 
-  assert.match(answer, /longer than this takes/u);
+  assert.match(answer, /longer than this store will run/u);
   assert.match(answer, /limit is 1000 characters/u);
 
   assert.ok(
@@ -294,7 +294,7 @@ test('a query far too long to be a search is refused, and nothing is allocated f
   // Two hundred thousand terms is the same bound from the other direction: it
   // used to hold a core for over a minute.
   const many = await say(agent, 'recall', { query: Array(200_000).fill('abcd').join(' ') });
-  assert.match(many, /longer than this takes/u);
+  assert.match(many, /longer than this store will run/u);
 
   // And an ordinary search of the same store still works.
   assert.match(await say(agent, 'recall', { query: 'xxx' }), /1 match/u);
@@ -313,7 +313,7 @@ test('text and reasons are bounded, at the character rather than near it', async
     /limit is 10000 characters/u,
   );
   assert.match(await say(agent, 'recall', { query: 'd'.repeat(1000) }), /Nothing matched/u);
-  assert.match(await say(agent, 'recall', { query: 'd'.repeat(1001) }), /limit is 1000 characters/u);
+  assert.match(await say(agent, 'recall', { query: 'd'.repeat(1001) }), /longer than this store will run/u);
 
   // Refused before the gate, so none of them is a decision.
   assert.equal((await say(agent, 'why', {})).split('\n\n').length, 1);
@@ -446,63 +446,6 @@ async function connect(t, file) {
   return client;
 }
 
-/**
- * How much memory a process is holding, in megabytes.
- *
- * Asked of `ps` rather than of `/proc`, which does not exist everywhere. The
- * number is resident set size, which is what the kernel counts when it decides
- * what to kill, and it includes what SQLite allocates outside the JavaScript
- * heap — which is the whole point here, because that is where the memory this
- * guards against actually went.
- *
- * @param {number} pid
- * @returns {number}
- */
-function residentMB(pid) {
-  const out = execFileSync('ps', ['-o', 'rss=', '-p', String(pid)], { encoding: 'utf8' });
-  return Number(out.trim()) / 1024;
-}
-
-/**
- * Watch a process and kill it if it goes past a limit.
- *
- * The killing is not incidental, it is the point. A test that merely measured
- * afterwards would, on the day somebody removes the bound being tested, sit
- * there while the server took ten gigabytes and the machine went down around
- * it — which is exactly what this is here to stop happening again. So the
- * ceiling is enforced while the call is in flight, and the test then asserts
- * against the peak.
- *
- * @param {number} pid
- * @param {number} limitMB
- * @returns {{peak: () => number, stop: () => void}}
- */
-function watchResident(pid, limitMB) {
-  let peak = 0;
-
-  const timer = setInterval(() => {
-    let rss;
-    try {
-      rss = residentMB(pid);
-    } catch {
-      return; // gone, which is somebody else's business
-    }
-    if (rss > peak) peak = rss;
-    if (rss > limitMB) {
-      try {
-        process.kill(pid, 'SIGKILL');
-      } catch {
-        // already gone
-      }
-      clearInterval(timer);
-    }
-  }, 20);
-
-  return {
-    peak: () => peak,
-    stop: () => clearInterval(timer),
-  };
-}
 
 /**
  * Call a tool and hand back what a person would be shown.
