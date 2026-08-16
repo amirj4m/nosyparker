@@ -24,3 +24,53 @@ export function normaliseForComparison(text) {
 export function isBlank(text) {
   return text.trim() === '';
 }
+
+/**
+ * The C0 control characters, less the three that belong in ordinary text.
+ *
+ * Tab, newline and carriage return are things people type and are left alone.
+ * The rest are not text: they are invisible, nobody means to store one, and
+ * two separate things go wrong when one arrives.
+ *
+ * U+0000 is the one that breaks the store's word. SQLite keeps the whole
+ * string on disk, but reading it back through `node:sqlite` stops at the NUL,
+ * so forty two characters were written and twenty came back. Everything that
+ * rests on reading a memory then quietly disagrees with the file: the same
+ * sentence stored twice with a NUL between the halves is two memories that
+ * both read back identically, and the search index holds text the display
+ * cannot show.
+ *
+ * The others do not truncate, but every one of them can be dropped into the
+ * middle of a secret to break its shape — `AKIA` and sixteen characters is an
+ * access key, and `AKIA`, one invisible character, and sixteen characters is
+ * not, to a regular expression. So the check that looks for secrets can be
+ * walked straight past by anything on this list, which is why the whole list
+ * is refused rather than only the NUL that started it.
+ */
+const CONTROL_CHARACTER = /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/u;
+
+/**
+ * The first character in the text that is not text, if there is one.
+ *
+ * Handed back as a code point so it can be named in the refusal. It cannot be
+ * quoted: printing it would put an invisible character into a sentence meant
+ * to explain that there is an invisible character.
+ *
+ * @param {string} text
+ * @returns {number|null} code point, or null when the text is clean
+ */
+export function controlCharacterIn(text) {
+  const found = CONTROL_CHARACTER.exec(text);
+  if (found === null) return null;
+  return found[0].codePointAt(0) ?? null;
+}
+
+/**
+ * How to name one in a sentence: U+0000, and never the character itself.
+ *
+ * @param {number} codePoint
+ * @returns {string}
+ */
+export function namedCodePoint(codePoint) {
+  return `U+${codePoint.toString(16).toUpperCase().padStart(4, '0')}`;
+}

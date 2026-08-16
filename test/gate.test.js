@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
 
 import { forget, restore, submit } from '../src/gate.js';
 import { getMemory, listDecisions, listMemories } from '../src/store.js';
@@ -97,7 +98,7 @@ test('rule 1 leaves ordinary sentences about secrets alone', (t) => {
   }
 });
 
-test('rule 2: whitespace only is refused', (t) => {
+test('rule 3: whitespace only is refused', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -108,7 +109,7 @@ test('rule 2: whitespace only is refused', (t) => {
   assert.equal(listMemories(store, OWNER).length, 0);
 });
 
-test('rule 3: the same sentence again is refused, and points at the original', (t) => {
+test('rule 4: the same sentence again is refused, and points at the original', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -121,7 +122,7 @@ test('rule 3: the same sentence again is refused, and points at the original', (
   assert.equal(listMemories(store, OWNER).length, 1);
 });
 
-test('rule 3 does not treat different punctuation as the same sentence', (t) => {
+test('rule 4 does not treat different punctuation as the same sentence', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -132,7 +133,7 @@ test('rule 3 does not treat different punctuation as the same sentence', (t) => 
   assert.equal(listMemories(store, OWNER).length, 2);
 });
 
-test('rule 3 only compares against active memories', (t) => {
+test('rule 4 only compares against active memories', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -143,7 +144,7 @@ test('rule 3 only compares against active memories', (t) => {
   assert.equal(again.verdict, 'stored');
 });
 
-test('rule 4: replacing an id that is not there is refused', (t) => {
+test('rule 5: replacing an id that is not there is refused', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -154,7 +155,7 @@ test('rule 4: replacing an id that is not there is refused', (t) => {
   assert.equal(listMemories(store, OWNER).length, 0);
 });
 
-test('rule 4 also covers another owner and an already archived memory', (t) => {
+test('rule 5 also covers another owner and an already archived memory', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -177,7 +178,7 @@ test('rule 4 also covers another owner and an already archived memory', (t) => {
   assert.equal(late.rule, 'replaces-unknown');
 });
 
-test('rule 5: replacing a real memory supersedes it and links both ways', (t) => {
+test('rule 6: replacing a real memory supersedes it and links both ways', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -205,7 +206,7 @@ test('rule 5: replacing a real memory supersedes it and links both ways', (t) =>
   );
 });
 
-test('rule 6: anything else is stored', (t) => {
+test('rule 7: anything else is stored', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -216,7 +217,7 @@ test('rule 6: anything else is stored', (t) => {
   assert.equal(getMemory(store, OWNER, /** @type {number} */ (result.memory_id))?.state, 'active');
 });
 
-test('rule 7: forgetting archives the memory and keeps the reason', (t) => {
+test('rule 8: forgetting archives the memory and keeps the reason', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -239,7 +240,7 @@ test('rule 7: forgetting archives the memory and keeps the reason', (t) => {
   assert.equal(listMemories(store, OWNER, { includeArchived: true }).length, 1);
 });
 
-test('rule 8: forgetting an id that is not yours is refused', (t) => {
+test('rule 9: forgetting an id that is not yours is refused', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());
 
@@ -318,12 +319,16 @@ test('every call writes exactly one decision row, refusals included', (t) => {
   }
 });
 
-test('the gate has ten rule names and no more', () => {
-  // Ten outcomes, so ten names. Nine of these were written down in the
+test('the gate has eleven rule names and no more', () => {
+  // Eleven outcomes, so eleven names. Nine were written down in the
   // specification; `restored` is the tenth, because a restore that works has
   // to say which rule answered it and none of the other nine is that rule.
+  // `control-character` is the eleventh and the vocabulary was opened for it
+  // deliberately — see the note at the top of gate.js for why it is a rule
+  // rather than a check in the adapter.
   const VOCABULARY = [
     'credential',
+    'control-character',
     'empty',
     'already-stored',
     'replaces-unknown',
@@ -394,5 +399,128 @@ test('the excerpt counts characters, and never cuts one in half', (t) => {
 
     // Round tripping through the database has to leave it unchanged.
     assert.equal(decision.input_excerpt.normalize('NFC'), decision.input_excerpt);
+  }
+});
+
+// Rule 2. A control character is invisible, so every one of these builds it
+// from its code point rather than pasting it into the source.
+const NUL = String.fromCharCode(0);
+
+test('rule 2: text that will not read back whole is refused, and leaves a row', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const refused = submit(store, { owner: OWNER, text: `ZQHEAD twenty chars.${NUL}ZQTAIL the rest` });
+
+  assert.equal(refused.verdict, 'refused');
+  assert.equal(refused.rule, 'control-character');
+  assert.match(refused.explanation, /U\+0000/u);
+  assert.equal(listMemories(store, OWNER, { includeArchived: true }).length, 0);
+
+  // A rule, so it leaves a mark — which is the whole reason it is one.
+  const [decision] = listDecisions(store, OWNER);
+  assert.equal(decision.rule, 'control-character');
+
+  // And the excerpt does not quote it. It could not be quoted honestly: the
+  // log would cut it off in the same place the memory did.
+  assert.equal(decision.input_excerpt.includes('ZQHEAD'), false);
+  assert.equal(decision.input_excerpt.includes('ZQTAIL'), false);
+});
+
+test('rule 2 covers the other invisible characters, and leaves ordinary text alone', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  for (const code of [1, 8, 11, 12, 27, 31]) {
+    const result = submit(store, { owner: OWNER, text: `before${String.fromCharCode(code)}after` });
+    assert.equal(result.rule, 'control-character', `U+${code.toString(16)} should be refused`);
+  }
+
+  // Tab, newline and carriage return are things people type.
+  assert.equal(submit(store, { owner: OWNER, text: 'one\ntwo\tthree\rfour' }).verdict, 'stored');
+  assert.equal(submit(store, { owner: OWNER, text: '我住在柏林 🎉' }).verdict, 'stored');
+});
+
+test('rule 2 closes the ways a NUL walked past the other rules', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const stored = submit(store, { owner: OWNER, text: 'ZQDUP the same sentence' });
+  const id = /** @type {number} */ (stored.memory_id);
+
+  // The duplicate rule: the same sentence with a NUL and a tail used to be a
+  // second memory that read back identical to the first.
+  assert.equal(
+    submit(store, { owner: OWNER, text: `ZQDUP the same sentence${NUL}extra` }).rule,
+    'control-character',
+  );
+  assert.equal(listMemories(store, OWNER).length, 1);
+
+  // The blank-reason check: a NUL reason is not blank to `trim`, and used to
+  // put a memory away for no stated reason at all.
+  assert.equal(forget(store, { owner: OWNER, id, reason: NUL }).rule, 'control-character');
+  assert.equal(getMemory(store, OWNER, id)?.state, 'active');
+});
+
+test('a credential split by a control character reaches neither the store nor the file', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  // Assembled at runtime so this file does not itself hold a key shape.
+  const half = ['ZQMARKER', '9XYZABCD'].join('');
+  const split = `my key AKIA${NUL}${half}`;
+
+  assert.equal(submit(store, { owner: OWNER, text: split }).rule, 'control-character');
+
+  // Something real first, so a miss below means absence rather than a broken
+  // method.
+  submit(store, { owner: OWNER, text: 'I prefer meetings before noon' });
+
+  const database = fs.readFileSync(store.file);
+  const wal = fs.readFileSync(`${store.file}-wal`);
+  /**
+   * @param {Buffer} bytes
+   * @param {string} text
+   * @returns {boolean}
+   */
+  const has = (bytes, text) => bytes.includes(Buffer.from(text, 'utf8'));
+
+  assert.ok(
+    has(database, 'I prefer meetings before noon') || has(wal, 'I prefer meetings before noon'),
+    'a stored memory should be findable, or this scan proves nothing',
+  );
+  assert.equal(has(database, half), false, 'the second half reached the database file');
+  assert.equal(has(wal, half), false, 'the second half reached the write ahead log');
+});
+
+test('what is stored is what reads back, for every memory in the file', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  for (const text of ['I live in Berlin', '我住在柏林', 'one\ntwo', 'ends with a space ', '🎉🎉🎉']) {
+    submit(store, { owner: OWNER, text });
+  }
+  submit(store, { owner: OWNER, text: `refused${NUL}anyway` });
+
+  // The bytes SQLite is holding, asked of the file directly, against the
+  // bytes that come back through the ordinary read. These disagreed before
+  // rule 2: forty two characters written, twenty read back, and nothing
+  // anywhere said so.
+  const onDisk = new DatabaseSync(store.file, { readOnly: true });
+  const rows = /** @type {{id: number, text: string, bytes: number}[]} */ (
+    /** @type {unknown} */ (
+      onDisk.prepare('SELECT id, text, length(CAST(text AS BLOB)) AS bytes FROM memories').all()
+    )
+  );
+  onDisk.close();
+
+  assert.equal(rows.length, 5, 'the refused one is not in the file');
+
+  for (const row of rows) {
+    assert.equal(
+      row.bytes,
+      Buffer.byteLength(row.text, 'utf8'),
+      `memory ${row.id} holds ${row.bytes} bytes but reads back as ${Buffer.byteLength(row.text, 'utf8')}`,
+    );
   }
 });

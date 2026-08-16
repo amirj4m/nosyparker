@@ -545,3 +545,42 @@ test('calls an agent has given up on do not keep the server busy', async (t) => 
   );
   assert.ok(waited < oneSearch * 2.5, `an ordinary call waited ${waited} ms behind them`);
 });
+
+
+test('a control character offered over the protocol is refused and leaves a row', async (t) => {
+  const agent = await connect(t, freshStoreFile(t));
+
+  // JSON-RPC allows U+0000 inside a string and execve forbids it in an
+  // argument, so this is the one door in the project that can carry one.
+  // Phase 2 opened it, which is why this is tested here as well as against
+  // the gate. Built from its code point: pasting it into the source would put
+  // an invisible character in a file people read.
+  const nul = String.fromCharCode(0);
+
+  await say(agent, 'remember', { text: 'ZQDUP the same sentence' });
+
+  const refused = await say(agent, 'remember', { text: `ZQHEAD${nul}ZQTAIL` });
+  assert.match(refused, /U\+0000/u);
+  assert.match(refused, /not something text is made of/u);
+
+  assert.match(
+    await say(agent, 'remember', { text: `ZQDUP the same sentence${nul}extra` }),
+    /U\+0000/u,
+    'the duplicate rule can no longer be walked past',
+  );
+  assert.match(
+    await say(agent, 'forget', { id: 1, reason: nul }),
+    /U\+0000/u,
+    'nor the blank reason check',
+  );
+
+  // One memory, still shown, and the refusals are in the log with the text
+  // withheld rather than quoted.
+  assert.equal(await say(agent, 'list', {}), '1. ZQDUP the same sentence');
+
+  const log = await say(agent, 'why', {});
+  assert.equal((log.match(/refused \(control-character\)/gu) ?? []).length, 3);
+  assert.match(log, /\[not recorded: contains a character that is not text\]/u);
+  assert.equal(log.includes('ZQHEAD'), false);
+  assert.equal(log.includes('ZQTAIL'), false);
+});

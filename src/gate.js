@@ -14,11 +14,28 @@
  * order is part of the design, not an implementation detail:
  *
  *   1. credential        refused, and the text is not written down anywhere
- *   2. empty             refused
- *   3. already-stored    refused
- *   4. replaces-unknown  refused, so a wrong id cannot retire the wrong memory
- *   5. replaces          stored, and the named memory is superseded
- *   6. keep              stored
+ *   2. control-character refused, and the text is not written down either
+ *   3. empty             refused
+ *   4. already-stored    refused
+ *   5. replaces-unknown  refused, so a wrong id cannot retire the wrong memory
+ *   6. replaces          stored, and the named memory is superseded
+ *   7. keep              stored
+ *
+ * Rule 2 is the eleventh name in a vocabulary that was closed at ten, and it
+ * was opened on purpose. It is here rather than in the adapter because the
+ * guarantee it carries is the store's: what was stored is what reads back. A
+ * NUL was written whole to the file and read back cut in half, and everything
+ * downstream then disagreed with the file — two identical-looking memories
+ * from one duplicate rule, a secret sitting in the bytes with only its
+ * harmless first half on show, and a search matching text the list could not
+ * display. Stripping the character instead would have been the other way to
+ * close it, and this project does not edit what somebody typed. Refusing is
+ * the only answer left that keeps both promises.
+ *
+ * It writes its row like every other rule, which is the point of it being a
+ * rule at all: an agent that walks into this leaves a mark. The blank-reason
+ * check in the adapter is not a rule and left nothing, which is exactly how a
+ * NUL walked past it.
  *
  * `forget` and `restore` are separate entry points and are not part of the
  * submit path. Both are content to repeat themselves: forgetting something
@@ -39,7 +56,39 @@
 
 import { detectCredential, credentialExplanation, credentialPlaceholder } from './credentials.js';
 import { findDuplicate, getMemory, PURGED_REPLACEMENT_REASON, recordDecision } from './store.js';
-import { isBlank } from './text.js';
+import { controlCharacterIn, isBlank, namedCodePoint } from './text.js';
+
+/**
+ * Rule 2, which both entry points that take free text apply.
+ *
+ * The excerpt is a placeholder rather than the text, for two reasons that
+ * point the same way. The text cannot be quoted: written to the log it would
+ * be cut off at the character exactly as it was cut off in the memory, so the
+ * row would not say what was offered either. And it may be a secret with an
+ * invisible character dropped into the middle of it to break its shape, which
+ * is the other half of why this rule exists — quoting it would put in the log
+ * precisely what rule 1 exists to keep out.
+ *
+ * @param {string} owner
+ * @param {string} text
+ * @returns {import('./store.js').DecisionPlan|null}
+ */
+function refuseControlCharacter(owner, text) {
+  const found = controlCharacterIn(text);
+  if (found === null) return null;
+
+  return {
+    owner,
+    verdict: 'refused',
+    rule: 'control-character',
+    explanation:
+      `That text contains ${namedCodePoint(found)}, which is not something text is made of, ` +
+      'so nothing was stored and the text was not written down either. A character like that ' +
+      'does not read back the way it was written, and it can hide a secret from the check that ' +
+      'looks for one. Send it again without it.',
+    input_excerpt: '[not recorded: contains a character that is not text]',
+  };
+}
 
 /** Longest excerpt of the offered text kept on a decision row. */
 const EXCERPT_LIMIT = 160;
@@ -144,7 +193,13 @@ export function submit(store, { owner, text, replaces = null }) {
         };
       }
 
-      // 2. empty.
+      // 2. control-character. After the credential check, so plain secrets are
+      // still named as secrets, and before everything else, because nothing
+      // below this can reason about text that will not read back whole.
+      const unreadable = refuseControlCharacter(owner, text);
+      if (unreadable) return unreadable;
+
+      // 3. empty.
       if (isBlank(text)) {
         return {
           owner,
@@ -155,7 +210,7 @@ export function submit(store, { owner, text, replaces = null }) {
         };
       }
 
-      // 3. already-stored. Read here, inside the lock, so that two identical
+      // 4. already-stored. Read here, inside the lock, so that two identical
       // submissions arriving together cannot both find nothing.
       const duplicate = findDuplicate(store, owner, text);
       if (duplicate) {
@@ -171,7 +226,7 @@ export function submit(store, { owner, text, replaces = null }) {
         };
       }
 
-      // 4. replaces-unknown. The default read is active only, which is exactly
+      // 5. replaces-unknown. The default read is active only, which is exactly
       // what this rule needs: a replaced or forgotten id is not a valid target.
       const target = replaces === null ? null : getMemory(store, owner, replaces);
       if (replaces !== null && target === null) {
@@ -187,7 +242,7 @@ export function submit(store, { owner, text, replaces = null }) {
         };
       }
 
-      // 5. replaces.
+      // 6. replaces.
       if (target !== null) {
         const newId = actions.insertMemory({ owner, text, at, supersedes: target.id });
         actions.retire({ owner, id: target.id, at, supersededBy: newId });
@@ -205,7 +260,7 @@ export function submit(store, { owner, text, replaces = null }) {
         };
       }
 
-      // 6. keep.
+      // 7. keep.
       return {
         owner,
         verdict: 'stored',
@@ -252,11 +307,18 @@ export function forget(store, { owner, id, reason }) {
         };
       }
 
+      // 2. control-character. The reason is written to the row as well as to
+      // the log, so it can be cut in half by a NUL exactly as a memory can —
+      // and a reason that reads back as blank is a memory put away for no
+      // stated reason. The adapter's own blank check was walked past this way.
+      const unreadable = refuseControlCharacter(owner, reason);
+      if (unreadable) return unreadable;
+
       // Archived rows included, because forgetting is about the row rather
       // than about what is on show.
       const memory = getMemory(store, owner, id, { includeArchived: true });
 
-      // 8. forget-unknown.
+      // 9. forget-unknown.
       if (memory === null) {
         return {
           owner,
@@ -267,7 +329,7 @@ export function forget(store, { owner, id, reason }) {
         };
       }
 
-      // 7. forget. Asking again for something already put away simply puts it
+      // 8. forget. Asking again for something already put away simply puts it
       // away again under the new reason. The reason on the row is replaced,
       // and every reason ever given is still in the decision log, which is
       // complete and never shortened.
