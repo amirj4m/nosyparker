@@ -775,13 +775,50 @@ export function listMemories(store, owner, options = {}) {
 /**
  * Full text search. Active only unless asked otherwise.
  *
- * @param {Store} store
- * @param {string} owner
  * There is no limit and no default page size. A search that quietly returned
  * the first fifty of eighty matches would be worse than useless: the caller
  * cannot tell a complete answer from a truncated one, and neither can the
- * person reading it.
+ * person reading it. What this does instead, when a search would cost too
+ * much, is refuse it and say so.
  *
+ * Two things it does not do, known and decided rather than missed.
+ *
+ * FIRST: a search cannot be stopped once it has started. `node:sqlite` has no
+ * interrupt and no progress handler — the binding offers open, close, prepare,
+ * exec, function, location, aggregate, the session calls and the extension
+ * calls, and nothing else — while the SQLite underneath it is 3.51.3 and has
+ * both in C. It is synchronous, so nothing else in the process runs meanwhile.
+ *
+ * What was tried. `iterate()` is the only in-process lever and `ORDER BY rank`
+ * defeats it: the first row arrives at 979 ms of a 993 ms query, so stopping
+ * after five rows still costs 988 ms. Ranking the rows here instead gives
+ * byte-identical ordering and moves the first row to 436 ms, because bm25
+ * wants its global statistics up front — better, still not abandonable.
+ *
+ * What it costs today: about a hundred milliseconds on a store of ordinary
+ * text, and 2.2 seconds on 28.6 MB of low-diversity text with a short query
+ * the work limit allows. What fixing it would cost: dropping relevance
+ * ordering, or moving search into a process that can be killed. Both change
+ * what search is, for a hundred milliseconds, before anybody has used this on
+ * their own data. If real use shows the residual matters, that is the moment
+ * to revisit it, and this paragraph is the argument to revisit.
+ *
+ * SECOND: there is no bound on how long a search may take, only on how much
+ * memory it may need. That is not for want of trying. A time estimate needs
+ * something that predicts time, and total occurrences does not: one query with
+ * a total of 43 million answers in 7 ms while another with a total of 105
+ * million takes 1094 ms, because an AND across selective terms stops early and
+ * a single dense term does not. A limit built on that number would refuse
+ * ordinary searches on large stores while still allowing slow ones, which is
+ * the worst of both. So the memory bound is real and the time bound is
+ * honestly absent.
+ *
+ * Neither is reachable by growth alone. Ordinary text answers in 20 to 114 ms
+ * from 0.7 MB to 25 MB, in every shape measured. Both need text with very few
+ * distinct trigrams in it.
+ *
+ * @param {Store} store
+ * @param {string} owner
  * @param {string} query
  * @param {{includeArchived?: boolean}} [options]
  * @returns {Memory[]}
