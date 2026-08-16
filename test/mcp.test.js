@@ -645,10 +645,10 @@ test('a number that is not an id is refused before it reaches the log', async (t
 test('a client that goes away does not leave the server working', async (t) => {
   const file = freshStoreFile(t);
 
-  // Slow searching on purpose: low-diversity text, every memory legal, and a
-  // short query that the work limit allows. This is the shape that cannot be
-  // interrupted once it starts, so it is the shape worth checking is never
-  // started for nobody.
+  // Slow searching on purpose. Written straight through the store's action,
+  // past the gate, because text like this is refused as a file now — which is
+  // right, and is not what this is about. It is about a search that cannot be
+  // interrupted once it starts never being started for nobody.
   const store = openStore({ file, now: () => new Date().toISOString() });
   for (let index = 0; index < 200; index += 1) {
     recordDecision(store, (actions, at) => {

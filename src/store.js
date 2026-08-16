@@ -290,11 +290,9 @@ export function openStore({ file, now }) {
     db.exec(`CREATE VIRTUAL TABLE ${SCRATCH} USING fts5(text, tokenize='trigram')`);
     db.exec(`CREATE VIRTUAL TABLE ${SCRATCH_VOCABULARY} USING fts5vocab(temp, tokeniser_scratch, 'row')`);
 
-    // FTS5's own view of its vocabulary, which is what tells a search what it
-    // would cost before it runs. Created in `temp`, on purpose: it belongs to
-    // this connection and nothing about the file on disk changes, so no schema
-    // version moves and a store written by this code still opens under the
-    // version before it.
+    // Created in `temp`, on purpose: they belong to this connection and
+    // nothing about the file on disk changes, so no schema version moves and a
+    // store written by this code still opens under the version before it.
   } catch (error) {
     // Nothing is handed back, so nothing else can close this.
     db.close();
