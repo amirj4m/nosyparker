@@ -357,22 +357,23 @@ function only(args, allowed) {
  * The longest text this server will store, and the longest reason it will
  * accept for putting something away.
  *
- * This is a statement about what a memory is, not a safety limit. A memory is
- * one fact about a person; ten thousand characters is about fifteen hundred
- * words, and an agent offering more than that has misunderstood the tool
- * rather than found an edge of it. It also keeps a stored memory from becoming
- * an unusually dense thing to search, which is the other half of what
- * `SEARCH_QUERY_LIMIT` guards.
+ * A memory is one fact about a person; ten thousand characters is about
+ * fifteen hundred words, and an agent offering more than that has
+ * misunderstood the tool rather than found an edge of it.
  *
- * The safety limit is that one, and it is not here. It lives on
- * `searchMemories`, which is the function that does the allocating and the
- * only place that covers every caller rather than only this one. There is
- * deliberately no copy of it in this file: a second number that has to agree
- * with the first is how the same sentence ended up in three places in Phase 1.
+ * It is not a safety limit and it does not add up to one. A hundred calls each
+ * inside it put a megabyte of matching text in the store, and it is that
+ * total, not any single call, that decides what a later search costs. See
+ * `SEARCH_QUERY_LIMIT` in store.js, which says plainly what is and is not
+ * bounded, and why the remaining hole is a design decision rather than a
+ * number.
  *
- * The store bounds the query and throws a sentence; the call below catches it
- * like any other and hands it back. So `recall` is bounded without this file
- * knowing the number.
+ * The query is bounded in the store rather than here: that is the function
+ * that does the allocating and the only place that covers every caller. There
+ * is deliberately no copy of the number in this file — a second number that
+ * has to agree with the first is how the same sentence ended up in three
+ * places in Phase 1. The store throws its sentence and the call below catches
+ * it like any other.
  */
 const TEXT_LIMIT = 10000;
 

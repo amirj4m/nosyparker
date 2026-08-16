@@ -33,31 +33,52 @@ const MIN_SEARCH_LENGTH = 3;
 /**
  * The longest query this store will run.
  *
- * Not a tuning parameter, and not a policy about how people ought to search.
- * It is the one thing standing between a caller and the machine going down.
+ * Read the next paragraph before trusting this for anything.
  *
- * `searchMemories` hands the query to FTS5 as a single quoted phrase, and the
- * index is a trigram one, so a query of N characters becomes a phrase of N-2
- * consecutive tokens and SQLite allocates position lists for every one of
- * them. Against a store holding text those trigrams match, a one megabyte
- * query allocated about ten gigabytes in a single step and the kernel killed
- * the process, taking everything else on the machine with it. That memory is
- * SQLite's own, not the JavaScript heap's — measured at 1509 MB resident with
- * the heap capped at 256 MB — so no Node memory limit was ever going to catch
- * it, and there is nothing above this layer that can.
+ * THIS DOES NOT MAKE THE SEARCH SAFE. It reduces the largest input a caller
+ * can hand in; it does not bound what the search costs. This comment used to
+ * say it was "the one thing standing between a caller and the machine going
+ * down", and that was wrong. The cost is roughly the length of the query
+ * multiplied by how much matching text is already stored, and the second
+ * factor has no limit at all. Measured, with a query one character inside
+ * this bound, against one memory of a repeated character:
  *
- * It lives here, on the function that does the allocating, because that is the
- * only place that covers every caller. It was in the MCP adapter first, which
- * left `nosyparker search` with the same hole: one hundred and twenty
- * kilobytes in a single argument — all a shell will pass in one — took a
- * terminal past 1.2 GB and climbing.
+ *     stored 0.1 MB   ->   273 MB
+ *     stored 0.4 MB   ->   874 MB
+ *     stored 0.8 MB   ->   killed at 1225 MB
+ *     stored 1.6 MB   ->   killed at 1210 MB
  *
- * A thousand characters was measured, not guessed. At this length the search
- * costs nothing above what the process already holds; four kilobytes trebles
- * it. It also bounds the term count, since a thousand characters cannot hold
- * more than five hundred terms, and two hundred thousand of them used to hold
- * a core for over a minute. No search a person types, and no search an agent
- * has any reason to run, comes near it.
+ * That text is ordinary input: through `add`, which bounds nothing, or through
+ * about a hundred `remember` calls each inside the adapter's own limit. So the
+ * ten gigabyte allocation is still reachable, and no number chosen here can
+ * close it, because the term this bound multiplies against keeps growing.
+ *
+ * Why it stays anyway: it is the cheap half. It stops a single caller turning
+ * one search into a thousandfold multiplier, and it costs nothing to keep. It
+ * is a mitigation, not a guarantee, and it must not be read as one.
+ *
+ * What the shape of the problem is, measured rather than reasoned about:
+ *
+ *   - Bounding the length of a single term does not help. Cut into 199 terms
+ *     of four characters, the same 999 characters cost more, not less.
+ *   - SQLite's own `hard_heap_limit` and `soft_heap_limit` are inert here.
+ *     They are accepted and read back, and 871 MB was still allocated against
+ *     a 128 MB limit, because Node's build sets DEFAULT_MEMSTATUS=0 and there
+ *     is no accounting behind them.
+ *   - `node:sqlite` exposes no interrupt and no progress handler, so a query
+ *     already running cannot be stopped from JavaScript, and it is synchronous
+ *     so nothing else in the process runs while it finishes.
+ *   - Ordinary text is not affected. Real sentences, even the same sentence
+ *     repeated to 1.6 MB, answer in single-digit milliseconds. Only text with
+ *     very few distinct trigrams — repeated characters, base64, logs, pasted
+ *     blobs — behaves this way.
+ *   - The substring path this file already has for short terms is bounded and
+ *     fast against exactly that text: 153 MB and 35 ms against a 12.8 MB store
+ *     of one repeated character, where the index path dies at 0.8 MB.
+ *
+ * That last line is the shape of a real fix, and it is a change to how search
+ * works rather than a limit to tighten, so it is the owner's to decide and is
+ * deliberately not made here.
  */
 export const SEARCH_QUERY_LIMIT = 1000;
 
