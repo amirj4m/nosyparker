@@ -27,6 +27,46 @@ import { DatabaseSync } from 'node:sqlite';
 
 import { controlCharacterIn, namedCodePoint, normaliseForComparison } from './text.js';
 
+/**
+ * A note on the driver, because the question will be asked again.
+ *
+ * A U+0000 in a text value is written faithfully and read back cut off at the
+ * NUL. Measured, one file, both drivers writing and both reading, 42
+ * characters offered:
+ *
+ *     on disk, either writer   42 bytes, and hex() shows all of them
+ *     read by node:sqlite      20 characters
+ *     read by better-sqlite3   42 characters
+ *
+ * So the storage is faithful and the truncation is in this binding, which
+ * takes the length of the C string rather than asking SQLite how many bytes
+ * there are. SQLite's own `length()` on a TEXT value stops at the NUL too, so
+ * the engine is not blameless, but `length(CAST(text AS BLOB))` and `hex()`
+ * both report the whole thing: nothing is lost, it is only hidden on the way
+ * out.
+ *
+ * We stay on node:sqlite, and the reason is not inertia. Nothing can put a NUL
+ * in a memory any more — the gate refuses one, with a row, before it reaches
+ * this file — so the difference between the two drivers cannot be reached
+ * through this program. And if it ever needs reading anyway, this binding can
+ * do it: `SELECT CAST(text AS BLOB)` and decoding the bytes in JavaScript
+ * returns all 42 characters, faithfully, for a row written by either driver.
+ * The fix is available at our own layer and does not need a dependency.
+ *
+ * What swapping would cost, since it was weighed rather than assumed: 27 MB
+ * and a native module against nothing at all, on a project whose distribution
+ * story is that a stranger runs one command. It ships prebuilt binaries for
+ * every platform this needs, Windows included, and falls back to compiling
+ * with node-gyp when none matches — which is a class of install failure this
+ * project does not have today.
+ *
+ * What swapping would not buy: anything at all for the memory defect. The same
+ * 0.4 MB degenerate corpus and 999-character query costs 868 MB under
+ * node:sqlite and 875 MB under better-sqlite3. It is the same SQLite and the
+ * same FTS5 underneath, so the trigram position lists are identical. The
+ * database is not the problem there and a different binding is not the fix.
+ */
+
 /** Trigram search needs at least three characters to match on. */
 const MIN_SEARCH_LENGTH = 3;
 
