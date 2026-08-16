@@ -147,6 +147,34 @@ enforced at the two entry points rather than in the gate, so `submit` called
 directly as a library function is bounded by neither. There is no such caller
 today; Phase 4's review loop would be one.
 
+## Walking past the repetition rule
+
+A memory that mixes a long dense run with varied filler scores low on
+`REPETITION_LIMIT` and is still expensive to search. A review reported one
+costing 856 MB. Reproducing its score took finding out what filler it used.
+
+To score 15.8, a 20,000-character filler needs about 13,290 distinct
+three-character runs — two thirds of its positions unique. Measured:
+
+| filler, 20,000 characters | distinct runs | share | score of the whole |
+| --- | --- | --- | --- |
+| English prose | 126 | 1% | 1,628 |
+| this project's own files | 3,296 | 16% | 63.7 |
+| random hex | 4,072 | 20% | 51.5 |
+| package-lock.json | 4,510 | 23% | 46.5 |
+| a list of UUIDs | 5,274 | 26% | 39.8 |
+| **random base64** | **16,193** | **81%** | **13.0** |
+| **random printable characters** | **19,162** | **96%** | **11.0** |
+
+So the filler was random data, not a document. No real document comes close —
+the most varied one to hand is a lock file at 23%, and it still scores 46.5,
+which the rule refuses anyway.
+
+The shape is real and it is unreachable. It needs the whole memory to be far
+longer than a memory may be: the reported one was 210,000 characters against a
+limit of 10,000. `TEXT_LIMIT` is checked first, in the gate, so no caller can
+build it — the length rule is what stops this, not the repetition rule.
+
 ## Why a search cannot be interrupted
 
 *Pointed at from `searchMemories` in `src/store.js`.*

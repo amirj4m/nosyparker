@@ -113,11 +113,24 @@ export const SEARCH_QUERY_LIMIT = 1000;
  * refused through the command line, which takes no length limit of its own.
  * That is the intended answer — a hundred kilobyte CSV is a file.
  *
- * Where it does not work, said plainly: a log with genuinely varied lines is
- * not caught. An nginx access log with a different address and path on every
+ * Where it does not work, said plainly. A log with genuinely varied lines is
+ * not caught: an nginx access log with a different address and path on every
  * line scores 6.6 at ten thousand characters, well inside the limit. This
  * refuses files that repeat themselves, which is most of them, and not files
  * as such.
+ *
+ * And it can be walked past on purpose, by mixing a long dense run with filler
+ * varied enough to pull the average down. It takes filler where about two
+ * thirds of the three-character runs are unique, which no document reaches —
+ * this project's own source is 16%, package-lock.json 23%, a list of UUIDs
+ * 26%. Only genuinely random data gets there: random base64 is 81% and random
+ * printable characters 96%. A review reported such a memory costing 856 MB.
+ *
+ * That shape needs the whole memory to be far longer than a memory may be —
+ * theirs was two hundred and ten thousand characters — so {@link TEXT_LIMIT},
+ * checked first and in the gate, makes it unreachable by any caller. It is
+ * written down because the next person to look will build the same thing, and
+ * the answer is that the length rule is what stops it, not this one.
  */
 export const REPETITION_LIMIT = 60;
 
