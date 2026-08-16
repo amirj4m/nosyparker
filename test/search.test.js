@@ -402,3 +402,44 @@ test('an ordinary store answers quickly however it is shaped', (t) => {
   assert.ok(took < 3000, `searching 2000 ordinary memories took ${took} ms`);
 });
 
+
+
+test('the short-term path is bounded too, and nothing rests on it being cheap', async () => {
+  // Any query with a term under three characters skips the index entirely and
+  // scans with instr(). That path never had a guard on it — the safety rested
+  // on it happening to be cheap, which nothing checked. This checks it, out of
+  // process and under a watch, against the text that breaks the other path.
+  const script = `
+    const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+    (async () => {
+      const { openStore, searchMemories, recordDecision } = await import(${JSON.stringify(STORE_MODULE)});
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-short-'));
+      const store = openStore({ file: path.join(dir, 'memory.sqlite'), now: () => new Date().toISOString() });
+
+      // Written straight through the store's own action, past the gate, so
+      // this is the worst case even a store that predates the rule could hold.
+      for (let index = 0; index < 40; index += 1) {
+        recordDecision(store, (actions, at) => {
+          actions.insertMemory({ owner: 'o', text: 'x'.repeat(400_000), at, supersedes: null });
+          return { owner: 'o', verdict: 'stored', rule: 'keep', explanation: '.', input_excerpt: '' };
+        });
+      }
+
+      const started = process.hrtime.bigint();
+      // A two-character term forces every term onto the substring path.
+      const found = searchMemories(store, 'o', 'x'.repeat(900) + ' ab');
+      console.log('SCANNED ' + found.length + ' in ' + Number((process.hrtime.bigint() - started) / 1000000n) + ' ms');
+      store.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    })();
+  `;
+
+  const result = await runWatched(['-e', script], { ceilingMB: 400 });
+
+  assert.equal(result.signal, null, `the substring path reached ${result.peak.toFixed(0)} MB`);
+  assert.match(result.out, /SCANNED/u);
+  assert.ok(
+    result.peak < 400,
+    `16 MB of the worst text cost ${result.peak.toFixed(0)} MB on the substring path`,
+  );
+});
