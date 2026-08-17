@@ -569,6 +569,12 @@
         ],
         "why": "`--add-mcp` exists, exits 0 and prints `Added MCP servers: <name>`. It writes the VS Code-shaped `servers` file at ~/.config/Devin/User/mcp.json, which is the live surface — not the ~/.codeium path the documentation describes."
       },
+      "writeRequiresQuit": {
+        "processes": [
+          "devin-desktop"
+        ],
+        "says": "Devin rewrites its config from memory: a file deleted while it was running reappeared. An entry written now would not survive."
+      },
       "remove": {
         "method": "file",
         "argv": null
@@ -604,7 +610,8 @@
         "write": "2026-08-17",
         "verify": "2026-08-17",
         "blockers": "2026-08-17",
-        "traps": "2026-08-17"
+        "traps": "2026-08-17",
+        "writeRequiresQuit": "2026-08-17"
       },
       "upstreamId": "windsurf"
     },
@@ -645,6 +652,13 @@
         "argv": null,
         "why": "There is no CLI. `claude mcp add-from-claude-desktop` reads this file, it does not write it, and it is macOS/WSL only."
       },
+      "writeRequiresQuit": {
+        "processes": [
+          "claude-desktop",
+          "Claude"
+        ],
+        "says": "Claude Desktop rewrites this file wholesale from memory, so an entry written while it is running is lost at its next settings write."
+      },
       "remove": {
         "method": "file",
         "argv": null
@@ -677,7 +691,8 @@
         "write": "2026-08-17",
         "verify": "2026-08-17",
         "blockers": "2026-08-17",
-        "traps": "2026-08-17"
+        "traps": "2026-08-17",
+        "writeRequiresQuit": "2026-08-17"
       },
       "upstreamId": "claude-desktop"
     },

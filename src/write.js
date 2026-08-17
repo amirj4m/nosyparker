@@ -34,6 +34,7 @@ import { spawnSync } from 'node:child_process';
 
 import { fillArgv, fillTokens } from './clients.js';
 import { backupOnce } from './backup.js';
+import { anyRunning } from './detect.js';
 import { hasEntry, insertEntry, removeEntry } from './edit.js';
 
 /** The entry went in, and was found again afterwards. */
@@ -50,6 +51,17 @@ export const ABSENT = 'absent';
 
 /** Our entry was taken out. */
 export const REMOVED = 'removed';
+
+/**
+ * Nothing was written, and nothing went wrong.
+ *
+ * Its own word rather than a failure, because nothing was attempted and
+ * nothing is broken. Two clients rewrite their config from memory while they
+ * run, so writing to one of them now would put an entry in a file that the
+ * application overwrites minutes later — a success that quietly stops being
+ * true. The honest move is to write nothing and say which application to quit.
+ */
+export const NOT_WRITTEN = 'not-written';
 
 /**
  * @typedef {object} WriteResult
@@ -69,6 +81,7 @@ export const REMOVED = 'removed';
  * @property {string|null} clientCommand the client's own executable, resolved
  * @property {string} backupDir
  * @property {string} now
+ * @property {import('./detect.js').Machine} [machine]
  * @property {(argv: string[]) => {status: number|null, stdout: string, stderr: string}} [run]
  */
 
@@ -81,6 +94,15 @@ export function writeToClient(client, options) {
   const request = editRequest(client, options);
 
   try {
+    const running = client.writeRequiresQuit === undefined || options.machine === undefined
+      ? false
+      : anyRunning(client.writeRequiresQuit.processes, options.machine);
+
+    if (running === true) {
+      return result(client.write.method, options.configPath, null, NOT_WRITTEN,
+        `${client.name} is running. ${client.writeRequiresQuit.says} Quit it and run this again.`);
+    }
+
     return client.write.method === 'cli'
       ? writeThroughCli(client, options, request)
       : writeThroughFile(client, options, request);

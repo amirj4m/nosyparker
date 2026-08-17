@@ -15,10 +15,11 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { backupOnce, MANIFEST_NAME, readManifest } from '../src/backup.js';
-import { clientById } from '../src/clients.js';
+import { clientById, loadClients } from '../src/clients.js';
 import {
   ABSENT,
   FAILED,
+  NOT_WRITTEN,
   REMOVED,
   removeFromClient,
   UNCHANGED,
@@ -320,6 +321,82 @@ test('a config that has become unreadable is refused rather than written over', 
   assert.match(/** @type {string} */ (written.error), /not valid JSON/u);
   assert.equal(fs.readFileSync(configPath, 'utf8'), '{"mcpServers": { "half": }',
     'and it is exactly as it was');
+});
+
+/**
+ * @param {string[]} running
+ * @returns {any}
+ */
+function machineRunning(running) {
+  return {
+    home: '/home/p',
+    platform: 'linux',
+    cwd: '/home/p',
+    pathDirs: [],
+    exists: () => false,
+    readdir: () => [],
+    processes: () => running,
+  };
+}
+
+test('a client that would overwrite our write is not written to while it runs', (t) => {
+  // Claude Desktop rewrites this file wholesale from whatever it holds in
+  // memory. An entry written now would read back correctly, report success,
+  // and be gone at its next settings write — a green tick with a shelf life.
+  const space = workspace(t);
+  const configPath = space.config('claude_desktop_config.json');
+  fs.writeFileSync(configPath, '{"preferences": {}}\n');
+
+  const written = writeToClient(clientById('claude-desktop'), options({
+    configPath,
+    backupDir: space.backupDir,
+  }, { machine: machineRunning(['claude-desktop', 'firefox']) }));
+
+  assert.equal(written.outcome, NOT_WRITTEN);
+  assert.match(/** @type {string} */ (written.error), /Claude Desktop is running/u);
+  assert.match(/** @type {string} */ (written.error), /Quit it and run this again/u);
+
+  // Nothing was attempted, so nothing changed and no copy was taken.
+  assert.equal(fs.readFileSync(configPath, 'utf8'), '{"preferences": {}}\n');
+  assert.equal(fs.existsSync(space.backupDir), false);
+});
+
+test('the same client is written to happily when it is not running', (t) => {
+  const space = workspace(t);
+  const configPath = space.config('claude_desktop_config.json');
+  fs.writeFileSync(configPath, '{"preferences": {}}\n');
+
+  const written = writeToClient(clientById('claude-desktop'), options({
+    configPath,
+    backupDir: space.backupDir,
+  }, { machine: machineRunning(['firefox']) }));
+
+  assert.equal(written.outcome, WRITTEN);
+});
+
+test('a machine whose processes cannot be listed is written to, not blocked', (t) => {
+  // An unknown is not a yes. Refusing on an answer we do not have would block
+  // the install everywhere `ps` is not how the question is asked.
+  const space = workspace(t);
+  const configPath = space.config('claude_desktop_config.json');
+
+  const written = writeToClient(clientById('claude-desktop'), options({
+    configPath,
+    backupDir: space.backupDir,
+  }, { machine: { ...machineRunning([]), processes: () => null } }));
+
+  assert.equal(written.outcome, WRITTEN);
+});
+
+test('only the two clients caught rewriting their own file wait for a quit', () => {
+  const waiting = loadClients().clients
+    .filter((client) => client.writeRequiresQuit !== undefined)
+    .map((client) => client.id);
+
+  // Cursor and VS Code also watch and rewrite their config files, and are not
+  // here: their entries go in through their own command, which is the writer
+  // the application itself supports and will not undo.
+  assert.deepEqual(waiting.sort(), ['claude-desktop', 'devin-desktop']);
 });
 
 test('the backup is taken before the write, so it is a copy of what was there', (t) => {

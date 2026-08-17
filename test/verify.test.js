@@ -48,7 +48,7 @@ function options(client, extra = {}) {
     serverPath: '/srv/mcp-server.js',
     configPath: '/nowhere/config.json',
     clientCommand: '/usr/bin/thing',
-    machine: { home: '/home/p', platform: 'linux', cwd: '/home/p/work', pathDirs: [], exists: () => false, readdir: () => [] },
+    machine: { home: '/home/p', platform: 'linux', cwd: '/home/p/work', pathDirs: [], exists: () => false, readdir: () => [], processes: () => [] },
     ...extra,
   };
   return { ...base, editRequest: editRequest(client, base) };
@@ -248,7 +248,7 @@ test('VS Code settings that would block a good entry are found and reported apar
   const client = clientById('vscode');
   const checked = verifyClient(client, options(client, {
     configPath,
-    machine: { home, platform: 'linux', cwd: dir, pathDirs: [], exists: () => false, readdir: () => [] },
+    machine: { home, platform: 'linux', cwd: dir, pathDirs: [], exists: () => false, readdir: () => [], processes: () => [] },
   }));
 
   // The write succeeded and the entry is there. Both of those are true and
@@ -274,7 +274,7 @@ test('a settings file with comments in it is still read for blockers', (t) => {
   const client = clientById('vscode');
   const checked = verifyClient(client, options(client, {
     configPath: path.join(dir, 'absent.json'),
-    machine: { home, platform: 'linux', cwd: dir, pathDirs: [], exists: () => false, readdir: () => [] },
+    machine: { home, platform: 'linux', cwd: dir, pathDirs: [], exists: () => false, readdir: () => [], processes: () => [] },
   }));
 
   assert.match(checked.blockers.join(' '), /chat\.mcp\.access is not `any`/u);
@@ -287,7 +287,7 @@ test('Gemini folder trust is a blocker when this folder is not in the trust file
   fs.writeFileSync(path.join(home, '.gemini', 'trustedFolders.json'), '{"/somewhere/else": "TRUST_FOLDER"}');
 
   const client = clientById('gemini-cli');
-  const machine = { home, platform: 'linux', cwd: '/home/p/work', pathDirs: [], exists: () => false, readdir: () => [] };
+  const machine = { home, platform: 'linux', cwd: '/home/p/work', pathDirs: [], exists: () => false, readdir: () => [], processes: () => [] };
 
   const untrusted = verifyClient(client, options(client, {
     machine,

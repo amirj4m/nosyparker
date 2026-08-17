@@ -38,6 +38,7 @@ function machine({ files = [], pathDirs = [], platform = 'linux' }) {
     cwd: '/home/p/work',
     pathDirs,
     exists: (file) => present.has(file),
+    processes: () => [],
     readdir: (dir) => {
       const prefix = `${dir}/`;
       const names = new Set();

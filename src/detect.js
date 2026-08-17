@@ -33,6 +33,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 import { configPathFor, expandPath } from './clients.js';
 
@@ -57,7 +58,34 @@ export const INSTALLED_PATH_UNKNOWN = 'installed-path-unknown';
  * @property {string[]} pathDirs directories to look in for a command
  * @property {(file: string) => boolean} exists
  * @property {(dir: string) => string[]} readdir returns [] when the directory is not there
+ * @property {() => string[]|null} processes running process names, or null if they cannot be listed
  */
+
+/**
+ * Is one of these applications running.
+ *
+ * Two clients rewrite their config file wholesale from whatever they are
+ * holding in memory, so an entry written while they run is lost at their next
+ * settings write. Both were caught doing it: Devin's file was deleted while the
+ * app ran and reappeared, and Claude Desktop's own Debian launcher documents
+ * the behaviour in its source.
+ *
+ * A null answer is not a no. Where the process list cannot be read, the honest
+ * result is "unknown", and the caller writes anyway and says it could not
+ * check — refusing on an answer we do not have would block the install on
+ * every platform where `ps` is not the way to ask.
+ *
+ * @param {string[]} names
+ * @param {Machine} machine
+ * @returns {boolean|null}
+ */
+export function anyRunning(names, machine) {
+  const running = machine.processes();
+  if (running === null) return null;
+
+  const wanted = new Set(names.map((name) => name.toLowerCase()));
+  return running.some((name) => wanted.has(name.toLowerCase()));
+}
 
 /**
  * @typedef {object} Detection
@@ -86,6 +114,17 @@ export function thisMachine(overrides = {}) {
         return fs.readdirSync(dir);
       } catch {
         return [];
+      }
+    },
+    processes: () => {
+      if (process.platform === 'win32') return null;
+      try {
+        return execFileSync('ps', ['-eo', 'comm='], { encoding: 'utf8' })
+          .split('\n')
+          .map((line) => path.basename(line.trim()))
+          .filter(Boolean);
+      } catch {
+        return null;
       }
     },
     ...overrides,

@@ -61,6 +61,8 @@ function machine(t, { files = [], pathDirs = [], run } = {}) {
       // version of it fell through to the real filesystem for absolute paths
       // and duly discovered the VS Code that is actually installed here.
       exists: (/** @type {string} */ file) => file.startsWith(home) && fs.existsSync(file),
+      // Nothing is running on this machine either, unless a test says so.
+      processes: () => [],
       readdir: (/** @type {string} */ target) => {
         if (!target.startsWith(home)) return [];
         try {

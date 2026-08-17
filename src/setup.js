@@ -43,6 +43,7 @@ import {
   ABSENT,
   editRequest,
   FAILED,
+  NOT_WRITTEN,
   REMOVED,
   removeFromClient,
   UNCHANGED,
@@ -118,14 +119,17 @@ export function install(io) {
       clientCommand: found.command,
       backupDir: io.backupDir,
       now: io.now,
+      machine: io.machine,
       run: io.run,
     };
 
     const written = writeToClient(client, options);
 
-    // A write that failed leaves nothing to verify, and asking anyway would
-    // produce a second sentence about the same problem.
-    const verified = written.outcome === FAILED
+    // A write that failed, or that was deliberately not attempted, leaves
+    // nothing to verify. Asking anyway would produce a second sentence about
+    // the same problem, and for a client that is running it would produce a
+    // reassuring one about a file we did not write.
+    const verified = written.outcome === FAILED || written.outcome === NOT_WRITTEN
       ? null
       : verifyClient(client, {
         ...options,
@@ -334,8 +338,14 @@ export function report(io, outcomes) {
   const duplicates = duplicateRegistrationWarning(here);
   if (duplicates !== null) io.out(`${duplicates}\n\n`);
 
+  const waiting = here.filter((outcome) => outcome.written?.outcome === NOT_WRITTEN);
+  if (waiting.length > 0) {
+    io.out(`Quit ${waiting.map((outcome) => outcome.client.name).join(' and ')} and run this again to finish.\n\n`);
+  }
+
   const restarts = here.filter((outcome) =>
     outcome.written !== null && outcome.written.outcome !== FAILED
+    && outcome.written.outcome !== NOT_WRITTEN
     && outcome.verified?.status !== CONNECTED);
 
   if (restarts.length === 0) return;
@@ -361,6 +371,10 @@ function blockFor({ client, found, written, verified }) {
   }
 
   if (written === null) return `${client.name} — skipped\n\n`;
+
+  if (written.outcome === NOT_WRITTEN) {
+    return `${client.name} — nothing written\n    ${written.error}\n\n`;
+  }
 
   if (written.outcome === FAILED) {
     return `${client.name} — failed\n    ${written.error}\n`
