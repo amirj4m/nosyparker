@@ -1,0 +1,861 @@
+{
+  "tableVersion": 1,
+  "serverName": "nosyparker",
+  "sourceOfTruth": "PHASE3-RESEARCH.md, 2026-08-17. Addenda A, D and E supersede sections 2.5, 2.6, 2.7 and D.6 where they disagree.",
+  "evidenceLegend": {
+    "MACHINE": "verified against a real installation on the research machine",
+    "BINARY": "read out of the installed application's own shipped code",
+    "DOCS": "the vendor's own documentation",
+    "SECONDARY": "third-party write-ups only"
+  },
+  "fieldsUpstreamDoesNotModel": [
+    "tier",
+    "evidence",
+    "entry",
+    "requiredFields",
+    "detect",
+    "extraConfigPaths",
+    "write",
+    "remove",
+    "verify",
+    "blockers",
+    "traps",
+    "restart"
+  ],
+  "clients": [
+    {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "tier": 1,
+      "evidence": "MACHINE",
+      "transports": ["stdio"],
+      "format": "json",
+      "rootKey": "mcpServers",
+      "configPaths": {
+        "linux": "~/.claude.json",
+        "darwin": "~/.claude.json",
+        "win32": "~/.claude.json"
+      },
+      "extraConfigPaths": [],
+      "entry": null,
+      "requiredFields": [],
+      "detect": {
+        "commands": ["claude"],
+        "paths": ["~/.config/Claude/claude-code", "~/.claude/settings.json"]
+      },
+      "write": {
+        "method": "cli",
+        "argv": ["claude", "mcp", "add", "--scope", "user", "{{name}}", "--", "{{command}}", "{{serverPath}}"],
+        "why": "~/.claude.json is the CLI's live state file. It holds oauthAccount, userID and per-project history, is mode 0600, and is rewritten by the app constantly. `claude mcp add` is the only supported programmatic path and the only one that is not a race."
+      },
+      "remove": {
+        "method": "cli",
+        "argv": ["claude", "mcp", "remove", "--scope", "user", "{{name}}"]
+      },
+      "verify": {
+        "tier": "A",
+        "method": "cli-lines",
+        "argv": ["claude", "mcp", "list"],
+        "connected": "^[^\\n]*\\b{{name}}\\b[^\\n]*(Connected|✔)",
+        "failed": "^[^\\n]*\\b{{name}}\\b[^\\n]*(Failed to connect|✘|Needs authentication|Pending approval)",
+        "proves": "the client started the server and reported that it connected",
+        "cannotProve": null
+      },
+      "blockers": [],
+      "traps": [
+        "`claude mcp list` exits 0 even with no servers configured. The exit code is not a signal; the output is.",
+        "Leading or trailing whitespace in command, args or env is used verbatim and only warned about.",
+        "Workspace trust (v2.1.196+): in an untrusted folder a server stays at `⏸ Pending approval`."
+      ],
+      "restart": "Start a new Claude Code session, or run /mcp in a running one to reconnect.",
+      "lastVerified": {
+        "configPaths": "2026-08-17",
+        "write": "2026-08-17",
+        "verify": "2026-08-17",
+        "traps": "2026-08-17"
+      }
+    },
+    {
+      "id": "gemini-cli",
+      "name": "Gemini CLI",
+      "tier": 1,
+      "evidence": "MACHINE",
+      "transports": ["stdio"],
+      "format": "json",
+      "rootKey": "mcpServers",
+      "configPaths": {
+        "linux": "~/.gemini/settings.json",
+        "darwin": "~/.gemini/settings.json",
+        "win32": "~/.gemini/settings.json"
+      },
+      "extraConfigPaths": [],
+      "entry": {
+        "command": "{{command}}",
+        "args": ["{{serverPath}}"]
+      },
+      "requiredFields": [],
+      "detect": {
+        "commands": ["gemini"],
+        "paths": ["~/.gemini"]
+      },
+      "write": {
+        "method": "file",
+        "argv": null,
+        "why": "`gemini mcp add` printed `MCP server \"nosyparker\" added to project settings.` and created no file anywhere on disk. Its own `mcp list` reported no servers immediately afterwards. A hand-written settings.json was read correctly. For this client the usual rule inverts: write the file, verify with the CLI."
+      },
+      "remove": {
+        "method": "file",
+        "argv": null
+      },
+      "verify": {
+        "tier": "A",
+        "method": "cli-lines",
+        "argv": ["gemini", "mcp", "list"],
+        "connected": "^[^\\n]*\\b{{name}}\\b[^\\n]*(- Connected|✓)",
+        "failed": "^[^\\n]*\\b{{name}}\\b[^\\n]*(Disconnected|Disabled|✗)",
+        "proves": "the client started the server and reported that it connected",
+        "cannotProve": null
+      },
+      "blockers": [
+        {
+          "check": "json-key-absent",
+          "file": "~/.gemini/trustedFolders.json",
+          "key": "{{cwd}}",
+          "says": "Workspace trust: in an untrusted folder Gemini suppresses user-level MCP servers entirely, and says so only in its own output. Trust is recorded in ~/.gemini/trustedFolders.json."
+        }
+      ],
+      "traps": [
+        "`gemini mcp add` reports success and writes nothing. Never use it to install.",
+        "~/.gemini/ is created on first run but settings.json is not written until something writes it."
+      ],
+      "restart": "Start a new gemini session.",
+      "lastVerified": {
+        "configPaths": "2026-08-17",
+        "write": "2026-08-17",
+        "verify": "2026-08-17",
+        "blockers": "2026-08-17",
+        "traps": "2026-08-17"
+      }
+    },
+    {
+      "id": "codex-cli",
+      "name": "Codex CLI",
+      "tier": 1,
+      "evidence": "MACHINE",
+      "transports": ["stdio"],
+      "format": "toml",
+      "rootKey": "mcp_servers",
+      "configPaths": {
+        "linux": "~/.codex/config.toml",
+        "darwin": "~/.codex/config.toml",
+        "win32": "~/.codex/config.toml"
+      },
+      "extraConfigPaths": [],
+      "entry": null,
+      "requiredFields": [],
+      "detect": {
+        "commands": ["codex"],
+        "paths": ["~/.codex"]
+      },
+      "write": {
+        "method": "cli",
+        "argv": ["codex", "mcp", "add", "{{name}}", "--", "{{command}}", "{{serverPath}}"],
+        "why": "`codex mcp add` created config.toml and wrote the entry verbatim on the research machine. The exact argument order was not recorded there, so the read-back below is what makes this safe: a wrong invocation shows up as a missing entry, not as a green tick."
+      },
+      "remove": {
+        "method": "cli",
+        "argv": ["codex", "mcp", "remove", "{{name}}"]
+      },
+      "verify": {
+        "tier": "B+",
+        "method": "cli-json",
+        "argv": ["codex", "mcp", "list", "--json"],
+        "connected": null,
+        "failed": null,
+        "proves": "Codex parsed its config, holds our entry, and has it enabled",
+        "cannotProve": "that the server runs. `codex mcp list` reported a server pointing at /nonexistent/definitely-not-a-binary as `enabled`. It never tries to start the command."
+      },
+      "blockers": [],
+      "traps": [
+        "`codex mcp list` is a config read-back, not a health check. It reported a nonexistent binary as enabled.",
+        "`enabled = false` in the TOML disables a server without deleting it.",
+        "Project-scoped .codex/config.toml is gated behind a trust record in the global config and did not take effect when tested."
+      ],
+      "restart": "Start a new codex session.",
+      "lastVerified": {
+        "configPaths": "2026-08-17",
+        "write": "2026-08-17",
+        "verify": "2026-08-17",
+        "traps": "2026-08-17"
+      }
+    },
+    {
+      "id": "goose",
+      "name": "Goose",
+      "tier": 1,
+      "evidence": "MACHINE",
+      "transports": ["stdio"],
+      "format": "yaml-map",
+      "rootKey": "extensions",
+      "configPaths": {
+        "linux": "~/.config/goose/config.yaml",
+        "darwin": "~/.config/goose/config.yaml",
+        "win32": "%APPDATA%\\Block\\goose\\config\\config.yaml"
+      },
+      "extraConfigPaths": [],
+      "entry": {
+        "type": "stdio",
+        "name": "{{name}}",
+        "enabled": true,
+        "cmd": "{{command}}",
+        "args": ["{{serverPath}}"]
+      },
+      "requiredFields": ["enabled", "name", "type"],
+      "detect": {
+        "commands": ["goose"],
+        "paths": ["~/.config/goose", "~/.local/share/goose"]
+      },
+      "write": {
+        "method": "file",
+        "argv": null,
+        "why": "`goose configure` is interactive only; `goose mcp` runs goose's own bundled servers rather than managing external ones. There is no non-interactive add."
+      },
+      "remove": {
+        "method": "file",
+        "argv": null
+      },
+      "verify": {
+        "tier": "B+",
+        "method": "cli-lines",
+        "argv": ["goose", "info", "-v"],
+        "connected": "^\\s+{{name}}:",
+        "failed": null,
+        "proves": "Goose parsed config.yaml and our extension is in it",
+        "cannotProve": "that the server runs. No session can start without a configured provider, so there is no liveness check here."
+      },
+      "blockers": [],
+      "traps": [
+        "The field is `cmd`, not `command`, and `enabled: true` is required — an entry without it never loads.",
+        "Malformed YAML makes Goose fall back silently to its built-in defaults: every one of the user's own extensions disappears with no error. This is why the write is a pure insertion and is checked byte for byte afterwards.",
+        "`goose doctor` needs a configured provider and exits with an error without one. `goose info -v` does not."
+      ],
+      "restart": "Start a new goose session.",
+      "lastVerified": {
+        "configPaths": "2026-08-17",
+        "write": "2026-08-17",
+        "verify": "2026-08-17",
+        "traps": "2026-08-17"
+      }
+    },
+    {
+      "id": "vscode",
+      "name": "VS Code",
+      "tier": 1,
+      "evidence": "BINARY",
+      "transports": ["stdio"],
+      "format": "jsonc",
+      "rootKey": "servers",
+      "configPaths": {
+        "linux": "~/.config/Code/User/mcp.json",
+        "darwin": "~/Library/Application Support/Code/User/mcp.json",
+        "win32": "%APPDATA%\\Code\\User\\mcp.json"
+      },
+      "extraConfigPaths": [],
+      "entry": {
+        "type": "stdio",
+        "command": "{{command}}",
+        "args": ["{{serverPath}}"]
+      },
+      "requiredFields": ["type"],
+      "detect": {
+        "commands": ["code"],
+        "paths": ["/usr/share/code", "/Applications/Visual Studio Code.app"]
+      },
+      "write": {
+        "method": "cli",
+        "argv": ["code", "--add-mcp", "{{entryJsonWithName}}"],
+        "why": "`--add-mcp` is present in the shipped 1.133.0 build and is the app's own supported write path. It also handles the profile question: a user working in a non-default profile has their mcp.json under profiles/<profileId>/, which a fixed path would miss."
+      },
+      "remove": {
+        "method": "file",
+        "argv": null
+      },
+      "verify": {
+        "tier": "B",
+        "method": "file-reread",
+        "argv": null,
+        "connected": null,
+        "failed": null,
+        "proves": "the entry is in mcp.json after the app's own CLI wrote it",
+        "cannotProve": "that VS Code loads it. There is no `code --list-mcp`, and the enterprise `.policy` variants of the chat.mcp.* settings are invisible from disk."
+      },
+      "blockers": [
+        {
+          "check": "json-setting-equals",
+          "file": "~/.config/Code/User/settings.json",
+          "key": "chat.mcp.enabled",
+          "value": false,
+          "says": "chat.mcp.enabled is false: MCP is switched off in this VS Code."
+        },
+        {
+          "check": "json-setting-not-equals",
+          "file": "~/.config/Code/User/settings.json",
+          "key": "chat.mcp.access",
+          "value": "any",
+          "says": "chat.mcp.access is not `any`: VS Code may refuse a server it did not get from a registry."
+        },
+        {
+          "check": "json-setting-equals",
+          "file": "~/.config/Code/User/settings.json",
+          "key": "chat.mcp.allowManagedServersOnly",
+          "value": true,
+          "says": "chat.mcp.allowManagedServersOnly is true: only managed servers load."
+        },
+        {
+          "check": "json-array-contains",
+          "file": "~/.config/Code/User/settings.json",
+          "key": "chat.mcp.deniedServers",
+          "value": "{{name}}",
+          "says": "chat.mcp.deniedServers lists this server."
+        }
+      ],
+      "traps": [
+        "A non-default profile keeps its own mcp.json under profiles/<profileId>/. Writing the default profile's file alone misses that user; the CLI does not.",
+        "The docs contradict each other on whether `type` is required. Writing \"type\": \"stdio\" is valid under either reading.",
+        "VS Code 1.133 has discovery adapters that read Claude Desktop's, Cursor's and Windsurf's config files. Installing into those clients can register this server in VS Code a second time."
+      ],
+      "restart": "Quit and reopen VS Code.",
+      "lastVerified": {
+        "configPaths": "2026-08-17",
+        "write": "2026-08-17",
+        "verify": "2026-08-17",
+        "blockers": "2026-08-17",
+        "traps": "2026-08-17"
+      }
+    },
+    {
+      "id": "cursor",
+      "name": "Cursor",
+      "tier": 1,
+      "evidence": "BINARY",
+      "transports": ["stdio"],
+      "format": "json",
+      "rootKey": "mcpServers",
+      "configPaths": {
+        "linux": "~/.cursor/mcp.json",
+        "darwin": "~/.cursor/mcp.json",
+        "win32": "~/.cursor/mcp.json"
+      },
+      "extraConfigPaths": [],
+      "entry": {
+        "type": "stdio",
+        "command": "{{command}}",
+        "args": ["{{serverPath}}"]
+      },
+      "requiredFields": ["type"],
+      "detect": {
+        "commands": ["cursor"],
+        "paths": ["/usr/share/cursor", "~/.cursor", "/Applications/Cursor.app"]
+      },
+      "write": {
+        "method": "cli",
+        "argv": ["cursor", "--add-mcp", "{{entryJsonWithName}}"],
+        "why": "`--add-mcp` is present in the shipped 3.15.19 build. Cursor owns this file — it has ensureUserConfigDirExists, removeServerFromConfigFile and a watcher on both config paths — so its own writer is the one that will not be undone."
+      },
+      "remove": {
+        "method": "file",
+        "argv": null
+      },
+      "verify": {
+        "tier": "B",
+        "method": "file-reread",
+        "argv": null,
+        "connected": null,
+        "failed": null,
+        "proves": "the entry is in mcp.json after the app's own CLI wrote it",
+        "cannotProve": "that Cursor loads it. No list command exists, and where Cursor persists its per-server on/off toggle is unknown."
+      },
+      "blockers": [],
+      "traps": [
+        "The docs mark `type` as required in this file.",
+        "`~/.cursor/` exists on a fresh install but `mcp.json` does not. Installed-with-no-config is the normal first case here, not an error."
+      ],
+      "restart": "Quit and reopen Cursor.",
+      "lastVerified": {
+        "configPaths": "2026-08-17",
+        "write": "2026-08-17",
+        "verify": "2026-08-17",
+        "traps": "2026-08-17"
+      }
+    },
+    {
+      "id": "devin-desktop",
+      "name": "Devin Desktop (formerly Windsurf)",
+      "tier": 1,
+      "evidence": "MACHINE",
+      "transports": ["stdio"],
+      "format": "json",
+      "rootKey": "servers",
+      "configPaths": {
+        "linux": "~/.config/Devin/User/mcp.json",
+        "darwin": null,
+        "win32": null
+      },
+      "extraConfigPaths": [
+        {
+          "path": "~/.codeium/windsurf/mcp_config.json",
+          "rootKey": "mcpServers",
+          "status": "dormant",
+          "says": "This is the file every published document describes. On this build it is not written until Cascade needs it, and `devin.cascade.enabled` is false out of the box. We do not write it; we name it so nobody goes looking for a file we never touched."
+        }
+      ],
+      "entry": {
+        "type": "stdio",
+        "command": "{{command}}",
+        "args": ["{{serverPath}}"]
+      },
+      "requiredFields": ["type"],
+      "detect": {
+        "commands": ["devin-desktop", "windsurf"],
+        "paths": ["~/.local/Devin", "~/.config/Devin", "~/.codeium/windsurf"]
+      },
+      "write": {
+        "method": "cli",
+        "argv": ["devin-desktop", "--add-mcp", "{{entryJsonWithName}}"],
+        "why": "`--add-mcp` exists, exits 0 and prints `Added MCP servers: <name>`. It writes the VS Code-shaped `servers` file at ~/.config/Devin/User/mcp.json, which is the live surface — not the ~/.codeium path the documentation describes."
+      },
+      "remove": {
+        "method": "file",
+        "argv": null
+      },
+      "verify": {
+        "tier": "B",
+        "method": "file-reread",
+        "argv": null,
+        "connected": null,
+        "failed": null,
+        "proves": "the entry is in mcp.json after the app's own CLI wrote it",
+        "cannotProve": "that Devin loads it. There is no list command, and Cascade is disabled by default on this build."
+      },
+      "blockers": [
+        {
+          "check": "json-setting-equals",
+          "file": "~/.config/Devin/User/settings.json",
+          "key": "chat.mcp.enabled",
+          "value": false,
+          "says": "chat.mcp.enabled is false: MCP is switched off."
+        }
+      ],
+      "traps": [
+        "Windsurf is now Devin Desktop. Every published document describes ~/.codeium/windsurf/mcp_config.json, which is the dormant surface on this build.",
+        "Devin rewrites its config from memory: a file deleted while the app was running reappeared. Write only while it is closed.",
+        "The bundle carries devin.cascade.readClaudeCodeConfig and strings for Cursor's configs — another route to a duplicate registration.",
+        "macOS and Windows paths for the Devin User directory were not established. This client is Linux-only in this table."
+      ],
+      "restart": "Quit and reopen Devin Desktop.",
+      "lastVerified": {
+        "configPaths": "2026-08-17",
+        "extraConfigPaths": "2026-08-17",
+        "write": "2026-08-17",
+        "verify": "2026-08-17",
+        "blockers": "2026-08-17",
+        "traps": "2026-08-17"
+      }
+    },
+    {
+      "id": "claude-desktop",
+      "name": "Claude Desktop",
+      "tier": 2,
+      "evidence": "MACHINE",
+      "transports": ["stdio"],
+      "format": "json",
+      "rootKey": "mcpServers",
+      "configPaths": {
+        "linux": "~/.config/Claude/claude_desktop_config.json",
+        "darwin": "~/Library/Application Support/Claude/claude_desktop_config.json",
+        "win32": "%APPDATA%\\Claude\\claude_desktop_config.json"
+      },
+      "extraConfigPaths": [],
+      "entry": {
+        "command": "{{command}}",
+        "args": ["{{serverPath}}"]
+      },
+      "requiredFields": [],
+      "detect": {
+        "commands": [],
+        "paths": [
+          "~/.config/Claude/claude_desktop_config.json",
+          "/usr/lib/claude-desktop-unofficial",
+          "/Applications/Claude.app",
+          "~/Library/Application Support/Claude"
+        ]
+      },
+      "write": {
+        "method": "file",
+        "argv": null,
+        "why": "There is no CLI. `claude mcp add-from-claude-desktop` reads this file, it does not write it, and it is macOS/WSL only."
+      },
+      "remove": {
+        "method": "file",
+        "argv": null
+      },
+      "verify": {
+        "tier": "C",
+        "method": "file-reread",
+        "argv": null,
+        "connected": null,
+        "failed": null,
+        "proves": "our entry is in the file and the keys that were there before it still are",
+        "cannotProve": "that Claude Desktop loads it. There is no CLI and no readable state. The only real signal is a per-server log file that appears after the app next starts."
+      },
+      "blockers": [
+        {
+          "check": "json-key-present",
+          "file": "~/.config/Claude/config.json",
+          "keyPrefix": "dxt:allowlistEnabled:",
+          "says": "An org-level extension allowlist is configured. Whether it gates hand-written mcpServers entries or only packaged extensions is unknown."
+        }
+      ],
+      "traps": [
+        "The app's config loader falls back to {} on a failed cold-start read and then writes that empty object over the file. A malformed write is not a write that fails; it is a write that destroys the file at the next launch. This is why the entry is read back and re-parsed before anything is claimed.",
+        "The app rewrites the file wholesale from memory. An edit made while it is running is clobbered on its next settings write. Close it first.",
+        "The file is mode 0600 and sits beside the OAuth token cache. Never log its contents."
+      ],
+      "restart": "Quit Claude Desktop completely and start it again. It reads this file only at startup.",
+      "lastVerified": {
+        "configPaths": "2026-08-17",
+        "write": "2026-08-17",
+        "verify": "2026-08-17",
+        "blockers": "2026-08-17",
+        "traps": "2026-08-17"
+      }
+    },
+    {
+      "id": "zed",
+      "name": "Zed",
+      "tier": 2,
+      "evidence": "MACHINE",
+      "transports": ["stdio"],
+      "format": "jsonc",
+      "rootKey": "context_servers",
+      "configPaths": {
+        "linux": "~/.config/zed/settings.json",
+        "darwin": null,
+        "win32": null
+      },
+      "extraConfigPaths": [],
+      "entry": {
+        "command": "{{command}}",
+        "args": ["{{serverPath}}"]
+      },
+      "requiredFields": [],
+      "detect": {
+        "commands": ["zed"],
+        "paths": ["~/.local/zed.app", "~/.local/bin/zed", "~/.config/zed", "~/.local/share/zed"]
+      },
+      "write": {
+        "method": "file",
+        "argv": null,
+        "why": "Zed has no MCP subcommand of any kind. It also leaves a hand-written settings file alone — after several launch and quit cycles the file was byte-identical to what was written."
+      },
+      "remove": {
+        "method": "file",
+        "argv": null
+      },
+      "verify": {
+        "tier": "C",
+        "method": "file-reread",
+        "argv": null,
+        "connected": null,
+        "failed": null,
+        "proves": "our entry is in settings.json and the rest of the file is unchanged",
+        "cannotProve": "that Zed loads it. There is no CLI, the debug log contains no mention of context servers at any level, and there is no state in its database. Zed reports settings problems in its own window and nowhere a program can read."
+      },
+      "blockers": [],
+      "traps": [
+        "The file is JSON with comments and Zed's own shipped defaults are wall-to-wall // comments. A parse-and-rewrite would silently delete them, so the edit is a text insertion.",
+        "`source: \"custom\"` is not required. Zed 1.15.0's own embedded example omits it, and an entry carrying a deliberately invalid `source` still started the server. Do not write it.",
+        "Zed is installed by a script into ~/.local and is invisible to dpkg and to /usr/share. A detector modelled on the other clients will not see it.",
+        "The config directory is created on first launch containing only themes/. Installed with no settings.json is the normal first case."
+      ],
+      "restart": "Quit and reopen Zed. Writing settings.json while Zed was running produced nothing.",
+      "lastVerified": {
+        "configPaths": "2026-08-17",
+        "write": "2026-08-17",
+        "verify": "2026-08-17",
+        "traps": "2026-08-17"
+      }
+    },
+    {
+      "id": "kimi-code",
+      "name": "Kimi Code",
+      "tier": 2,
+      "evidence": "MACHINE",
+      "transports": ["stdio"],
+      "format": "json",
+      "rootKey": "mcpServers",
+      "configPaths": {
+        "linux": "~/.kimi-code/mcp.json",
+        "darwin": "~/.kimi-code/mcp.json",
+        "win32": "~/.kimi-code/mcp.json"
+      },
+      "extraConfigPaths": [],
+      "entry": {
+        "command": "{{command}}",
+        "args": ["{{serverPath}}"]
+      },
+      "requiredFields": [],
+      "detect": {
+        "commands": ["kimi"],
+        "paths": ["~/.kimi-code"]
+      },
+      "write": {
+        "method": "file",
+        "argv": null,
+        "why": "Kimi has no mcp subcommand. MCP is managed only by /mcp-config and /mcp inside the interactive terminal interface."
+      },
+      "remove": {
+        "method": "file",
+        "argv": null
+      },
+      "verify": {
+        "tier": "C",
+        "method": "file-reread",
+        "argv": null,
+        "connected": null,
+        "failed": null,
+        "proves": "our entry is in mcp.json and the rest of the file is unchanged",
+        "cannotProve": "anything about Kimi. It loads no MCP server before sign-in, and every check it offers needs a Moonshot account."
+      },
+      "blockers": [],
+      "traps": [
+        "`kimi doctor` printed \"All checked config files are valid\" while mcp.json contained invalid JSON. It validates config.toml and tui.toml and never reads mcp.json. It is not a check.",
+        "Kimi also reads a project-root .mcp.json as a Claude-compatible file, so installing into Claude Code's project scope may register this server in Kimi as well."
+      ],
+      "restart": "Quit and reopen kimi.",
+      "lastVerified": {
+        "configPaths": "2026-08-17",
+        "write": "2026-08-17",
+        "verify": "2026-08-17",
+        "traps": "2026-08-17"
+      }
+    },
+    {
+      "id": "cline",
+      "name": "Cline",
+      "tier": 3,
+      "evidence": "SECONDARY",
+      "transports": ["stdio"],
+      "format": "json",
+      "rootKey": "mcpServers",
+      "configPaths": {
+        "linux": "~/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json",
+        "darwin": null,
+        "win32": null
+      },
+      "extraConfigPaths": [],
+      "entry": {
+        "command": "{{command}}",
+        "args": ["{{serverPath}}"]
+      },
+      "requiredFields": [],
+      "detect": {
+        "commands": [],
+        "paths": [
+          "~/.config/Code/User/globalStorage/saoudrizwan.claude-dev",
+          "~/.vscode/extensions"
+        ]
+      },
+      "write": {
+        "method": "file",
+        "argv": null,
+        "why": "No CLI was found."
+      },
+      "remove": {
+        "method": "file",
+        "argv": null
+      },
+      "verify": {
+        "tier": "C",
+        "method": "file-reread",
+        "argv": null,
+        "connected": null,
+        "failed": null,
+        "proves": "our entry is in the file and the rest of the file is unchanged",
+        "cannotProve": "that Cline loads it. This row is from third-party sources only and was never installed or tested."
+      },
+      "blockers": [],
+      "traps": [
+        "This row was never verified against an installation. The path is from third-party write-ups, and only the Linux one was recorded.",
+        "Detection here is a directory that only exists once the extension has been installed and run at least once."
+      ],
+      "restart": "Reload the VS Code window.",
+      "lastVerified": {
+        "configPaths": "2026-08-17",
+        "verify": "2026-08-17",
+        "traps": "2026-08-17"
+      }
+    },
+    {
+      "id": "continue",
+      "name": "Continue",
+      "tier": 3,
+      "evidence": "DOCS",
+      "transports": ["stdio"],
+      "format": "yaml-list",
+      "rootKey": "mcpServers",
+      "configPaths": {
+        "linux": "~/.continue/config.yaml",
+        "darwin": "~/.continue/config.yaml",
+        "win32": "~/.continue/config.yaml"
+      },
+      "extraConfigPaths": [],
+      "entry": {
+        "name": "{{name}}",
+        "type": "stdio",
+        "command": "{{command}}",
+        "args": ["{{serverPath}}"]
+      },
+      "requiredFields": ["name", "type"],
+      "detect": {
+        "commands": [],
+        "paths": ["~/.continue"]
+      },
+      "write": {
+        "method": "file",
+        "argv": null,
+        "why": "No CLI was found."
+      },
+      "remove": {
+        "method": "file",
+        "argv": null
+      },
+      "verify": {
+        "tier": "C",
+        "method": "file-reread",
+        "argv": null,
+        "connected": null,
+        "failed": null,
+        "proves": "our entry is in the file and the rest of the file is unchanged",
+        "cannotProve": "that Continue loads it. There is no read-back, and this row was never tested against an installation."
+      },
+      "blockers": [],
+      "traps": [
+        "mcpServers here is a YAML list of maps, not an object map. Every other client in this table uses a map.",
+        "Indentation is load-bearing and a tab breaks parsing silently. The write is a pure insertion for that reason.",
+        "The docs say edits are not always picked up live and the extension must be reloaded."
+      ],
+      "restart": "Reload the editor window Continue runs in.",
+      "lastVerified": {
+        "configPaths": "2026-08-17",
+        "verify": "2026-08-17",
+        "traps": "2026-08-17"
+      }
+    },
+    {
+      "id": "warp",
+      "name": "Warp",
+      "tier": 3,
+      "evidence": "DOCS",
+      "transports": ["stdio"],
+      "format": "json",
+      "rootKey": "mcpServers",
+      "configPaths": {
+        "linux": "~/.warp/.mcp.json",
+        "darwin": "~/.warp/.mcp.json",
+        "win32": "~/.warp/.mcp.json"
+      },
+      "extraConfigPaths": [],
+      "entry": {
+        "command": "{{command}}",
+        "args": ["{{serverPath}}"]
+      },
+      "requiredFields": [],
+      "detect": {
+        "commands": [],
+        "paths": ["~/.warp"]
+      },
+      "write": {
+        "method": "file",
+        "argv": null,
+        "why": "Warp publishes MCP CLI reference pages but their contents were not read, so nothing here claims a CLI works."
+      },
+      "remove": {
+        "method": "file",
+        "argv": null
+      },
+      "verify": {
+        "tier": "C",
+        "method": "file-reread",
+        "argv": null,
+        "connected": null,
+        "failed": null,
+        "proves": "our entry is in the file and the rest of the file is unchanged",
+        "cannotProve": "that Warp loads it. This row was never tested against an installation."
+      },
+      "blockers": [],
+      "traps": [
+        "This file is at ~/.warp on every platform and is shared between Warp's stable and preview channels. Warp's other configuration follows XDG on Linux; this file does not."
+      ],
+      "restart": "Quit and reopen Warp.",
+      "lastVerified": {
+        "configPaths": "2026-08-17",
+        "verify": "2026-08-17",
+        "traps": "2026-08-17"
+      }
+    },
+    {
+      "id": "junie",
+      "name": "JetBrains Junie",
+      "tier": 3,
+      "evidence": "DOCS",
+      "transports": ["stdio"],
+      "format": "json",
+      "rootKey": "mcpServers",
+      "configPaths": {
+        "linux": "~/.junie/mcp/mcp.json",
+        "darwin": "~/.junie/mcp/mcp.json",
+        "win32": "~/.junie/mcp/mcp.json"
+      },
+      "extraConfigPaths": [],
+      "entry": {
+        "command": "{{command}}",
+        "args": ["{{serverPath}}"]
+      },
+      "requiredFields": [],
+      "detect": {
+        "commands": [],
+        "paths": ["~/.junie"]
+      },
+      "write": {
+        "method": "file",
+        "argv": null,
+        "why": "No CLI was found."
+      },
+      "remove": {
+        "method": "file",
+        "argv": null
+      },
+      "verify": {
+        "tier": "C",
+        "method": "file-reread",
+        "argv": null,
+        "connected": null,
+        "failed": null,
+        "proves": "our entry is in the file and the rest of the file is unchanged",
+        "cannotProve": "that Junie loads it. This row was never tested against an installation."
+      },
+      "blockers": [],
+      "traps": [
+        "JetBrains AI Assistant is a separate surface from Junie, reported at ~/.config/JetBrains/AIAssistant/mcp.json from third-party sources only. It is not carried here.",
+        "This row was never verified against an installation."
+      ],
+      "restart": "Restart the JetBrains IDE.",
+      "lastVerified": {
+        "configPaths": "2026-08-17",
+        "verify": "2026-08-17",
+        "traps": "2026-08-17"
+      }
+    }
+  ]
+}
