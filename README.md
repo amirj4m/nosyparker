@@ -43,29 +43,54 @@ wrong, you should be able to see what was taken out.
 
 ## Installing it
 
-There is nothing to install yet. nosyparker is not released: there is no
-package to fetch and no command to set it up. This section will say how, once
-there is something real to say.
-
-Until then you point an agent at it by hand. It runs from a copy of this
-folder, with Node 22 or newer and nothing else:
+nosyparker is still not released — there is no package to fetch — but from a
+copy of this folder, with Node 22 or newer and nothing else, one command wires
+up every agent on your machine:
 
 ```
-node /absolute/path/to/nosyparker/src/mcp-server.js
+node src/cli.js setup
 ```
 
-That is the command an agent runs for you, not one you leave running. You add
-it to your agent's configuration once — for Claude Code, under `mcpServers` in
-`~/.claude.json` — and it starts the server itself from then on.
+It looks for fourteen clients, writes its entry into the ones it finds, and
+then tells you, one by one, what it actually knows about each. That last part
+is the point. Some clients can be asked whether the server started and will
+say so; some can only confirm that they read their own config file; some offer
+nothing at all, and for those it says it wrote a file and cannot tell you
+whether anybody read it. You will not get one tick meaning six different
+things.
 
-[CONNECTING.md](CONNECTING.md) has the exact snippet to paste and what to say
-to check it works.
+It never removes anything it did not add. Before it touches a config file for
+the first time it puts a copy in `~/.nosyparker/backups/`, and that copy is
+never replaced, because the version worth keeping is the one from before this
+existed.
+
+The last thing it prints is which applications to close and reopen. None of
+them re-read their config while running, so that is a required step and not a
+footnote.
+
+If it does not know your client:
+
+```
+node src/cli.js setup --print-config
+```
+
+prints the exact thing to paste, and naming a client it does know
+(`--print-config zed`) prints that client's own shape, path and pitfalls.
+
+[CONNECTING.md](CONNECTING.md) has the by-hand version and what to say to
+check it works.
 
 ## Removing it
 
-There is nothing to uninstall yet, for the same reason.
+```
+node src/cli.js uninstall
+```
 
-What already exists is your memories, and they are all in one file:
+Takes its entry out of every client that has one and touches nothing else in
+those files. It works even if a config has changed since you installed, and
+running it twice is not an error.
+
+That removes the wiring, not the memories. Those are all in one file:
 
 ```
 ~/.nosyparker/memory.sqlite

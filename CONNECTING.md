@@ -1,8 +1,12 @@
 # Connecting an agent by hand
 
-This is the whole of the wiring for now. You do it once, yourself, by editing
-one file. Nothing here detects anything, installs anything, or edits a config
-on your behalf — that is a later phase, and it is not built.
+There is now a command that does this for you — `node src/cli.js setup`, which
+the [README](README.md) describes. This page is the by-hand version: what to do
+for a client the command does not know about, and what it is doing on your
+behalf for the ones it does.
+
+`node src/cli.js setup --print-config` prints the snippet below filled in with
+your own paths, and naming a client prints that client's own shape.
 
 ## Running the server
 
@@ -36,6 +40,12 @@ alongside the keys that are.
 
 The path has to be absolute. Claude Code starts the server in a working
 directory of its own choosing, and a relative one will not be found.
+
+`setup` writes the absolute path of the Node it is running under rather than
+the word `node`, for a reason worth knowing if you are doing this by hand: an
+application started from a desktop icon does not inherit your shell's `PATH`,
+so `node` may be a command it cannot find. The cost of the absolute path is
+that upgrading Node moves it, and `setup` has to be run again.
 
 Restart Claude Code. `/mcp` lists the connected servers; nosyparker should be
 there with six tools.
