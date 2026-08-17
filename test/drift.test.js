@@ -254,11 +254,12 @@ test('the vendored copy is the one the meta file says it is', () => {
 });
 
 test('the real table against the real baseline is silent, and every difference has a reason', () => {
-  // The four accepted divergences are the four things the research went and
-  // found out. Gemini's install command that writes nothing, and Devin's
-  // category, root key and path — the surface every published document
-  // describes being the dormant one. If a fifth appears, somebody edited the
-  // table without re-vendoring and this fails.
+  // The accepted divergences are the things somebody went and found out.
+  // Gemini's install command that writes nothing; Devin's category, root key
+  // and path, where the surface every published document describes is the
+  // dormant one; and Kiro's three, which are the same finding a second time in
+  // a second VS Code fork. If another appears, somebody edited the table
+  // without re-vendoring and this fails.
   const result = checkDrift({
     upstream: null,
     vendored: VENDORED,
@@ -271,7 +272,8 @@ test('the real table against the real baseline is silent, and every difference h
 
   assert.deepEqual(
     META.acceptedDivergences.map((/** @type {any} */ row) => row.id).sort(),
-    ['devin-desktop:category', 'devin-desktop:path.linux', 'devin-desktop:rootKey', 'gemini-cli:category'],
+    ['devin-desktop:category', 'devin-desktop:path.linux', 'devin-desktop:rootKey',
+      'gemini-cli:category', 'kiro:category', 'kiro:path.linux', 'kiro:rootKey'],
   );
 
   for (const divergence of META.acceptedDivergences) {

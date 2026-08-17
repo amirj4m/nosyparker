@@ -201,14 +201,14 @@ test('a client driven through its own command is recorded, and not copied', (t) 
 });
 
 test('no copy of any file is taken for any client we do not edit ourselves', () => {
-  // Four rows are driven by their own command, and none of them may be copied.
-  // Claude Code is the one that made the rule, but Codex, VS Code and Devin
-  // were being copied for the same non-reason.
+  // Five rows are driven by their own command, and none of them may be copied.
+  // Claude Code is the one that made the rule; Codex, VS Code and Devin were
+  // being copied for the same non-reason, and Kiro would have been.
   const driven = loadClients().clients
     .filter((client) => client.write.method === 'cli')
     .map((client) => client.id);
 
-  assert.deepEqual(driven.sort(), ['claude-code', 'codex-cli', 'devin-desktop', 'vscode']);
+  assert.deepEqual(driven.sort(), ['claude-code', 'codex-cli', 'devin-desktop', 'kiro', 'vscode']);
 });
 
 test('a file we do edit ourselves is still copied before the first change', (t) => {

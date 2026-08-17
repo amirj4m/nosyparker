@@ -39,34 +39,90 @@ function row(id) {
   return client;
 }
 
-test('the table carries the fifteen clients the research drew the line around', () => {
-  // E.4 puts the line at seven verified, three installed-but-unverifiable and
-  // four carried from documentation. Copilot CLI is the fifteenth: the research
-  // contradicts itself about it — the prose says the table carries it, the tier
-  // lists omit it — and the owner settled it in. Written out rather than
-  // counted, so that adding a client is a decision somebody makes here rather
-  // than a row that appears.
+test('the table carries twenty clients, and each one is a decision somebody made', () => {
+  // Written out rather than counted. Three web-only clients are deliberately
+  // absent and are not a gap: Claude on the web, ChatGPT and the Copilot coding
+  // agent have no local configuration file at all, so there is nothing to write
+  // and no amount of effort would change that.
   const { clients } = loadClients();
   assert.deepEqual(
     clients.map((client) => client.id).sort(),
     [
-      'claude-code', 'claude-desktop', 'cline', 'codex-cli', 'continue', 'copilot-cli', 'cursor',
-      'devin-desktop', 'gemini-cli', 'goose', 'junie', 'kimi-code', 'vscode', 'warp', 'zed',
+      'amazon-q', 'claude-code', 'claude-desktop', 'cline', 'codex-cli', 'continue', 'copilot-cli',
+      'cursor', 'devin-desktop', 'gemini-cli', 'goose', 'junie', 'kimi-code', 'kiro', 'lmstudio',
+      'opencode', 'roo-code', 'vscode', 'warp', 'zed',
     ],
   );
 
   assert.deepEqual(
     clients.filter((client) => client.tier === 1).map((client) => client.id).sort(),
-    ['claude-code', 'codex-cli', 'cursor', 'devin-desktop', 'gemini-cli', 'goose', 'vscode'],
+    ['claude-code', 'codex-cli', 'cursor', 'devin-desktop', 'gemini-cli', 'goose', 'kiro',
+      'opencode', 'vscode'],
   );
   assert.deepEqual(
     clients.filter((client) => client.tier === 2).map((client) => client.id).sort(),
-    ['claude-desktop', 'kimi-code', 'zed'],
+    ['claude-desktop', 'kimi-code', 'lmstudio', 'zed'],
   );
   assert.deepEqual(
     clients.filter((client) => client.tier === 3).map((client) => client.id).sort(),
-    ['cline', 'continue', 'copilot-cli', 'junie', 'warp'],
+    ['amazon-q', 'cline', 'continue', 'copilot-cli', 'junie', 'roo-code', 'warp'],
   );
+});
+
+test('opencode is the row that resembles nothing else, and is kept that way', () => {
+  // Every field here is one somebody could "correct" into agreement with its
+  // neighbours, and every correction would break it — the published schema sets
+  // additionalProperties: false, so a wrong or extra field is a hard failure
+  // rather than something quietly ignored.
+  const opencode = row('opencode');
+
+  assert.equal(opencode.rootKey, 'mcp');
+  assert.equal(opencode.format, 'jsonc');
+
+  assert.deepEqual(fillTokens(opencode.entry, VALUES), {
+    type: 'local',
+    command: ['/usr/bin/node', '/srv/mcp-server.js'],
+  });
+
+  // `local`, not `stdio`. One array holding the program and its arguments
+  // together, not a string plus an args array. And nothing else at all.
+  assert.equal(Object.keys(opencode.entry).length, 2);
+  assert.equal('args' in opencode.entry, false);
+  assert.equal('env' in opencode.entry, false);
+  assert.match(opencode.traps.join(' '), /additionalProperties: false/u);
+  assert.match(opencode.traps.join(' '), /Environment variables go in `environment`, not `env`/u);
+
+  // It is also the one client that can prove the server runs and was measured
+  // doing it, which is why it is tier A alongside Claude Code and Gemini.
+  assert.equal(opencode.verify.tier, 'A');
+});
+
+test('Amazon Q is marked as the least certain row, in every field that could mislead', () => {
+  const q = row('amazon-q');
+
+  assert.equal(q.evidence, 'DOCS');
+  assert.equal(q.verify.tier, 'C');
+
+  // The fifth vendor command found reporting success over nothing.
+  assert.equal(q.write.method, 'file');
+  assert.match(q.write.why, /exits 0 while refusing/u);
+  assert.match(q.traps.join(' '), /exit code means nothing here/u);
+
+  // And the part that separates it from every other measured row: the path was
+  // never seen on disk, because nothing would create it.
+  assert.match(q.traps.join(' '), /never been observed on disk/u);
+  assert.match(q.verify.cannotProve, /least certain row in the table/u);
+});
+
+test('LM Studio carries the path measured on Linux, not the one its docs give', () => {
+  const lms = row('lmstudio');
+
+  assert.equal(configPathFor(lms, LINUX), '/home/p/.lmstudio/mcp.json');
+  assert.equal(lms.evidence, 'MACHINE');
+  assert.match(lms.traps.join(' '), /macOS path its documentation gives does not apply here/u);
+
+  // And nothing is claimed for the platforms nobody looked at.
+  assert.equal(configPathFor(lms, { ...LINUX, platform: 'darwin' }), null);
 });
 
 test('Copilot CLI is carried on documentation alone, and says so in every field', () => {
@@ -214,8 +270,11 @@ test('each root key is that client\'s own, and three of them are not mcpServers'
   assert.equal(row('goose').rootKey, 'extensions');
   assert.equal(row('codex-cli').rootKey, 'mcp_servers');
 
+  assert.equal(row('kiro').rootKey, 'servers');
+  assert.equal(row('opencode').rootKey, 'mcp');
+
   for (const id of ['claude-code', 'claude-desktop', 'cursor', 'gemini-cli', 'kimi-code',
-    'cline', 'continue', 'warp', 'junie']) {
+    'cline', 'continue', 'warp', 'junie', 'lmstudio', 'roo-code', 'amazon-q']) {
     assert.equal(row(id).rootKey, 'mcpServers', id);
   }
 });
@@ -239,6 +298,11 @@ test('the verification tiers are the ones the research earned, not one green tic
     'codex-cli': 'B+',
     goose: 'B+',
     'copilot-cli': 'B+',
+    opencode: 'A',
+    kiro: 'B',
+    lmstudio: 'C',
+    'roo-code': 'C',
+    'amazon-q': 'C',
     vscode: 'B',
     cursor: 'C',
     'devin-desktop': 'B',

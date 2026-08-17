@@ -412,6 +412,368 @@
       "upstreamId": null
     },
     {
+      "id": "opencode",
+      "name": "opencode",
+      "tier": 1,
+      "evidence": "MACHINE",
+      "transports": [
+        "stdio"
+      ],
+      "format": "jsonc",
+      "rootKey": "mcp",
+      "configPaths": {
+        "linux": "~/.config/opencode/opencode.jsonc",
+        "darwin": "~/.config/opencode/opencode.jsonc",
+        "win32": null
+      },
+      "extraConfigPaths": [],
+      "entry": {
+        "type": "local",
+        "command": [
+          "{{command}}",
+          "{{serverPath}}"
+        ]
+      },
+      "requiredFields": [
+        "type",
+        "command"
+      ],
+      "detect": {
+        "commands": [
+          "opencode"
+        ],
+        "commandFallbacks": [
+          "~/.opencode/bin/opencode"
+        ],
+        "paths": [
+          "~/.config/opencode",
+          "~/.opencode",
+          "~/.local/share/opencode"
+        ]
+      },
+      "write": {
+        "method": "file",
+        "argv": null,
+        "why": "It has `opencode mcp add`, but its list command is a real health check, so the file is written here and the CLI is kept for verifying — the same split as Gemini, for a better reason: writing the file ourselves is what lets the entry be checked byte for byte against a schema that refuses unknown fields."
+      },
+      "remove": {
+        "method": "file",
+        "argv": null
+      },
+      "verify": {
+        "tier": "A",
+        "method": "cli-lines",
+        "argv": [
+          "opencode",
+          "mcp",
+          "list"
+        ],
+        "connected": "^[^\\n]*\\b{{name}}\\b[^\\n]*(connected|✓|✔)",
+        "failed": "^[^\\n]*\\b{{name}}\\b[^\\n]*(failed|error|Connection closed|✗|✘)",
+        "says": null,
+        "proves": "the client started the server and reported that it connected",
+        "cannotProve": null
+      },
+      "blockers": [],
+      "traps": [
+        "The entry shape is unlike every other client here. The root key is `mcp`, the type is `local` rather than `stdio`, and `command` is a single array holding the program and its arguments together rather than a string plus an `args` array.",
+        "Environment variables go in `environment`, not `env`.",
+        "The published schema sets additionalProperties: false, so one extra field is a hard failure rather than something ignored. Nothing may be added to this entry speculatively.",
+        "This is the client that proved a bare `node` is not enough: it does not inherit the shell environment, and an entry naming `node` fails with `Connection closed` and nothing else.",
+        "The config file allows comments and trailing commas, and its own schema says so."
+      ],
+      "restart": "Start a new opencode session.",
+      "lastVerified": {
+        "configPaths": "2026-08-17",
+        "write": "2026-08-17",
+        "verify": "2026-08-17",
+        "traps": "2026-08-17"
+      },
+      "upstreamId": "opencode"
+    },
+    {
+      "id": "kiro",
+      "name": "Kiro",
+      "tier": 1,
+      "evidence": "MACHINE",
+      "transports": [
+        "stdio"
+      ],
+      "format": "jsonc",
+      "rootKey": "servers",
+      "configPaths": {
+        "linux": "~/.config/Kiro/User/mcp.json",
+        "darwin": null,
+        "win32": null
+      },
+      "extraConfigPaths": [
+        {
+          "path": "~/.kiro/settings/mcp.json",
+          "rootKey": "mcpServers",
+          "status": "the product's own",
+          "says": "Kiro's own agent extension reads this file — the path is in its shipped code alongside ~/.kiro/settings/permissions.yaml. We write the surface Kiro's own --add-mcp writes, which is the VS Code one it inherited. Whether the agent also reads that one was not established, so if the entry does not appear in Kiro, this is the file to add it to by hand."
+        }
+      ],
+      "entry": {
+        "type": "stdio",
+        "command": "{{command}}",
+        "args": [
+          "{{serverPath}}"
+        ]
+      },
+      "requiredFields": [
+        "type"
+      ],
+      "detect": {
+        "commands": [
+          "kiro"
+        ],
+        "commandFallbacks": [
+          "~/.local/Kiro/bin/kiro"
+        ],
+        "paths": [
+          "~/.local/Kiro",
+          "~/.config/Kiro",
+          "~/.kiro"
+        ]
+      },
+      "write": {
+        "method": "cli",
+        "argv": [
+          "kiro",
+          "--add-mcp",
+          "{{entryJsonWithName}}"
+        ],
+        "why": "Kiro is a VS Code fork and ships the same --add-mcp, described in its own --help as adding a server definition to the user profile. Using it means the profile question is answered by the application rather than guessed at."
+      },
+      "remove": {
+        "method": "file",
+        "argv": null
+      },
+      "verify": {
+        "tier": "B",
+        "method": "file-reread",
+        "argv": null,
+        "connected": null,
+        "failed": null,
+        "says": null,
+        "proves": "the entry is in mcp.json after the app's own CLI wrote it",
+        "cannotProve": "that Kiro loads it, or that its own agent reads this file rather than the other one. There is no list command."
+      },
+      "blockers": [],
+      "traps": [
+        "Two configuration surfaces, the second time a VS Code fork with its own agent has had them — Devin was the first. The inherited one is written by --add-mcp; the product's own is ~/.kiro/settings/mcp.json.",
+        "The shipped code also references .cursor/mcp.json and .vscode/mcp.json, so Kiro reads other clients' files as VS Code does and the server may appear more than once.",
+        "macOS and Windows paths were not established. This client is Linux-only in this table."
+      ],
+      "restart": "Quit and reopen Kiro.",
+      "lastVerified": {
+        "configPaths": "2026-08-17",
+        "extraConfigPaths": "2026-08-17",
+        "write": "2026-08-17",
+        "verify": "2026-08-17",
+        "traps": "2026-08-17"
+      },
+      "upstreamId": "kiro"
+    },
+    {
+      "id": "lmstudio",
+      "name": "LM Studio",
+      "tier": 2,
+      "evidence": "MACHINE",
+      "transports": [
+        "stdio"
+      ],
+      "format": "json",
+      "rootKey": "mcpServers",
+      "configPaths": {
+        "linux": "~/.lmstudio/mcp.json",
+        "darwin": null,
+        "win32": null
+      },
+      "extraConfigPaths": [],
+      "entry": {
+        "command": "{{command}}",
+        "args": [
+          "{{serverPath}}"
+        ]
+      },
+      "requiredFields": [],
+      "detect": {
+        "commands": [
+          "lms"
+        ],
+        "commandFallbacks": [
+          "~/.lmstudio/bin/lms"
+        ],
+        "paths": [
+          "~/.lmstudio"
+        ]
+      },
+      "write": {
+        "method": "file",
+        "argv": null,
+        "why": "Its CLI manages models and the local server, not MCP entries."
+      },
+      "remove": {
+        "method": "file",
+        "argv": null
+      },
+      "verify": {
+        "tier": "C",
+        "method": "file-reread",
+        "argv": null,
+        "connected": null,
+        "failed": null,
+        "says": null,
+        "proves": "our entry is in mcp.json and the rest of the file is unchanged",
+        "cannotProve": "that LM Studio loads it. It starts a server only when a model actually calls one, so there is nothing to observe until a model is loaded."
+      },
+      "blockers": [],
+      "traps": [
+        "The macOS path its documentation gives does not apply here. The path verified on Linux is ~/.lmstudio/mcp.json, and the documented one was not.",
+        "The file is created the first time the application is opened, and arrives holding an empty mcpServers object.",
+        "macOS and Windows paths were not established from a running installation."
+      ],
+      "restart": "Quit and reopen LM Studio.",
+      "lastVerified": {
+        "configPaths": "2026-08-17",
+        "write": "2026-08-17",
+        "verify": "2026-08-17",
+        "traps": "2026-08-17"
+      },
+      "upstreamId": "lm-studio"
+    },
+    {
+      "id": "roo-code",
+      "name": "Roo Code",
+      "tier": 3,
+      "evidence": "MACHINE",
+      "transports": [
+        "stdio"
+      ],
+      "format": "json",
+      "rootKey": "mcpServers",
+      "configPaths": {
+        "linux": "~/.config/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json",
+        "darwin": null,
+        "win32": null
+      },
+      "extraConfigPaths": [],
+      "entry": {
+        "command": "{{command}}",
+        "args": [
+          "{{serverPath}}"
+        ]
+      },
+      "requiredFields": [],
+      "detect": {
+        "commands": [],
+        "paths": [
+          "~/.config/Code/User/globalStorage/rooveterinaryinc.roo-cline",
+          "~/.vscode/extensions/rooveterinaryinc.roo-cline-3.54.0"
+        ]
+      },
+      "write": {
+        "method": "file",
+        "argv": null,
+        "why": "A VS Code extension. There is no command to run."
+      },
+      "remove": {
+        "method": "file",
+        "argv": null
+      },
+      "verify": {
+        "tier": "C",
+        "method": "file-reread",
+        "argv": null,
+        "connected": null,
+        "failed": null,
+        "says": null,
+        "proves": "our entry is in the file and the rest of the file is unchanged",
+        "cannotProve": "that Roo Code loads it. The extension only starts when its panel is first opened, so there is nothing to check before then."
+      },
+      "blockers": [],
+      "traps": [
+        "The file name is mcp_settings.json, read out of the extension's own shipped code, and it lives under the lowercase form of the extension id.",
+        "The version number is in the detection path because that is how VS Code names extension directories; the storage directory beside it is the stabler evidence and is checked first.",
+        "macOS and Windows paths were not established."
+      ],
+      "restart": "Reload the VS Code window.",
+      "lastVerified": {
+        "configPaths": "2026-08-17",
+        "verify": "2026-08-17",
+        "traps": "2026-08-17"
+      },
+      "upstreamId": "roo-code"
+    },
+    {
+      "id": "amazon-q",
+      "name": "Amazon Q Developer CLI",
+      "tier": 3,
+      "evidence": "DOCS",
+      "transports": [
+        "stdio"
+      ],
+      "format": "json",
+      "rootKey": "mcpServers",
+      "configPaths": {
+        "linux": "~/.aws/amazonq/mcp.json",
+        "darwin": "~/.aws/amazonq/mcp.json",
+        "win32": null
+      },
+      "extraConfigPaths": [],
+      "entry": {
+        "command": "{{command}}",
+        "args": [
+          "{{serverPath}}"
+        ]
+      },
+      "requiredFields": [],
+      "detect": {
+        "commands": [
+          "q"
+        ],
+        "paths": [
+          "~/.local/share/amazon-q",
+          "~/.aws/amazonq"
+        ]
+      },
+      "write": {
+        "method": "file",
+        "argv": null,
+        "why": "`q mcp add` exits 0 while refusing to do anything and writing no file, because every one of its MCP subcommands needs an AWS sign-in first. It is the fifth vendor command found reporting success over nothing."
+      },
+      "remove": {
+        "method": "file",
+        "argv": null
+      },
+      "verify": {
+        "tier": "C",
+        "method": "file-reread",
+        "argv": null,
+        "connected": null,
+        "failed": null,
+        "says": null,
+        "proves": "our entry is in the file we were told to write",
+        "cannotProve": "anything at all about Amazon Q. Every command it offers refuses without an AWS account, no file was ever produced by it to compare against, and the path is from Amazon's documentation rather than from a running installation. This is the least certain row in the table."
+      },
+      "blockers": [],
+      "traps": [
+        "`q mcp add` exits 0, refuses, and writes nothing. Its exit code means nothing here.",
+        "The configuration path has never been observed on disk: no file was created during testing because every command refused. It is documentation only, inside a row that is otherwise measured.",
+        "Every MCP subcommand requires an AWS sign-in, so nothing about this client can be checked without an account."
+      ],
+      "restart": "Start a new q chat session.",
+      "lastVerified": {
+        "configPaths": "2026-08-17",
+        "write": "2026-08-17",
+        "verify": "2026-08-17",
+        "traps": "2026-08-17"
+      },
+      "upstreamId": "amazon-q-developer"
+    },
+    {
       "id": "vscode",
       "name": "VS Code",
       "tier": 1,

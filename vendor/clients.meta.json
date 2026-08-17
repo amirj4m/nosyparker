@@ -25,6 +25,21 @@
       "id": "devin-desktop:path.linux",
       "reason": "Same finding as the root key. Upstream's ~/.codeium/windsurf/mcp_config.json is created on first launch but not written until Cascade needs it, and `devin.cascade.enabled` is false by default on this build. The live path is ~/.config/Devin/User/mcp.json, verified on disk. Our row carries upstream's path as an extraConfigPath so it is recorded rather than lost.",
       "acceptedOn": "2026-08-17"
+    },
+    {
+      "id": "kiro:category",
+      "reason": "Upstream classes Kiro as a config-file install. Kiro is a VS Code fork and ships --add-mcp, documented in its own --help as adding a server definition to the user profile; using it means the profile question is answered by the application rather than guessed at.",
+      "acceptedOn": "2026-08-17"
+    },
+    {
+      "id": "kiro:rootKey",
+      "reason": "Upstream says mcpServers, which is correct for the file it names — ~/.kiro/settings/mcp.json, Kiro's own agent surface. The surface --add-mcp writes is the VS Code one Kiro inherited, and that uses `servers`. Both files are real; this is the second VS Code fork with two of them, after Devin.",
+      "acceptedOn": "2026-08-17"
+    },
+    {
+      "id": "kiro:path.linux",
+      "reason": "Same finding as the root key, and the one place this divergence is worth re-examining: upstream and Kiro's own shipped agent code both point at ~/.kiro/settings/mcp.json, and we write ~/.config/Kiro/User/mcp.json because that is what Kiro's own --add-mcp writes. Whether the Kiro agent also reads the inherited file was not established. The row carries the other path as an extraConfigPath so a person who finds nothing in Kiro knows where to look.",
+      "acceptedOn": "2026-08-17"
     }
   ]
 }
