@@ -34,6 +34,16 @@
  * our write, and folding it into the status would produce a word that means two
  * things again. They are reported alongside, in their own sentence.
  *
+ * That was reconsidered for Gemini's folder trust specifically, which is the
+ * one blocker that actually fires in ordinary use: the entry is written and
+ * valid, and Gemini ignores it because the folder is not trusted. It does not
+ * get a status of its own. The current answer — a failure, with the blocker
+ * sentence naming the file and the fix — already says everything a status would
+ * say, in words rather than in vocabulary, and it says it for every blocker
+ * rather than for the one we happened to hit. A seventh word would be
+ * client-specific vocabulary in a list that is deliberately not, and it would
+ * push against the thing the report was just simplified to do.
+ *
  * Nothing here trusts a vendor's tool to tell the truth about itself. Three of
  * them were caught lying by a control test, in three different ways: one
  * reports success and writes nothing, one validates a file it never opens, one

@@ -31,6 +31,7 @@ import {
   clientById,
   configPathFor,
   entryJsonWithName,
+  expandPath,
   fillTokens,
   loadClients,
   serverCommand,
@@ -280,6 +281,19 @@ export function printConfig(io, clientId) {
 
   if (configPath === null) {
     io.out(`This table has no path for ${client.name} on ${io.machine.platform}: the research behind it could not establish one, and a guess here would be a file nobody reads.\n\n`);
+  }
+
+  // The other surface, where there is one. Two clients have two configuration
+  // files apiece — Devin and Kiro, both VS Code forks that added their own
+  // agent — and in both cases we write one of them and the other is real. That
+  // is a property of the row rather than anything special-cased in code, which
+  // is what made the second one cost nothing to add; and this is where somebody
+  // who cannot find the entry in their client needs to be told the other file
+  // exists.
+  for (const other of client.extraConfigPaths ?? []) {
+    io.out(`${client.name} has a second MCP configuration file, ${other.status}:\n\n`);
+    io.out(`  ${expandPath(other.path, io.machine)}   (key "${other.rootKey}")\n\n`);
+    io.out(`  ${other.says}\n\n`);
   }
 
   if (client.traps.length > 0) {
