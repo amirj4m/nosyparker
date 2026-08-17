@@ -1,0 +1,453 @@
+{
+  "$schema": "https://install.apicommons.org/clients.schema.json",
+  "name": "MCP Client Install Registry",
+  "description": "An open, machine-readable registry of how every MCP client installs a server — deep links, CLI commands, config files, and web connectors. Maintained by API Commons. PRs welcome.",
+  "version": "1.0.0",
+  "url": "https://install.apicommons.org/clients.json",
+  "source": "https://github.com/api-commons/mcp-install",
+  "clients": [
+    {
+      "id": "cursor",
+      "name": "Cursor",
+      "maker": "Anysphere",
+      "category": "deeplink",
+      "transports": ["stdio", "http", "sse"],
+      "platforms": ["mac", "windows", "linux"],
+      "website": "https://cursor.com",
+      "docs": "https://cursor.com/docs/mcp",
+      "deeplink": { "builder": "cursor" },
+      "config": {
+        "format": "json",
+        "rootKey": "mcpServers",
+        "style": "default",
+        "paths": { "mac": "~/.cursor/mcp.json", "windows": "%USERPROFILE%\\.cursor\\mcp.json", "linux": "~/.cursor/mcp.json" },
+        "note": "Project-level config lives at .cursor/mcp.json in the repo."
+      }
+    },
+    {
+      "id": "vscode",
+      "name": "VS Code",
+      "maker": "Microsoft",
+      "category": "deeplink",
+      "transports": ["stdio", "http", "sse"],
+      "platforms": ["mac", "windows", "linux"],
+      "website": "https://code.visualstudio.com",
+      "docs": "https://code.visualstudio.com/docs/copilot/customization/mcp-servers",
+      "deeplink": { "builder": "vscode" },
+      "cli": {
+        "stdio": "code --add-mcp '{jsonWithName}'",
+        "http": "code --add-mcp '{jsonWithName}'"
+      },
+      "config": {
+        "format": "json",
+        "rootKey": "servers",
+        "style": "vscode",
+        "location": "Workspace .vscode/mcp.json, or user-level via the MCP: Add Server command.",
+        "note": "Also powers GitHub Copilot in VS Code."
+      }
+    },
+    {
+      "id": "vscode-insiders",
+      "name": "VS Code Insiders",
+      "maker": "Microsoft",
+      "category": "deeplink",
+      "transports": ["stdio", "http", "sse"],
+      "platforms": ["mac", "windows", "linux"],
+      "website": "https://code.visualstudio.com/insiders",
+      "docs": "https://code.visualstudio.com/docs/copilot/customization/mcp-servers",
+      "deeplink": { "builder": "vscode-insiders" },
+      "cli": {
+        "stdio": "code-insiders --add-mcp '{jsonWithName}'",
+        "http": "code-insiders --add-mcp '{jsonWithName}'"
+      }
+    },
+    {
+      "id": "visual-studio",
+      "name": "Visual Studio",
+      "maker": "Microsoft",
+      "category": "deeplink",
+      "transports": ["stdio", "http", "sse"],
+      "platforms": ["windows"],
+      "website": "https://visualstudio.microsoft.com",
+      "docs": "https://learn.microsoft.com/en-us/visualstudio/ide/mcp-servers",
+      "deeplink": { "builder": "visual-studio" },
+      "config": {
+        "format": "json",
+        "rootKey": "servers",
+        "style": "vscode",
+        "location": "Solution-level .mcp.json, or %USERPROFILE%\\.mcp.json for all solutions."
+      }
+    },
+    {
+      "id": "lm-studio",
+      "name": "LM Studio",
+      "maker": "LM Studio",
+      "category": "deeplink",
+      "transports": ["stdio", "http"],
+      "platforms": ["mac", "windows", "linux"],
+      "website": "https://lmstudio.ai",
+      "docs": "https://lmstudio.ai/docs/app/mcp/deeplink",
+      "deeplink": { "builder": "lmstudio" },
+      "config": {
+        "format": "json",
+        "rootKey": "mcpServers",
+        "style": "default",
+        "location": "mcp.json edited in-app via Program → Install → Edit mcp.json."
+      }
+    },
+    {
+      "id": "goose",
+      "name": "Goose",
+      "maker": "Block",
+      "category": "deeplink",
+      "transports": ["stdio", "http", "sse"],
+      "platforms": ["mac", "windows", "linux"],
+      "website": "https://block.github.io/goose/",
+      "docs": "https://block.github.io/goose/docs/getting-started/using-extensions",
+      "deeplink": {
+        "builder": "goose",
+        "note": "Deep link opens Goose Desktop with an install prompt. CLI users: goose configure → Add Extension."
+      }
+    },
+    {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "maker": "Anthropic",
+      "category": "cli",
+      "transports": ["stdio", "http", "sse"],
+      "platforms": ["mac", "windows", "linux"],
+      "website": "https://claude.com/claude-code",
+      "docs": "https://docs.claude.com/en/docs/claude-code/mcp",
+      "cli": {
+        "stdio": "claude mcp add {name}{envFlags} -- {command} {args}",
+        "http": "claude mcp add --transport http {name} {url}{headerFlags}",
+        "sse": "claude mcp add --transport sse {name} {url}{headerFlags}",
+        "envFlag": " --env {key}={value}",
+        "headerFlag": " --header \"{key}: {value}\"",
+        "note": "Add --scope project to share via .mcp.json in the repo, or --scope user for all projects."
+      }
+    },
+    {
+      "id": "claude-desktop",
+      "name": "Claude Desktop",
+      "maker": "Anthropic",
+      "category": "config",
+      "transports": ["stdio", "http"],
+      "platforms": ["mac", "windows"],
+      "website": "https://claude.ai/download",
+      "docs": "https://modelcontextprotocol.io/quickstart/user",
+      "config": {
+        "format": "json",
+        "rootKey": "mcpServers",
+        "style": "default",
+        "paths": {
+          "mac": "~/Library/Application Support/Claude/claude_desktop_config.json",
+          "windows": "%APPDATA%\\Claude\\claude_desktop_config.json"
+        },
+        "steps": ["Settings → Developer → Edit Config opens the file for you.", "Restart Claude Desktop after saving."],
+        "note": "The config file runs local (stdio) servers. Remote servers are added as connectors: Settings → Connectors → Add custom connector. Also supports one-click .mcpb desktop extension bundles."
+      },
+      "connector": {
+        "requires": "remote",
+        "steps": ["Open Claude Desktop → Settings → Connectors.", "Click “Add custom connector”.", "Paste the server URL and complete OAuth if prompted."]
+      }
+    },
+    {
+      "id": "claude-ai",
+      "name": "Claude (web & Teams)",
+      "maker": "Anthropic",
+      "category": "connector",
+      "transports": ["http", "sse"],
+      "platforms": ["web"],
+      "website": "https://claude.ai",
+      "docs": "https://support.claude.com/en/articles/11175166-getting-started-with-custom-connectors-using-remote-mcp",
+      "connector": {
+        "requires": "remote",
+        "steps": ["Go to claude.ai → Settings → Connectors.", "Click “Add custom connector”.", "Paste the server URL, then Connect and complete OAuth."]
+      }
+    },
+    {
+      "id": "chatgpt",
+      "name": "ChatGPT",
+      "maker": "OpenAI",
+      "category": "connector",
+      "transports": ["http", "sse"],
+      "platforms": ["web"],
+      "website": "https://chatgpt.com",
+      "docs": "https://platform.openai.com/docs/mcp",
+      "connector": {
+        "requires": "remote",
+        "steps": ["Enable developer mode: Settings → Apps & Connectors → Advanced settings.", "Click “Create” under Connectors.", "Paste the server URL, pick authentication, and save."],
+        "note": "Connector availability varies by plan; deep research connectors expect search/fetch tools."
+      }
+    },
+    {
+      "id": "windsurf",
+      "name": "Windsurf",
+      "maker": "Windsurf (Codeium)",
+      "category": "config",
+      "transports": ["stdio", "http", "sse"],
+      "platforms": ["mac", "windows", "linux"],
+      "website": "https://windsurf.com",
+      "docs": "https://docs.windsurf.com/windsurf/cascade/mcp",
+      "config": {
+        "format": "json",
+        "rootKey": "mcpServers",
+        "style": "default",
+        "urlKey": "serverUrl",
+        "paths": {
+          "mac": "~/.codeium/windsurf/mcp_config.json",
+          "windows": "%USERPROFILE%\\.codeium\\windsurf\\mcp_config.json",
+          "linux": "~/.codeium/windsurf/mcp_config.json"
+        },
+        "steps": ["Or in-app: Cascade → MCP toolbar → Configure → View raw config."]
+      }
+    },
+    {
+      "id": "zed",
+      "name": "Zed",
+      "maker": "Zed Industries",
+      "category": "config",
+      "transports": ["stdio"],
+      "platforms": ["mac", "linux", "windows"],
+      "website": "https://zed.dev",
+      "docs": "https://zed.dev/docs/ai/mcp",
+      "config": {
+        "format": "json",
+        "rootKey": "context_servers",
+        "style": "zed",
+        "location": "settings.json (cmd-, / ctrl-, → Open Settings), under \"context_servers\".",
+        "note": "Zed runs stdio servers; front a remote endpoint with mcp-remote."
+      }
+    },
+    {
+      "id": "cline",
+      "name": "Cline",
+      "maker": "Cline",
+      "category": "config",
+      "transports": ["stdio", "http", "sse"],
+      "platforms": ["mac", "windows", "linux"],
+      "website": "https://cline.bot",
+      "docs": "https://docs.cline.bot/mcp/configuring-mcp-servers",
+      "config": {
+        "format": "json",
+        "rootKey": "mcpServers",
+        "style": "default",
+        "location": "In VS Code: Cline → MCP Servers icon → Installed → Configure MCP Servers (opens cline_mcp_settings.json)."
+      }
+    },
+    {
+      "id": "roo-code",
+      "name": "Roo Code",
+      "maker": "Roo Code",
+      "category": "config",
+      "transports": ["stdio", "http", "sse"],
+      "platforms": ["mac", "windows", "linux"],
+      "website": "https://roocode.com",
+      "docs": "https://docs.roocode.com/features/mcp/using-mcp-in-roo",
+      "config": {
+        "format": "json",
+        "rootKey": "mcpServers",
+        "style": "default",
+        "location": "Roo Code → MCP icon → Edit Global MCP (mcp_settings.json), or .roo/mcp.json per project."
+      }
+    },
+    {
+      "id": "continue",
+      "name": "Continue",
+      "maker": "Continue",
+      "category": "config",
+      "transports": ["stdio", "http", "sse"],
+      "platforms": ["mac", "windows", "linux"],
+      "website": "https://continue.dev",
+      "docs": "https://docs.continue.dev/customize/deep-dives/mcp",
+      "config": {
+        "format": "yaml",
+        "style": "continue",
+        "location": "~/.continue/config.yaml, or a block file in .continue/mcpServers/ in the workspace."
+      }
+    },
+    {
+      "id": "warp",
+      "name": "Warp",
+      "maker": "Warp",
+      "category": "config",
+      "transports": ["stdio", "http", "sse"],
+      "platforms": ["mac", "windows", "linux"],
+      "website": "https://warp.dev",
+      "docs": "https://docs.warp.dev/knowledge-and-collaboration/mcp",
+      "config": {
+        "format": "json",
+        "rootKey": "mcpServers",
+        "style": "default",
+        "location": "Warp → Settings → AI → Manage MCP servers → + Add, then paste the JSON."
+      }
+    },
+    {
+      "id": "gemini-cli",
+      "name": "Gemini CLI",
+      "maker": "Google",
+      "category": "cli",
+      "transports": ["stdio", "http", "sse"],
+      "platforms": ["mac", "windows", "linux"],
+      "website": "https://github.com/google-gemini/gemini-cli",
+      "docs": "https://google-gemini.github.io/gemini-cli/docs/tools/mcp-server.html",
+      "cli": {
+        "stdio": "gemini mcp add {name}{envFlags} {command} {args}",
+        "http": "gemini mcp add --transport http {name} {url}{headerFlags}",
+        "sse": "gemini mcp add --transport sse {name} {url}{headerFlags}",
+        "envFlag": " -e {key}={value}",
+        "headerFlag": " --header \"{key}: {value}\"",
+        "note": "Settings live in ~/.gemini/settings.json under mcpServers."
+      }
+    },
+    {
+      "id": "codex-cli",
+      "name": "Codex CLI",
+      "maker": "OpenAI",
+      "category": "cli",
+      "transports": ["stdio"],
+      "platforms": ["mac", "linux", "windows"],
+      "website": "https://github.com/openai/codex",
+      "docs": "https://github.com/openai/codex/blob/main/docs/config.md",
+      "cli": {
+        "stdio": "codex mcp add {name}{envFlags} -- {command} {args}",
+        "envFlag": " --env {key}={value}"
+      },
+      "config": {
+        "format": "toml",
+        "rootKey": "mcp_servers",
+        "style": "toml",
+        "paths": { "mac": "~/.codex/config.toml", "windows": "%USERPROFILE%\\.codex\\config.toml", "linux": "~/.codex/config.toml" },
+        "note": "Codex speaks stdio; front a remote endpoint with mcp-remote."
+      }
+    },
+    {
+      "id": "github-copilot-coding-agent",
+      "name": "GitHub Copilot coding agent",
+      "maker": "GitHub",
+      "category": "connector",
+      "transports": ["stdio", "http"],
+      "platforms": ["web"],
+      "website": "https://github.com/features/copilot",
+      "docs": "https://docs.github.com/en/copilot/customizing-copilot/extending-copilot-coding-agent-with-mcp",
+      "connector": {
+        "requires": "remote",
+        "steps": ["Repository → Settings → Copilot → Coding agent.", "Paste an MCP configuration JSON into the MCP configuration box.", "Store secrets in a Copilot environment; reference them from the config."],
+        "note": "Copilot in VS Code uses the VS Code entry above; this covers the autonomous coding agent on github.com."
+      }
+    },
+    {
+      "id": "kiro",
+      "name": "Kiro",
+      "maker": "AWS",
+      "category": "config",
+      "transports": ["stdio"],
+      "platforms": ["mac", "windows", "linux"],
+      "website": "https://kiro.dev",
+      "docs": "https://kiro.dev/docs/mcp/",
+      "config": {
+        "format": "json",
+        "rootKey": "mcpServers",
+        "style": "default",
+        "paths": { "mac": "~/.kiro/settings/mcp.json", "windows": "%USERPROFILE%\\.kiro\\settings\\mcp.json", "linux": "~/.kiro/settings/mcp.json" },
+        "note": "Workspace-level config at .kiro/settings/mcp.json takes precedence."
+      }
+    },
+    {
+      "id": "amazon-q-developer",
+      "name": "Amazon Q Developer CLI",
+      "maker": "AWS",
+      "category": "config",
+      "transports": ["stdio"],
+      "platforms": ["mac", "linux"],
+      "website": "https://aws.amazon.com/q/developer/",
+      "docs": "https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/command-line-mcp.html",
+      "config": {
+        "format": "json",
+        "rootKey": "mcpServers",
+        "style": "default",
+        "paths": { "mac": "~/.aws/amazonq/mcp.json", "linux": "~/.aws/amazonq/mcp.json" },
+        "note": "Workspace-level config at .amazonq/mcp.json also works."
+      }
+    },
+    {
+      "id": "jetbrains-ai",
+      "name": "JetBrains AI Assistant",
+      "maker": "JetBrains",
+      "category": "config",
+      "transports": ["stdio", "http", "sse"],
+      "platforms": ["mac", "windows", "linux"],
+      "website": "https://www.jetbrains.com/ai/",
+      "docs": "https://www.jetbrains.com/help/ai-assistant/mcp.html",
+      "config": {
+        "format": "json",
+        "rootKey": "mcpServers",
+        "style": "default",
+        "location": "Settings → Tools → AI Assistant → Model Context Protocol (MCP) → Add, then paste the JSON (“As JSON”)."
+      }
+    },
+    {
+      "id": "raycast",
+      "name": "Raycast",
+      "maker": "Raycast",
+      "category": "config",
+      "transports": ["stdio", "http", "sse"],
+      "platforms": ["mac", "windows"],
+      "website": "https://raycast.com",
+      "docs": "https://manual.raycast.com/model-context-protocol",
+      "config": {
+        "format": "json",
+        "rootKey": "mcpServers",
+        "style": "default",
+        "location": "Raycast → search “Manage MCP Servers” → Install Server (⌘N), or paste JSON via “Install from JSON”."
+      }
+    },
+    {
+      "id": "opencode",
+      "name": "opencode",
+      "maker": "SST",
+      "category": "config",
+      "transports": ["stdio", "http"],
+      "platforms": ["mac", "linux", "windows"],
+      "website": "https://opencode.ai",
+      "docs": "https://opencode.ai/docs/mcp-servers/",
+      "config": {
+        "format": "json",
+        "rootKey": "mcp",
+        "style": "opencode",
+        "location": "opencode.json in the project root or ~/.config/opencode/opencode.json."
+      }
+    },
+    {
+      "id": "perplexity-desktop",
+      "name": "Perplexity Desktop",
+      "maker": "Perplexity",
+      "category": "connector",
+      "transports": ["stdio"],
+      "platforms": ["mac"],
+      "website": "https://www.perplexity.ai",
+      "docs": "https://docs.perplexity.ai/guides/mcp-server",
+      "connector": {
+        "requires": "any",
+        "steps": ["Perplexity (macOS) → Settings → Connectors.", "Click “Add Connector” → Advanced.", "Paste the server command or URL and save."]
+      }
+    },
+    {
+      "id": "mcp-inspector",
+      "name": "MCP Inspector",
+      "maker": "Anthropic / MCP project",
+      "category": "cli",
+      "transports": ["stdio", "http", "sse"],
+      "platforms": ["mac", "windows", "linux"],
+      "website": "https://github.com/modelcontextprotocol/inspector",
+      "docs": "https://modelcontextprotocol.io/docs/tools/inspector",
+      "cli": {
+        "stdio": "npx @modelcontextprotocol/inspector {command} {args}",
+        "http": "npx @modelcontextprotocol/inspector --transport http --server-url {url}",
+        "sse": "npx @modelcontextprotocol/inspector --transport sse --server-url {url}",
+        "note": "Not a client you keep — the debugging harness. Handy first stop to verify the server works."
+      }
+    }
+  ]
+}

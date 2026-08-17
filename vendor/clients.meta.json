@@ -1,0 +1,30 @@
+{
+  "source": "https://install.apicommons.org/clients.json",
+  "vendoredAt": "2026-08-17",
+  "sha256": "bac23f42d0b6e69cdb6b1c30e64ba5d5b87bd33996b50e745f553b069b2b02cd",
+  "upstreamLastModified": "Fri, 17 Jul 2026 16:43:06 GMT",
+  "contentLastChanged": "2026-07-17",
+  "note": "A copy of the community table at a revision somebody read. The watcher diffs live upstream against this, and this against src/clients.json, so the baseline is something a human accepted rather than a moving target. Updating this file is a pull request with a person reading the diff.",
+  "acceptedDivergences": [
+    {
+      "id": "gemini-cli:category",
+      "reason": "Upstream classes Gemini as a CLI install. `gemini mcp add` was run on a real installation, printed that it had added the server, and created no file anywhere on disk; a filesystem-wide search for anything modified in the preceding ten minutes found nothing, and `gemini mcp list` immediately afterwards reported no servers configured. We write the file and use the CLI only to verify, which does work.",
+      "acceptedOn": "2026-08-17"
+    },
+    {
+      "id": "devin-desktop:category",
+      "reason": "Upstream classes Windsurf as a config-file install. `devin-desktop --add-mcp` exists in the shipped 1.126.0 build, exits 0, prints `Added MCP servers: <name>`, and writes the file. It is undocumented in the MCP pages and was found in --help.",
+      "acceptedOn": "2026-08-17"
+    },
+    {
+      "id": "devin-desktop:rootKey",
+      "reason": "Upstream says `mcpServers`, which is correct for the ~/.codeium/windsurf file it describes. The surface --add-mcp actually writes is VS Code-shaped and uses `servers`. Both files are real; upstream documents the dormant one.",
+      "acceptedOn": "2026-08-17"
+    },
+    {
+      "id": "devin-desktop:path.linux",
+      "reason": "Same finding as the root key. Upstream's ~/.codeium/windsurf/mcp_config.json is created on first launch but not written until Cascade needs it, and `devin.cascade.enabled` is false by default on this build. The live path is ~/.config/Devin/User/mcp.json, verified on disk. Our row carries upstream's path as an extraConfigPath so it is recorded rather than lost.",
+      "acceptedOn": "2026-08-17"
+    }
+  ]
+}

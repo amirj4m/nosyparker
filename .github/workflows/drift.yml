@@ -1,0 +1,36 @@
+# The drift watcher.
+#
+# Weekly, and on any change to the client table or to the vendored baseline it
+# is compared against. Not on every push: it makes a network request to a third
+# party, and a canary that fires on every commit is a canary nobody reads.
+#
+# It never runs at install time and is not part of the product. A stranger
+# installing nosyparker must not depend on somebody else's URL being up.
+name: client table drift
+
+on:
+  schedule:
+    # Mondays, early. Nothing depends on the hour.
+    - cron: '17 6 * * 1'
+  pull_request:
+    paths:
+      - 'src/clients.json'
+      - 'vendor/**'
+      - 'scripts/drift.mjs'
+  workflow_dispatch:
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # No install step: the watcher uses nothing but Node's own modules.
+      # A network failure inside it exits zero on purpose, so an outage at
+      # install.apicommons.org does not turn into a red mark on this repository.
+      - name: Compare the client table against the community one
+        run: node scripts/drift.mjs

@@ -28,7 +28,9 @@
       "name": "Claude Code",
       "tier": 1,
       "evidence": "MACHINE",
-      "transports": ["stdio"],
+      "transports": [
+        "stdio"
+      ],
       "format": "json",
       "rootKey": "mcpServers",
       "configPaths": {
@@ -40,23 +42,51 @@
       "entry": null,
       "requiredFields": [],
       "detect": {
-        "commands": ["claude"],
-        "commandFallbacks": ["~/.config/Claude/claude-code/*/claude"],
-        "paths": ["~/.config/Claude/claude-code", "~/.claude/settings.json"]
+        "commands": [
+          "claude"
+        ],
+        "commandFallbacks": [
+          "~/.config/Claude/claude-code/*/claude"
+        ],
+        "paths": [
+          "~/.config/Claude/claude-code",
+          "~/.claude/settings.json"
+        ]
       },
       "write": {
         "method": "cli",
-        "argv": ["claude", "mcp", "add", "--scope", "user", "{{name}}", "--", "{{command}}", "{{serverPath}}"],
+        "argv": [
+          "claude",
+          "mcp",
+          "add",
+          "--scope",
+          "user",
+          "{{name}}",
+          "--",
+          "{{command}}",
+          "{{serverPath}}"
+        ],
         "why": "~/.claude.json is the CLI's live state file. It holds oauthAccount, userID and per-project history, is mode 0600, and is rewritten by the app constantly. `claude mcp add` is the only supported programmatic path and the only one that is not a race."
       },
       "remove": {
         "method": "cli",
-        "argv": ["claude", "mcp", "remove", "--scope", "user", "{{name}}"]
+        "argv": [
+          "claude",
+          "mcp",
+          "remove",
+          "--scope",
+          "user",
+          "{{name}}"
+        ]
       },
       "verify": {
         "tier": "A",
         "method": "cli-lines",
-        "argv": ["claude", "mcp", "list"],
+        "argv": [
+          "claude",
+          "mcp",
+          "list"
+        ],
         "connected": "^[^\\n]*\\b{{name}}\\b[^\\n]*(Connected|✔)",
         "failed": "^[^\\n]*\\b{{name}}\\b[^\\n]*(Failed to connect|✘|Needs authentication|Pending approval)",
         "proves": "the client started the server and reported that it connected",
@@ -74,14 +104,17 @@
         "write": "2026-08-17",
         "verify": "2026-08-17",
         "traps": "2026-08-17"
-      }
+      },
+      "upstreamId": "claude-code"
     },
     {
       "id": "gemini-cli",
       "name": "Gemini CLI",
       "tier": 1,
       "evidence": "MACHINE",
-      "transports": ["stdio"],
+      "transports": [
+        "stdio"
+      ],
       "format": "json",
       "rootKey": "mcpServers",
       "configPaths": {
@@ -92,13 +125,21 @@
       "extraConfigPaths": [],
       "entry": {
         "command": "{{command}}",
-        "args": ["{{serverPath}}"]
+        "args": [
+          "{{serverPath}}"
+        ]
       },
       "requiredFields": [],
       "detect": {
-        "commands": ["gemini"],
-        "commandFallbacks": ["~/.npm-global/bin/gemini"],
-        "paths": ["~/.gemini"]
+        "commands": [
+          "gemini"
+        ],
+        "commandFallbacks": [
+          "~/.npm-global/bin/gemini"
+        ],
+        "paths": [
+          "~/.gemini"
+        ]
       },
       "write": {
         "method": "file",
@@ -112,7 +153,11 @@
       "verify": {
         "tier": "A",
         "method": "cli-lines",
-        "argv": ["gemini", "mcp", "list"],
+        "argv": [
+          "gemini",
+          "mcp",
+          "list"
+        ],
         "connected": "^[^\\n]*\\b{{name}}\\b[^\\n]*(- Connected|✓)",
         "failed": "^[^\\n]*\\b{{name}}\\b[^\\n]*(Disconnected|Disabled|✗)",
         "proves": "the client started the server and reported that it connected",
@@ -137,14 +182,17 @@
         "verify": "2026-08-17",
         "blockers": "2026-08-17",
         "traps": "2026-08-17"
-      }
+      },
+      "upstreamId": "gemini-cli"
     },
     {
       "id": "codex-cli",
       "name": "Codex CLI",
       "tier": 1,
       "evidence": "MACHINE",
-      "transports": ["stdio"],
+      "transports": [
+        "stdio"
+      ],
       "format": "toml",
       "rootKey": "mcp_servers",
       "configPaths": {
@@ -156,22 +204,44 @@
       "entry": null,
       "requiredFields": [],
       "detect": {
-        "commands": ["codex"],
-        "paths": ["~/.codex"]
+        "commands": [
+          "codex"
+        ],
+        "paths": [
+          "~/.codex"
+        ]
       },
       "write": {
         "method": "cli",
-        "argv": ["codex", "mcp", "add", "{{name}}", "--", "{{command}}", "{{serverPath}}"],
+        "argv": [
+          "codex",
+          "mcp",
+          "add",
+          "{{name}}",
+          "--",
+          "{{command}}",
+          "{{serverPath}}"
+        ],
         "why": "`codex mcp add` created config.toml and wrote the entry verbatim on the research machine. The exact argument order was not recorded there, so the read-back below is what makes this safe: a wrong invocation shows up as a missing entry, not as a green tick."
       },
       "remove": {
         "method": "cli",
-        "argv": ["codex", "mcp", "remove", "{{name}}"]
+        "argv": [
+          "codex",
+          "mcp",
+          "remove",
+          "{{name}}"
+        ]
       },
       "verify": {
         "tier": "B+",
         "method": "cli-json",
-        "argv": ["codex", "mcp", "list", "--json"],
+        "argv": [
+          "codex",
+          "mcp",
+          "list",
+          "--json"
+        ],
         "connected": null,
         "failed": null,
         "proves": "Codex parsed its config, holds our entry, and has it enabled",
@@ -189,14 +259,17 @@
         "write": "2026-08-17",
         "verify": "2026-08-17",
         "traps": "2026-08-17"
-      }
+      },
+      "upstreamId": "codex-cli"
     },
     {
       "id": "goose",
       "name": "Goose",
       "tier": 1,
       "evidence": "MACHINE",
-      "transports": ["stdio"],
+      "transports": [
+        "stdio"
+      ],
       "format": "yaml-map",
       "rootKey": "extensions",
       "configPaths": {
@@ -210,12 +283,23 @@
         "name": "{{name}}",
         "enabled": true,
         "cmd": "{{command}}",
-        "args": ["{{serverPath}}"]
+        "args": [
+          "{{serverPath}}"
+        ]
       },
-      "requiredFields": ["enabled", "name", "type"],
+      "requiredFields": [
+        "enabled",
+        "name",
+        "type"
+      ],
       "detect": {
-        "commands": ["goose"],
-        "paths": ["~/.config/goose", "~/.local/share/goose"]
+        "commands": [
+          "goose"
+        ],
+        "paths": [
+          "~/.config/goose",
+          "~/.local/share/goose"
+        ]
       },
       "write": {
         "method": "file",
@@ -229,7 +313,11 @@
       "verify": {
         "tier": "B+",
         "method": "cli-lines",
-        "argv": ["goose", "info", "-v"],
+        "argv": [
+          "goose",
+          "info",
+          "-v"
+        ],
         "connected": "^\\s+{{name}}:",
         "failed": null,
         "proves": "Goose parsed config.yaml and our extension is in it",
@@ -247,14 +335,17 @@
         "write": "2026-08-17",
         "verify": "2026-08-17",
         "traps": "2026-08-17"
-      }
+      },
+      "upstreamId": "goose"
     },
     {
       "id": "vscode",
       "name": "VS Code",
       "tier": 1,
       "evidence": "BINARY",
-      "transports": ["stdio"],
+      "transports": [
+        "stdio"
+      ],
       "format": "jsonc",
       "rootKey": "servers",
       "configPaths": {
@@ -266,16 +357,29 @@
       "entry": {
         "type": "stdio",
         "command": "{{command}}",
-        "args": ["{{serverPath}}"]
+        "args": [
+          "{{serverPath}}"
+        ]
       },
-      "requiredFields": ["type"],
+      "requiredFields": [
+        "type"
+      ],
       "detect": {
-        "commands": ["code"],
-        "paths": ["/usr/share/code", "/Applications/Visual Studio Code.app"]
+        "commands": [
+          "code"
+        ],
+        "paths": [
+          "/usr/share/code",
+          "/Applications/Visual Studio Code.app"
+        ]
       },
       "write": {
         "method": "cli",
-        "argv": ["code", "--add-mcp", "{{entryJsonWithName}}"],
+        "argv": [
+          "code",
+          "--add-mcp",
+          "{{entryJsonWithName}}"
+        ],
         "why": "`--add-mcp` is present in the shipped 1.133.0 build and is the app's own supported write path. It also handles the profile question: a user working in a non-default profile has their mcp.json under profiles/<profileId>/, which a fixed path would miss."
       },
       "remove": {
@@ -333,14 +437,17 @@
         "verify": "2026-08-17",
         "blockers": "2026-08-17",
         "traps": "2026-08-17"
-      }
+      },
+      "upstreamId": "vscode"
     },
     {
       "id": "cursor",
       "name": "Cursor",
       "tier": 1,
       "evidence": "BINARY",
-      "transports": ["stdio"],
+      "transports": [
+        "stdio"
+      ],
       "format": "json",
       "rootKey": "mcpServers",
       "configPaths": {
@@ -352,16 +459,30 @@
       "entry": {
         "type": "stdio",
         "command": "{{command}}",
-        "args": ["{{serverPath}}"]
+        "args": [
+          "{{serverPath}}"
+        ]
       },
-      "requiredFields": ["type"],
+      "requiredFields": [
+        "type"
+      ],
       "detect": {
-        "commands": ["cursor"],
-        "paths": ["/usr/share/cursor", "~/.cursor", "/Applications/Cursor.app"]
+        "commands": [
+          "cursor"
+        ],
+        "paths": [
+          "/usr/share/cursor",
+          "~/.cursor",
+          "/Applications/Cursor.app"
+        ]
       },
       "write": {
         "method": "cli",
-        "argv": ["cursor", "--add-mcp", "{{entryJsonWithName}}"],
+        "argv": [
+          "cursor",
+          "--add-mcp",
+          "{{entryJsonWithName}}"
+        ],
         "why": "`--add-mcp` is present in the shipped 3.15.19 build. Cursor owns this file — it has ensureUserConfigDirExists, removeServerFromConfigFile and a watcher on both config paths — so its own writer is the one that will not be undone."
       },
       "remove": {
@@ -388,14 +509,17 @@
         "write": "2026-08-17",
         "verify": "2026-08-17",
         "traps": "2026-08-17"
-      }
+      },
+      "upstreamId": "cursor"
     },
     {
       "id": "devin-desktop",
       "name": "Devin Desktop (formerly Windsurf)",
       "tier": 1,
       "evidence": "MACHINE",
-      "transports": ["stdio"],
+      "transports": [
+        "stdio"
+      ],
       "format": "json",
       "rootKey": "servers",
       "configPaths": {
@@ -414,17 +538,35 @@
       "entry": {
         "type": "stdio",
         "command": "{{command}}",
-        "args": ["{{serverPath}}"]
+        "args": [
+          "{{serverPath}}"
+        ]
       },
-      "requiredFields": ["type"],
+      "requiredFields": [
+        "type"
+      ],
       "detect": {
-        "commands": ["devin-desktop", "windsurf"],
-        "commandFallbacks": ["~/.local/Devin/bin/devin-desktop", "~/.local/Devin/devin-desktop"],
-        "paths": ["~/.local/Devin", "~/.config/Devin", "~/.codeium/windsurf"]
+        "commands": [
+          "devin-desktop",
+          "windsurf"
+        ],
+        "commandFallbacks": [
+          "~/.local/Devin/bin/devin-desktop",
+          "~/.local/Devin/devin-desktop"
+        ],
+        "paths": [
+          "~/.local/Devin",
+          "~/.config/Devin",
+          "~/.codeium/windsurf"
+        ]
       },
       "write": {
         "method": "cli",
-        "argv": ["devin-desktop", "--add-mcp", "{{entryJsonWithName}}"],
+        "argv": [
+          "devin-desktop",
+          "--add-mcp",
+          "{{entryJsonWithName}}"
+        ],
         "why": "`--add-mcp` exists, exits 0 and prints `Added MCP servers: <name>`. It writes the VS Code-shaped `servers` file at ~/.config/Devin/User/mcp.json, which is the live surface — not the ~/.codeium path the documentation describes."
       },
       "remove": {
@@ -463,14 +605,17 @@
         "verify": "2026-08-17",
         "blockers": "2026-08-17",
         "traps": "2026-08-17"
-      }
+      },
+      "upstreamId": "windsurf"
     },
     {
       "id": "claude-desktop",
       "name": "Claude Desktop",
       "tier": 2,
       "evidence": "MACHINE",
-      "transports": ["stdio"],
+      "transports": [
+        "stdio"
+      ],
       "format": "json",
       "rootKey": "mcpServers",
       "configPaths": {
@@ -481,7 +626,9 @@
       "extraConfigPaths": [],
       "entry": {
         "command": "{{command}}",
-        "args": ["{{serverPath}}"]
+        "args": [
+          "{{serverPath}}"
+        ]
       },
       "requiredFields": [],
       "detect": {
@@ -531,14 +678,17 @@
         "verify": "2026-08-17",
         "blockers": "2026-08-17",
         "traps": "2026-08-17"
-      }
+      },
+      "upstreamId": "claude-desktop"
     },
     {
       "id": "zed",
       "name": "Zed",
       "tier": 2,
       "evidence": "MACHINE",
-      "transports": ["stdio"],
+      "transports": [
+        "stdio"
+      ],
       "format": "jsonc",
       "rootKey": "context_servers",
       "configPaths": {
@@ -549,12 +699,21 @@
       "extraConfigPaths": [],
       "entry": {
         "command": "{{command}}",
-        "args": ["{{serverPath}}"]
+        "args": [
+          "{{serverPath}}"
+        ]
       },
       "requiredFields": [],
       "detect": {
-        "commands": ["zed"],
-        "paths": ["~/.local/zed.app", "~/.local/bin/zed", "~/.config/zed", "~/.local/share/zed"]
+        "commands": [
+          "zed"
+        ],
+        "paths": [
+          "~/.local/zed.app",
+          "~/.local/bin/zed",
+          "~/.config/zed",
+          "~/.local/share/zed"
+        ]
       },
       "write": {
         "method": "file",
@@ -587,14 +746,17 @@
         "write": "2026-08-17",
         "verify": "2026-08-17",
         "traps": "2026-08-17"
-      }
+      },
+      "upstreamId": "zed"
     },
     {
       "id": "kimi-code",
       "name": "Kimi Code",
       "tier": 2,
       "evidence": "MACHINE",
-      "transports": ["stdio"],
+      "transports": [
+        "stdio"
+      ],
       "format": "json",
       "rootKey": "mcpServers",
       "configPaths": {
@@ -605,12 +767,18 @@
       "extraConfigPaths": [],
       "entry": {
         "command": "{{command}}",
-        "args": ["{{serverPath}}"]
+        "args": [
+          "{{serverPath}}"
+        ]
       },
       "requiredFields": [],
       "detect": {
-        "commands": ["kimi"],
-        "paths": ["~/.kimi-code"]
+        "commands": [
+          "kimi"
+        ],
+        "paths": [
+          "~/.kimi-code"
+        ]
       },
       "write": {
         "method": "file",
@@ -641,14 +809,17 @@
         "write": "2026-08-17",
         "verify": "2026-08-17",
         "traps": "2026-08-17"
-      }
+      },
+      "upstreamId": null
     },
     {
       "id": "cline",
       "name": "Cline",
       "tier": 3,
       "evidence": "SECONDARY",
-      "transports": ["stdio"],
+      "transports": [
+        "stdio"
+      ],
       "format": "json",
       "rootKey": "mcpServers",
       "configPaths": {
@@ -659,7 +830,9 @@
       "extraConfigPaths": [],
       "entry": {
         "command": "{{command}}",
-        "args": ["{{serverPath}}"]
+        "args": [
+          "{{serverPath}}"
+        ]
       },
       "requiredFields": [],
       "detect": {
@@ -697,14 +870,17 @@
         "configPaths": "2026-08-17",
         "verify": "2026-08-17",
         "traps": "2026-08-17"
-      }
+      },
+      "upstreamId": "cline"
     },
     {
       "id": "continue",
       "name": "Continue",
       "tier": 3,
       "evidence": "DOCS",
-      "transports": ["stdio"],
+      "transports": [
+        "stdio"
+      ],
       "format": "yaml-list",
       "rootKey": "mcpServers",
       "configPaths": {
@@ -717,12 +893,19 @@
         "name": "{{name}}",
         "type": "stdio",
         "command": "{{command}}",
-        "args": ["{{serverPath}}"]
+        "args": [
+          "{{serverPath}}"
+        ]
       },
-      "requiredFields": ["name", "type"],
+      "requiredFields": [
+        "name",
+        "type"
+      ],
       "detect": {
         "commands": [],
-        "paths": ["~/.continue"]
+        "paths": [
+          "~/.continue"
+        ]
       },
       "write": {
         "method": "file",
@@ -753,14 +936,17 @@
         "configPaths": "2026-08-17",
         "verify": "2026-08-17",
         "traps": "2026-08-17"
-      }
+      },
+      "upstreamId": "continue"
     },
     {
       "id": "warp",
       "name": "Warp",
       "tier": 3,
       "evidence": "DOCS",
-      "transports": ["stdio"],
+      "transports": [
+        "stdio"
+      ],
       "format": "json",
       "rootKey": "mcpServers",
       "configPaths": {
@@ -771,12 +957,16 @@
       "extraConfigPaths": [],
       "entry": {
         "command": "{{command}}",
-        "args": ["{{serverPath}}"]
+        "args": [
+          "{{serverPath}}"
+        ]
       },
       "requiredFields": [],
       "detect": {
         "commands": [],
-        "paths": ["~/.warp"]
+        "paths": [
+          "~/.warp"
+        ]
       },
       "write": {
         "method": "file",
@@ -805,14 +995,17 @@
         "configPaths": "2026-08-17",
         "verify": "2026-08-17",
         "traps": "2026-08-17"
-      }
+      },
+      "upstreamId": "warp"
     },
     {
       "id": "junie",
       "name": "JetBrains Junie",
       "tier": 3,
       "evidence": "DOCS",
-      "transports": ["stdio"],
+      "transports": [
+        "stdio"
+      ],
       "format": "json",
       "rootKey": "mcpServers",
       "configPaths": {
@@ -823,12 +1016,16 @@
       "extraConfigPaths": [],
       "entry": {
         "command": "{{command}}",
-        "args": ["{{serverPath}}"]
+        "args": [
+          "{{serverPath}}"
+        ]
       },
       "requiredFields": [],
       "detect": {
         "commands": [],
-        "paths": ["~/.junie"]
+        "paths": [
+          "~/.junie"
+        ]
       },
       "write": {
         "method": "file",
@@ -858,7 +1055,8 @@
         "configPaths": "2026-08-17",
         "verify": "2026-08-17",
         "traps": "2026-08-17"
-      }
+      },
+      "upstreamId": "jetbrains-ai"
     }
   ]
 }
