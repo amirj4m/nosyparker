@@ -10,7 +10,7 @@
 
 import { defaultStorePath, LOCAL_OWNER, systemClock } from './config.js';
 import { forget, restore, screenQuery, submit } from './gate.js';
-import { defaultIo, install, printConfig, report, uninstall } from './setup.js';
+import { defaultIo, install, printConfig, report, reportRemoval, uninstall } from './setup.js';
 import { listDecisions, listMemories, openStore, searchMemories } from './store.js';
 
 main(process.argv.slice(2));
@@ -92,7 +92,8 @@ function runSetup(command, args) {
 
   if (args.length > 0) fail(`"${command}" does not take ${args[0]}.`);
 
-  report(io, command === 'setup' ? install(io) : uninstall(io));
+  if (command === 'setup') report(io, install(io));
+  else reportRemoval(io, uninstall(io));
 }
 
 /**

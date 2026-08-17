@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { defaultIo, install, printConfig, report, uninstall } from '../src/setup.js';
+import { defaultIo, install, printConfig, report, reportRemoval, uninstall } from '../src/setup.js';
 
 /**
  * @param {import('node:test').TestContext} t
@@ -246,6 +246,82 @@ test('uninstall run twice is not an error the second time', (t) => {
   const again = uninstall(io);
 
   assert.equal(again.find((outcome) => outcome.client.id === 'gemini-cli')?.written?.outcome, 'absent');
+});
+
+test('uninstall removes from a client whose entry its own command put there', (t) => {
+  // Removal is always by editing the file, never by the client's own remove
+  // subcommand, so an uninstall works on a machine where that command has since
+  // been upgraded, moved, or deleted. Here it is simply gone.
+  const { io, home } = machine(t, { files: ['.cursor/'] });
+  const configPath = path.join(home, '.cursor', 'mcp.json');
+
+  fs.writeFileSync(configPath, JSON.stringify({
+    mcpServers: {
+      theirs: { command: 'x' },
+      nosyparker: { type: 'stdio', command: '/usr/bin/node', args: ['/srv/mcp-server.js'] },
+    },
+  }, null, 2));
+
+  const outcomes = uninstall(io);
+
+  assert.equal(outcomes.find((outcome) => outcome.client.id === 'cursor')?.written?.outcome, 'removed');
+  assert.deepEqual(JSON.parse(fs.readFileSync(configPath, 'utf8')), {
+    mcpServers: { theirs: { command: 'x' } },
+  });
+});
+
+test('uninstall takes nothing out of a client that has somebody else\'s servers only', (t) => {
+  const { io, home } = machine(t, { files: ['.cursor/', '.gemini/'] });
+  const cursor = path.join(home, '.cursor', 'mcp.json');
+  const before = '{\n  "mcpServers": {\n    "theirs": {"command": "x"},\n    "and-theirs": {"command": "y"}\n  }\n}\n';
+  fs.writeFileSync(cursor, before);
+
+  uninstall(io);
+
+  assert.equal(fs.readFileSync(cursor, 'utf8'), before);
+});
+
+test('the uninstall report says what went and what is still holding it open', (t) => {
+  const { io, printed } = machine(t, { files: ['.gemini/'] });
+
+  install(io);
+  reportRemoval(io, uninstall(io));
+
+  assert.match(printed(), /Gemini CLI — removed/u);
+  assert.match(printed(), /Nothing else in any of those files was touched, and no memory was deleted/u);
+  assert.match(printed(), /still running the server until they are closed and reopened/u);
+
+  // The install report's restart line means the opposite thing and must not
+  // appear here.
+  assert.doesNotMatch(printed().slice(printed().indexOf('removed')), /Before any of this takes effect/u);
+});
+
+test('the uninstall report on a machine with nothing of ours says exactly that', (t) => {
+  const { io, printed } = machine(t, { files: ['.gemini/'] });
+
+  reportRemoval(io, uninstall(io));
+
+  assert.match(printed(), /Nothing to remove/u);
+});
+
+test('the backup taken at install is left alone by uninstall', (t) => {
+  const { io } = machine(t, { files: ['.gemini/'] });
+  const settings = path.join(io.machine.home, '.gemini', 'settings.json');
+  fs.writeFileSync(settings, '{"theme": "dark"}\n');
+
+  install(io);
+  const backups = fs.readdirSync(io.backupDir).sort();
+
+  uninstall(io);
+
+  // The copy is of the file from before this project existed. Removing it as
+  // part of an uninstall would throw away the only thing that could not be
+  // reconstructed.
+  assert.deepEqual(fs.readdirSync(io.backupDir).sort(), backups);
+  assert.equal(
+    fs.readFileSync(path.join(io.backupDir, 'gemini-cli.settings.json'), 'utf8'),
+    '{"theme": "dark"}\n',
+  );
 });
 
 test('--print-config with no client prints the shape that works nearly everywhere', (t) => {

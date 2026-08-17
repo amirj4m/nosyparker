@@ -386,6 +386,53 @@ function blockFor({ client, found, written, verified }) {
 }
 
 /**
+ * The report for the other direction.
+ *
+ * It is a different report and not a flag on the first one, because almost
+ * every sentence in it is different. There is no verification to do — the thing
+ * being checked is an absence, and the check is that the entry is gone and
+ * everything else is not. There is no backup to mention: the copy was taken
+ * before the first touch and is deliberately left where it is, because it is a
+ * copy of the file from before this project existed and is worth more than any
+ * state we could restore. And the restart line means the opposite thing: the
+ * applications are still holding a server we have just removed from under them.
+ *
+ * The entry is removed by editing the file even for clients whose entry went in
+ * through their own command, so this works on a machine where that command has
+ * since been upgraded, moved or deleted.
+ *
+ * @param {Io} io
+ * @param {Outcome[]} outcomes
+ */
+export function reportRemoval(io, outcomes) {
+  const removed = outcomes.filter((outcome) => outcome.written?.outcome === REMOVED);
+  const failed = outcomes.filter((outcome) => outcome.written?.outcome === FAILED);
+
+  if (removed.length === 0 && failed.length === 0) {
+    io.out('Nothing to remove: no client on this machine has an entry for nosyparker.\n');
+    return;
+  }
+
+  for (const outcome of removed) {
+    io.out(`${outcome.client.name} — removed\n    ${outcome.written?.path}\n\n`);
+  }
+
+  for (const outcome of failed) {
+    io.out(`${outcome.client.name} — failed\n    ${outcome.written?.error}\n`
+      + `    The entry is still in ${outcome.written?.path} and can be deleted by hand.\n\n`);
+  }
+
+  io.out('Nothing else in any of those files was touched, and no memory was deleted:\n');
+  io.out('your memories are in ~/.nosyparker/memory.sqlite and this command does not open it.\n\n');
+
+  if (removed.length > 0) {
+    io.out('These are still running the server until they are closed and reopened:\n\n');
+    for (const outcome of removed) io.out(`  ${outcome.client.name}\n`);
+    io.out('\n');
+  }
+}
+
+/**
  * The one cross-client hazard worth a sentence.
  *
  * VS Code 1.133 ships discovery adapters that read Claude Desktop's and
