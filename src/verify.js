@@ -293,7 +293,17 @@ export function findBlockers(client, options) {
   for (const blocker of client.blockers ?? []) {
     const file = expandPath(blocker.file, options.machine);
     const settings = parseOrNull(stripComments(readOrEmpty(file)));
-    if (settings === null) continue;
+
+    // A missing file is not the absence of a blocker. Gemini's folder trust is
+    // recorded in a file that does not exist until something is trusted, so no
+    // file means nothing is trusted, which is the strongest form of the very
+    // condition being looked for. Reading that as "nothing to report" is how a
+    // live run reported Gemini as failed and said nothing about why — the
+    // client itself was printing the reason at the time.
+    if (settings === null) {
+      if (blocker.check === 'json-key-absent') found.push(blocker.says);
+      continue;
+    }
 
     if (blocked(blocker, settings, options)) found.push(blocker.says);
   }

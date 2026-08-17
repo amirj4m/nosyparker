@@ -114,11 +114,19 @@ export function writeToClient(client, options) {
 /**
  * Take our entry back out.
  *
- * Always by editing the file, even for the clients whose entry went in through
- * their own CLI. A `remove` subcommand needs the client's executable to still
- * be there and to still take the same arguments, and an uninstall has to work
- * on a machine where the client has since been deleted or upgraded. The file
- * is the thing that outlives both.
+ * By the client's own remove command where the row names one and it is still on
+ * the machine, and by editing the file otherwise.
+ *
+ * That order is not a preference, it is a requirement for one client. Claude
+ * Code's `~/.claude.json` is the CLI's live state file — it holds the OAuth
+ * account, the machine id and every project's history, and the application
+ * rewrites it constantly. Editing it by hand is exactly what its own
+ * documentation says not to do, and an uninstall that did so would be racing a
+ * running application over a file full of things that are not ours.
+ *
+ * The file remains the fallback, and it is the reason the fallback exists: an
+ * uninstall has to work on a machine where the client has since been deleted,
+ * upgraded, or moved off PATH, and the file outlives the tool that wrote it.
  *
  * @param {any} client
  * @param {WriteOptions} options
@@ -129,6 +137,28 @@ export function removeFromClient(client, options) {
 
   try {
     const before = readOrEmpty(options.configPath);
+
+    if (client.remove.method === 'cli' && options.clientCommand !== null) {
+      if (!hasEntry(before, request)) return result('cli', options.configPath, null, ABSENT, null);
+
+      const argv = fillArgv(client.remove.argv, client, options);
+      const run = options.run ?? runCommand;
+      const ran = run([options.clientCommand, ...argv.slice(1)]);
+
+      if (ran.status !== 0) {
+        return result('cli', options.configPath, null, FAILED,
+          `${path.basename(argv[0])} exited ${ran.status}: ${firstLine(ran.stderr || ran.stdout)}`);
+      }
+
+      // The same rule as writing: its success message is not evidence.
+      if (hasEntry(readOrEmpty(options.configPath), request)) {
+        return result('cli', options.configPath, null, FAILED,
+          `${path.basename(argv[0])} reported success and the entry is still in ${options.configPath}.`);
+      }
+
+      return result('cli', options.configPath, null, REMOVED, null);
+    }
+
     if (!hasEntry(before, request)) return result('file', options.configPath, null, ABSENT, null);
 
     const after = removeEntry(before, request);
@@ -169,8 +199,21 @@ function writeThroughCli(client, options, request) {
     now: options.now,
   });
 
-  const argv = fillArgv(client.write.argv, client, options);
   const run = options.run ?? runCommand;
+
+  // Take our own entry out before putting it back, where the client offers a
+  // way to. `claude mcp add` refuses outright — `MCP server nosyparker already
+  // exists in user config`, exit 1 — so without this, running setup a second
+  // time reports a failure over a client that is working perfectly. And a
+  // second run is not an unusual thing to do: the entry names an absolute path
+  // to the Node that is running, so upgrading Node is a reason to run it again,
+  // and re-adding is the only way that update ever lands.
+  if (hasEntry(readOrEmpty(options.configPath), request)
+    && client.remove.method === 'cli' && client.remove.argv !== null) {
+    run([options.clientCommand, ...fillArgv(client.remove.argv, client, options).slice(1)]);
+  }
+
+  const argv = fillArgv(client.write.argv, client, options);
   const ran = run([options.clientCommand, ...argv.slice(1)]);
 
   if (ran.status !== 0) {

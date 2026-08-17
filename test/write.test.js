@@ -172,11 +172,11 @@ test('a write that lands nowhere is a failure, however cheerful the command was'
   const space = workspace(t);
   const configPath = space.config('mcp.json');
 
-  const written = writeToClient(clientById('cursor'), options({
+  const written = writeToClient(clientById('vscode'), options({
     configPath,
     backupDir: space.backupDir,
   }, {
-    clientCommand: '/usr/bin/cursor',
+    clientCommand: '/usr/bin/code',
     run: () => ({ status: 0, stdout: 'Added MCP server: nosyparker\n', stderr: '' }),
   }));
 
@@ -187,11 +187,11 @@ test('a write that lands nowhere is a failure, however cheerful the command was'
 test('a client CLI that fails is reported with what it said, on one line', (t) => {
   const space = workspace(t);
 
-  const written = writeToClient(clientById('cursor'), options({
+  const written = writeToClient(clientById('vscode'), options({
     configPath: space.config('mcp.json'),
     backupDir: space.backupDir,
   }, {
-    clientCommand: '/usr/bin/cursor',
+    clientCommand: '/usr/bin/code',
     run: () => ({ status: 3, stdout: '', stderr: 'unknown option --add-mcp\nsecond line\n' }),
   }));
 
@@ -204,7 +204,7 @@ test('a client whose own command cannot be found says that, and writes nothing',
   const space = workspace(t);
   const configPath = space.config('mcp.json');
 
-  const written = writeToClient(clientById('cursor'), options({ configPath, backupDir: space.backupDir }));
+  const written = writeToClient(clientById('vscode'), options({ configPath, backupDir: space.backupDir }));
 
   assert.equal(written.outcome, FAILED);
   assert.match(/** @type {string} */ (written.error), /its own command could not be found/u);
@@ -215,23 +215,23 @@ test('a CLI write is believed only after the file is read back', (t) => {
   const space = workspace(t);
   const configPath = space.config('mcp.json');
 
-  const written = writeToClient(clientById('cursor'), options({
+  const written = writeToClient(clientById('vscode'), options({
     configPath,
     backupDir: space.backupDir,
   }, {
-    clientCommand: '/usr/bin/cursor',
+    clientCommand: '/usr/bin/code',
     run: (/** @type {string[]} */ argv) => {
       // Stand in for the client's own writer, including the shape of the blob
       // it is handed, so a change to that blob shows up here.
       const blob = JSON.parse(argv[2]);
       const { name, ...entry } = blob;
-      fs.writeFileSync(configPath, JSON.stringify({ mcpServers: { [name]: entry } }, null, 2));
+      fs.writeFileSync(configPath, JSON.stringify({ servers: { [name]: entry } }, null, 2));
       return { status: 0, stdout: '', stderr: '' };
     },
   }));
 
   assert.equal(written.outcome, WRITTEN);
-  assert.deepEqual(JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.nosyparker, {
+  assert.deepEqual(JSON.parse(fs.readFileSync(configPath, 'utf8')).servers.nosyparker, {
     type: 'stdio',
     command: '/usr/bin/node',
     args: ['/srv/mcp-server.js'],
@@ -286,6 +286,110 @@ test('removing from a config that has since changed still works', (t) => {
   const left = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   assert.deepEqual(left.mcpServers, { somethingElse: { command: 'other' } });
   assert.equal(left.theme, 'light');
+});
+
+test('running setup twice over a client whose add refuses a duplicate is not a failure', (t) => {
+  // `claude mcp add` exits 1 with `MCP server nosyparker already exists in user
+  // config`. Without taking ours out first, a second run reports a failure over
+  // a client that is working perfectly — and a second run is ordinary, because
+  // the entry names an absolute path to a Node that upgrades.
+  const space = workspace(t);
+  const configPath = space.config('claude.json');
+  fs.writeFileSync(configPath, '{"mcpServers":{"nosyparker":{"command":"/old/node"}}}');
+
+  /** @type {string[][]} */
+  const ran = [];
+
+  const written = writeToClient(clientById('claude-code'), options({
+    configPath,
+    backupDir: space.backupDir,
+  }, {
+    clientCommand: '/usr/bin/claude',
+    run: (/** @type {string[]} */ argv) => {
+      ran.push(argv.slice(1));
+      if (argv[2] === 'remove') {
+        fs.writeFileSync(configPath, '{"mcpServers":{}}');
+        return { status: 0, stdout: '', stderr: '' };
+      }
+      if (fs.readFileSync(configPath, 'utf8').includes('nosyparker')) {
+        return { status: 1, stdout: '', stderr: 'MCP server nosyparker already exists in user config' };
+      }
+      fs.writeFileSync(configPath, '{"mcpServers":{"nosyparker":{"command":"/usr/bin/node"}}}');
+      return { status: 0, stdout: '', stderr: '' };
+    },
+  }));
+
+  assert.equal(written.outcome, WRITTEN);
+  assert.deepEqual(ran.map((argv) => argv[1]), ['remove', 'add'], 'ours came out before it went back');
+  assert.equal(JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.nosyparker.command, '/usr/bin/node',
+    'and the arguments are the new ones, not the stale ones');
+});
+
+test('a client with its own remove command has it used, not its file edited', (t) => {
+  // Claude Code's ~/.claude.json is the CLI's live state file: the OAuth
+  // account, the machine id, every project's history, rewritten constantly by
+  // a running application. Its own documentation says not to hand-edit it, and
+  // an uninstall that did would be racing that application over a file almost
+  // none of which is ours.
+  const space = workspace(t);
+  const configPath = space.config('claude.json');
+  fs.writeFileSync(configPath, '{"oauthAccount":{"kept":true},"mcpServers":{"nosyparker":{"command":"node"}}}');
+
+  /** @type {string[][]} */
+  const ran = [];
+
+  const removed = removeFromClient(clientById('claude-code'), options({
+    configPath,
+    backupDir: space.backupDir,
+  }, {
+    clientCommand: '/usr/bin/claude',
+    run: (/** @type {string[]} */ argv) => {
+      ran.push(argv);
+      fs.writeFileSync(configPath, '{"oauthAccount":{"kept":true},"mcpServers":{}}');
+      return { status: 0, stdout: 'Removed MCP server nosyparker\n', stderr: '' };
+    },
+  }));
+
+  assert.equal(removed.outcome, REMOVED);
+  assert.equal(removed.method, 'cli');
+  assert.deepEqual(ran, [['/usr/bin/claude', 'mcp', 'remove', '--scope', 'user', 'nosyparker']]);
+  assert.equal(JSON.parse(fs.readFileSync(configPath, 'utf8')).oauthAccount.kept, true);
+});
+
+test('a remove command that reports success and changes nothing is a failure too', (t) => {
+  const space = workspace(t);
+  const configPath = space.config('claude.json');
+  const before = '{"mcpServers":{"nosyparker":{"command":"node"}}}';
+  fs.writeFileSync(configPath, before);
+
+  const removed = removeFromClient(clientById('claude-code'), options({
+    configPath,
+    backupDir: space.backupDir,
+  }, {
+    clientCommand: '/usr/bin/claude',
+    run: () => ({ status: 0, stdout: 'Removed MCP server nosyparker\n', stderr: '' }),
+  }));
+
+  assert.equal(removed.outcome, FAILED);
+  assert.match(/** @type {string} */ (removed.error), /reported success and the entry is still in/u);
+  assert.equal(fs.readFileSync(configPath, 'utf8'), before);
+});
+
+test('a client whose remove command has gone falls back to editing the file', (t) => {
+  // The reason the fallback exists: an uninstall has to work on a machine where
+  // the client has been deleted, upgraded, or moved off PATH since.
+  const space = workspace(t);
+  const configPath = space.config('claude.json');
+  fs.writeFileSync(configPath, '{\n  "mcpServers": {\n    "nosyparker": {"command": "node"},\n    "theirs": {"command": "x"}\n  }\n}\n');
+
+  const removed = removeFromClient(clientById('claude-code'), options({
+    configPath,
+    backupDir: space.backupDir,
+  }, { clientCommand: null }));
+
+  assert.equal(removed.outcome, REMOVED);
+  assert.equal(removed.method, 'file');
+  assert.deepEqual(JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers, { theirs: { command: 'x' } });
 });
 
 test('removing when there is nothing of ours says so rather than failing', (t) => {

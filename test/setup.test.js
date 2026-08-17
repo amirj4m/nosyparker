@@ -116,21 +116,27 @@ test('a client that is here is written to, checked, and reported in its own word
 
 test('the report never gives two clients the same word for different knowledge', (t) => {
   const { io, printed } = machine(t, {
-    files: ['.config/Claude/claude_desktop_config.json', '.local/bin/zed', '.cursor/'],
+    files: ['.config/Claude/claude_desktop_config.json', '.local/bin/zed', '.cursor/',
+      '.config/Devin/'],
     pathDirs: [],
   });
 
   report(io, install(io));
 
-  // Claude Desktop and Zed were both written by us and neither can be asked.
+  // Three clients written by us, none of which can be asked — and each says so
+  // with its own reason rather than sharing one.
   assert.match(printed(), /Claude Desktop — written-unverified/u);
   assert.match(printed(), /Zed — written-unverified/u);
+  assert.match(printed(), /Cursor — written-unverified/u);
   assert.match(printed(), /nothing on this machine can confirm Zed reads it/u);
+  assert.match(printed(), /the debug log contains no mention of context servers/u);
+  assert.match(printed(), /Its own --add-mcp writes nothing/u);
+  assert.match(printed(), /a per-server log file that appears after the app next starts/u);
 
-  // Cursor is here with no config file, and is written through its own
-  // command — which is not on this machine, so it fails rather than being
-  // written behind the client's back.
-  assert.match(printed(), /Cursor — failed/u);
+  // Devin is here with no config file, and is written through its own command
+  // — which is not on this machine, so it fails rather than having its file
+  // written behind its back.
+  assert.match(printed(), /Devin Desktop \(formerly Windsurf\) — failed/u);
   assert.match(printed(), /its own command could not be found/u);
 });
 
@@ -324,6 +330,73 @@ test('the backup taken at install is left alone by uninstall', (t) => {
     fs.readFileSync(path.join(io.backupDir, 'gemini-cli.settings.json'), 'utf8'),
     '{"theme": "dark"}\n',
   );
+});
+
+test('installing one client cannot make another look installed', (t) => {
+  // This happened. `code --add-mcp` creates ~/.vscode/extensions on its first
+  // run, the Cline row was using that directory as evidence, and a live run
+  // duly wrote a configuration file for a client that has never been on this
+  // machine. Two things were wrong and both are fixed: the evidence, and the
+  // interleaving that turned a weak detector into a wrong answer.
+  const { io, home } = machine(t, {
+    files: ['.local/bin/code'],
+    pathDirs: [],
+  });
+
+  const wired = {
+    ...io,
+    machine: { ...io.machine, pathDirs: [path.join(home, '.local', 'bin')] },
+    run: () => {
+      // What the real command does, including the directory it makes for
+      // itself on the way.
+      fs.mkdirSync(path.join(home, '.vscode', 'extensions'), { recursive: true });
+      fs.mkdirSync(path.join(home, '.config', 'Code', 'User'), { recursive: true });
+      fs.writeFileSync(
+        path.join(home, '.config', 'Code', 'User', 'mcp.json'),
+        '{"servers":{"nosyparker":{"type":"stdio","command":"/usr/bin/node","args":["/srv/mcp-server.js"]}}}',
+      );
+      return { status: 0, stdout: '', stderr: '' };
+    },
+  };
+
+  const outcomes = install(wired);
+
+  assert.equal(outcomes.find((outcome) => outcome.client.id === 'vscode')?.written?.outcome, 'written');
+  assert.equal(outcomes.find((outcome) => outcome.client.id === 'cline')?.written, null,
+    'Cline is not installed and nothing was written for it');
+  assert.equal(
+    fs.existsSync(path.join(home, '.config', 'Code', 'User', 'globalStorage')),
+    false,
+  );
+});
+
+test('Cline is found by its own storage directory and by nothing else', (t) => {
+  const { io } = machine(t, {
+    files: ['.config/Code/User/globalStorage/saoudrizwan.claude-dev/'],
+  });
+
+  const outcomes = install(io);
+
+  assert.equal(outcomes.find((outcome) => outcome.client.id === 'cline')?.written?.outcome, 'written');
+});
+
+test('a folder-trust blocker is reported when the file recording trust does not exist', (t) => {
+  // The live run's sharpest miss. Gemini reported the server as Disabled
+  // because the folder is untrusted, trust is recorded in a file that does not
+  // exist until something is trusted, and the blocker check read "no file" as
+  // "nothing to report" — so the report said `failed` and said nothing about
+  // why, while the client itself was printing the reason.
+  const { io, printed } = machine(t, { files: ['.gemini/'] });
+
+  const wired = {
+    ...io,
+    machine: { ...io.machine, pathDirs: [] },
+    run: () => ({ status: 0, stdout: '○ nosyparker: node (stdio) - Disabled\n', stderr: '' }),
+  };
+
+  report(wired, install(wired));
+
+  assert.match(printed(), /untrusted folder/u);
 });
 
 test('--print-config with no client prints the shape that works nearly everywhere', (t) => {

@@ -159,7 +159,7 @@ test('the verification tiers are the ones the research earned, not one green tic
     'codex-cli': 'B+',
     goose: 'B+',
     vscode: 'B',
-    cursor: 'B',
+    cursor: 'C',
     'devin-desktop': 'B',
     'claude-desktop': 'C',
     zed: 'C',

@@ -103,9 +103,18 @@ export function install(io) {
   /** @type {Outcome[]} */
   const outcomes = [];
 
-  for (const client of loadClients().clients) {
-    const found = detect(client, io.machine);
+  // Every client is looked for before any client is written to, and that is not
+  // a tidiness. Installing into one client creates directories, and on a live
+  // run `code --add-mcp` created `~/.vscode/extensions` — which the Cline row
+  // was then using as evidence that Cline was installed. We wrote a
+  // configuration file for a client that has never been on the machine. The
+  // row's evidence has been narrowed since, but interleaving the two passes is
+  // what made a bad detector into a wrong answer, and separating them means no
+  // client can ever be detected on the strength of what installing another one
+  // left behind.
+  const detected = loadClients().clients.map((client) => ({ client, found: detect(client, io.machine) }));
 
+  for (const { client, found } of detected) {
     if (found.state === NOT_INSTALLED || found.state === INSTALLED_PATH_UNKNOWN) {
       outcomes.push({ client, found, written: null, verified: null });
       continue;

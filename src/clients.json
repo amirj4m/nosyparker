@@ -477,29 +477,26 @@
         ]
       },
       "write": {
-        "method": "cli",
-        "argv": [
-          "cursor",
-          "--add-mcp",
-          "{{entryJsonWithName}}"
-        ],
-        "why": "`--add-mcp` is present in the shipped 3.15.19 build. Cursor owns this file — it has ensureUserConfigDirExists, removeServerFromConfigFile and a watcher on both config paths — so its own writer is the one that will not be undone."
+        "method": "file",
+        "argv": null,
+        "why": "`cursor --add-mcp` is present in the shipped 3.15.19 build and, run against a real installation on 2026-08-17, exited 0 and created no file anywhere on disk — the same class as `gemini mcp add`. The research recorded that the flag exists, read out of --help, and never ran it. It has now been run. We write the file."
       },
       "remove": {
         "method": "file",
         "argv": null
       },
       "verify": {
-        "tier": "B",
+        "tier": "C",
         "method": "file-reread",
         "argv": null,
         "connected": null,
         "failed": null,
-        "proves": "the entry is in mcp.json after the app's own CLI wrote it",
-        "cannotProve": "that Cursor loads it. No list command exists, and where Cursor persists its per-server on/off toggle is unknown."
+        "proves": "our entry is in mcp.json and the rest of the file is unchanged",
+        "cannotProve": "that Cursor loads it. Its own --add-mcp writes nothing, there is no list command, and where Cursor persists its per-server on/off toggle is unknown."
       },
       "blockers": [],
       "traps": [
+        "`cursor --add-mcp` exits 0 and writes no file. Do not use it to install.",
         "The docs mark `type` as required in this file.",
         "`~/.cursor/` exists on a fresh install but `mcp.json` does not. Installed-with-no-config is the normal first case here, not an error."
       ],
@@ -853,8 +850,7 @@
       "detect": {
         "commands": [],
         "paths": [
-          "~/.config/Code/User/globalStorage/saoudrizwan.claude-dev",
-          "~/.vscode/extensions"
+          "~/.config/Code/User/globalStorage/saoudrizwan.claude-dev"
         ]
       },
       "write": {
@@ -878,13 +874,15 @@
       "blockers": [],
       "traps": [
         "This row was never verified against an installation. The path is from third-party write-ups, and only the Linux one was recorded.",
-        "Detection here is a directory that only exists once the extension has been installed and run at least once."
+        "Detection here is a directory that only exists once the extension has been installed and run at least once.",
+        "Detection was once keyed on ~/.vscode/extensions, which VS Code creates for itself. On a live run `code --add-mcp` created that directory and Cline was then reported as installed on a machine that has never had it. The only evidence now is the extension's own storage directory."
       ],
       "restart": "Reload the VS Code window.",
       "lastVerified": {
         "configPaths": "2026-08-17",
         "verify": "2026-08-17",
-        "traps": "2026-08-17"
+        "traps": "2026-08-17",
+        "detect": "2026-08-17"
       },
       "upstreamId": "cline"
     },

@@ -174,9 +174,9 @@ test('Goose echoing its parsed config is config-confirmed, not connected', () =>
 });
 
 test('a client written by its own command and read back from the file says written', (t) => {
-  const client = clientById('cursor');
+  const client = clientById('vscode');
   const configPath = path.join(directory(t), 'mcp.json');
-  fs.writeFileSync(configPath, JSON.stringify({ mcpServers: { nosyparker: { command: 'node' } } }));
+  fs.writeFileSync(configPath, JSON.stringify({ servers: { nosyparker: { command: 'node' } } }));
 
   const checked = verifyClient(client, options(client, { configPath }));
 
