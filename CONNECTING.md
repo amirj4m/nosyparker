@@ -31,21 +31,28 @@ alongside the keys that are.
 {
   "mcpServers": {
     "nosyparker": {
-      "command": "node",
+      "command": "/absolute/path/to/node",
       "args": ["/absolute/path/to/nosyparker/src/mcp-server.js"]
     }
   }
 }
 ```
 
-The path has to be absolute. Claude Code starts the server in a working
-directory of its own choosing, and a relative one will not be found.
+**Both paths have to be absolute, including the one to Node.** Run `which node`
+to get it, or `node -e 'console.log(process.execPath)'`.
 
-`setup` writes the absolute path of the Node it is running under rather than
-the word `node`, for a reason worth knowing if you are doing this by hand: an
-application started from a desktop icon does not inherit your shell's `PATH`,
-so `node` may be a command it cannot find. The cost of the absolute path is
-that upgrading Node moves it, and `setup` has to be run again.
+That is not fussiness. An application started from a desktop icon does not
+inherit your shell's `PATH`, so `node` is a command it may simply not find —
+we watched opencode fail with `Connection closed` and no other explanation for
+exactly this reason. A few clients import the shell environment deliberately
+and do work with a bare `node`; most do not, and there is no way to tell which
+from the outside.
+
+The cost is that a version manager moves that path when you switch versions,
+and the entry then fails silently. Run `setup` again after changing Node, or
+edit the path by hand.
+
+`setup` does all of this for you and prints the interpreter path it wrote.
 
 Restart Claude Code. `/mcp` lists the connected servers; nosyparker should be
 there with six tools.

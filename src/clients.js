@@ -183,11 +183,32 @@ export function fillArgv(argv, client, values) {
 /**
  * Where the running copy of this project keeps its server, and what starts it.
  *
- * The command is the absolute path of the Node that is running now, not the
- * word `node`. A client started from a desktop launcher does not inherit the
- * shell's PATH, so `node` is not a command it can necessarily find; and a
- * verification that runs our server through a different Node from the one the
- * client will use is verifying something else.
+ * The command is the absolute path of the interpreter running this installer,
+ * never the word `node`, and that is not a preference — it is a defect we
+ * watched happen. In opencode, an entry of `["node", …]` fails with
+ * `Connection closed` and no useful explanation; the same entry with the full
+ * path connects. opencode does not inherit the shell's environment, so a
+ * version-managed Node — nvm, fnm, asdf — is simply invisible to it. Zed and
+ * Gemini only work with a bare `node` because they deliberately import the
+ * shell environment, which is a choice those two made and not something to rely
+ * on. Any application started from a desktop icon has the same problem.
+ *
+ * `process.execPath` rather than a search of PATH, because it is the
+ * interpreter actually running rather than the one we would find if we went
+ * looking. Node reports it already resolved and absolute.
+ *
+ * **What happens when that path goes away.** Under a version manager it will:
+ * switching or uninstalling a Node version moves or deletes the directory this
+ * path names, and every entry written by a previous run then points at nothing.
+ * The failure is silent, because a client that cannot start a server mostly
+ * does not say so.
+ *
+ * We do not try to survive it. The alternatives are all worse: writing `node`
+ * and hoping the client has a PATH, writing a wrapper script of our own into
+ * somebody's home directory, or writing a stabler-looking path that is not the
+ * interpreter we verified against. So the honest answer is that changing Node
+ * means running `setup` again, and the honest thing to do is say so — which the
+ * report does, naming the exact path it wrote, every time it writes one.
  *
  * @returns {{command: string, serverPath: string}}
  */

@@ -146,5 +146,12 @@ to start it. We hit this in testing: one tool failed to connect for exactly this
 reason and gave no useful explanation.
 
 Setup writes the full path to the interpreter for this reason, so it works
-regardless. It is worth knowing about if you ever edit one of these files by
-hand: use the full path, not just `node`.
+regardless, and it prints that path when it finishes. It is worth knowing about
+if you ever edit one of these files by hand: use the full path, not just `node`.
+
+The cost of that is worth knowing too. A version manager moves the interpreter
+when you switch or remove a version, and every entry written by an earlier run
+then points at a program that is no longer there. Nothing announces this — a
+client that cannot start a server mostly just does not mention it. **After
+changing your Node version, run `setup` again.** It rewrites every entry with
+the new path.

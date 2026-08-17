@@ -23,6 +23,7 @@ import {
   fillArgv,
   fillTokens,
   loadClients,
+  serverCommand,
 } from '../src/clients.js';
 
 const VALUES = { name: 'nosyparker', command: '/usr/bin/node', serverPath: '/srv/mcp-server.js' };
@@ -158,6 +159,52 @@ test('each entry is the shape that client was measured to take', () => {
       args: ['/srv/mcp-server.js'],
     }, id);
   }
+});
+
+test('no row anywhere names an interpreter that a client would have to search for', () => {
+  // The defect this exists to prevent, watched happening: in opencode an entry
+  // of `["node", …]` fails with `Connection closed` and no other explanation,
+  // and the same entry with the full path connects. opencode does not inherit
+  // the shell environment, so a version-managed Node is invisible to it. Zed
+  // and Gemini work with a bare `node` only because those two deliberately
+  // import the shell environment, which is their choice and not a thing to
+  // build on.
+  //
+  // So no row may carry an interpreter name of its own: every one of them takes
+  // {{command}}, which is filled with the absolute path of the interpreter
+  // actually running the installer.
+  const table = fs.readFileSync(new URL('../src/clients.json', import.meta.url), 'utf8');
+  const entries = loadClients().clients
+    .filter((client) => client.entry !== null)
+    .map((client) => JSON.stringify(client.entry));
+
+  for (const entry of entries) {
+    assert.doesNotMatch(entry, /"(node|python|python3|npx|bun|deno)"/u, entry);
+  }
+
+  // And the write commands, where a bare name would be just as wrong.
+  for (const client of loadClients().clients) {
+    for (const argument of client.write.argv ?? []) {
+      assert.notEqual(argument, 'node', client.id);
+    }
+  }
+
+  assert.doesNotMatch(table, /"command": "node"/u);
+});
+
+test('the interpreter written is the one running, absolute, and on this machine', () => {
+  const { command, serverPath } = serverCommand();
+
+  assert.equal(command, process.execPath);
+  assert.equal(path.isAbsolute(command), true);
+  assert.equal(fs.existsSync(command), true);
+
+  // Already fully resolved, so we are not writing a symlink that a version
+  // manager can repoint underneath us without us noticing.
+  assert.equal(fs.realpathSync(command), command);
+
+  assert.equal(path.isAbsolute(serverPath), true);
+  assert.equal(fs.existsSync(serverPath), true);
 });
 
 test('each root key is that client\'s own, and three of them are not mcpServers', () => {

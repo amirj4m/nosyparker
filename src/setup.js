@@ -413,6 +413,20 @@ export function report(io, outcomes) {
     io.out(`A copy of each file as it was before this ran is in ${io.backupDir}\n\n`);
   }
 
+  // Said every time an entry is written, and said with the path in it. The
+  // entries name one interpreter by its full path, because a client started
+  // from a desktop icon has no PATH to find it on — opencode fails with
+  // `Connection closed` and nothing else if you give it a bare `node`. The cost
+  // of the full path is that a version manager moves it, and when it does,
+  // every entry stops working without saying anything.
+  if (confirmed.length + unconfirmed.length > 0) {
+    io.out(`Those entries start the server with this exact interpreter:\n  ${io.command}\n\n`);
+    io.out('  It has to be the full path — an application started from a desktop icon has no\n');
+    io.out('  PATH to find `node` on. If you switch or remove that version of Node, nvm and\n');
+    io.out('  fnm and asdf all move that directory, the entries stop working with no message,\n');
+    io.out('  and running setup again is what fixes it.\n\n');
+  }
+
   const duplicates = duplicateRegistrationWarning(here);
   if (duplicates !== null) io.out(`${duplicates}\n\n`);
 
