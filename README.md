@@ -51,18 +51,15 @@ up every agent on your machine:
 node src/cli.js setup
 ```
 
-It looks for fourteen clients, writes its entry into the ones it finds, and
-then tells you, one by one, what it actually knows about each. That last part
-is the point. Some clients can be asked whether the server started and will
-say so; some can only confirm that they read their own config file; some offer
-nothing at all, and for those it says it wrote a file and cannot tell you
-whether anybody read it. You will not get one tick meaning six different
-things.
+It looks for fifteen clients, writes its entry into the ones it finds, and then
+sorts them into three groups: the ones that answered us, the ones you should
+check yourself, and the ones that did not work, with the reason.
 
-It never removes anything it did not add. Before it touches a config file for
-the first time it puts a copy in `~/.nosyparker/backups/`, and that copy is
+It never removes anything it did not add. Where it edits a config file itself,
+it puts a copy of that file in `~/.nosyparker/backups/` first, and that copy is
 never replaced, because the version worth keeping is the one from before this
-existed.
+existed. Where a client has its own command for adding a server, that command
+does the writing and no copy is taken, because there is nothing of ours to undo.
 
 The last thing it prints is which applications to close and reopen. None of
 them re-read their config while running, so that is a required step and not a
@@ -79,6 +76,20 @@ prints the exact thing to paste, and naming a client it does know
 
 [CONNECTING.md](CONNECTING.md) has the by-hand version and what to say to
 check it works.
+
+## What can be confirmed, and what cannot
+
+Two of these applications can be asked whether they started the server, and
+will say so: **Claude Code** and **Gemini CLI**. Two more — **Codex** and
+**Goose** — will show you their own parsed configuration with our entry in it,
+which is worth having and is not the same thing.
+
+The rest offer no way to be asked at all. That is a limitation of those
+applications rather than of this one, and nothing here can work around it.
+
+So for those, one check is left and only you can do it. Open the client and ask
+the agent something it could only know from your shared memory. If it knows, it
+is working. That takes about ten seconds and it is worth doing once per client.
 
 ## Removing it
 

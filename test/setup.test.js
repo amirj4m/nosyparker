@@ -87,7 +87,7 @@ test('a machine with nothing on it installs nothing and says so', (t) => {
 
   report(io, install(io));
 
-  assert.match(printed(), /Looked for 15 clients\. Found 0\./u);
+  assert.match(printed(), /0 of 0 clients on this machine are wired up\./u);
   assert.match(printed(), /Not on this machine: /u);
   assert.doesNotMatch(printed(), /connected/u);
 });
@@ -114,7 +114,7 @@ test('a client that is here is written to, checked, and reported in its own word
   assert.doesNotMatch(printed(), /started the server/u);
 });
 
-test('the report never gives two clients the same word for different knowledge', (t) => {
+test('clients that cannot be asked are one group with one instruction', (t) => {
   const { io, printed } = machine(t, {
     files: ['.config/Claude/claude_desktop_config.json', '.local/bin/zed', '.cursor/',
       '.config/Devin/'],
@@ -123,20 +123,24 @@ test('the report never gives two clients the same word for different knowledge',
 
   report(io, install(io));
 
-  // Three clients written by us, none of which can be asked — and each says so
-  // with its own reason rather than sharing one.
-  assert.match(printed(), /Claude Desktop — written-unverified/u);
-  assert.match(printed(), /Zed — written-unverified/u);
-  assert.match(printed(), /Cursor — written-unverified/u);
-  assert.match(printed(), /nothing on this machine can confirm Zed reads it/u);
-  assert.match(printed(), /the debug log contains no mention of context servers/u);
-  assert.match(printed(), /Its own --add-mcp writes nothing/u);
-  assert.match(printed(), /a per-server log file that appears after the app next starts/u);
+  // Three clients written by us, none of which can be asked. They are named
+  // together on one line rather than given three blocks of near-identical
+  // vocabulary, because the reader's next action is the same for all three.
+  const group = printed().slice(printed().indexOf('Written, but unconfirmed'));
+  for (const name of ['Claude Desktop', 'Zed', 'Cursor']) {
+    assert.match(group.split('\n')[0], new RegExp(name, 'u'), name);
+  }
+
+  // And the instruction that makes the group actionable, once.
+  assert.match(printed(), /open it and ask the agent something it could only know from your shared memory/u);
+  assert.equal(printed().match(/Ten seconds\./gu)?.length, 1, 'said once, not per client');
+
+  // Said as a fact about those applications rather than as an apology.
+  assert.match(printed(), /a\n  limitation of theirs, not a sign anything went wrong here/u);
 
   // Devin is here with no config file, and is written through its own command
-  // — which is not on this machine, so it fails rather than having its file
-  // written behind its back.
-  assert.match(printed(), /Devin Desktop \(formerly Windsurf\) — failed/u);
+  // — which is not on this machine, so it lands in "not done" with its reason.
+  assert.match(printed(), /Not done:/u);
   assert.match(printed(), /its own command could not be found/u);
 });
 
@@ -165,8 +169,57 @@ test('a client with a working command reaches connected, and only then', (t) => 
 
   report(io2, install(io2));
 
-  assert.match(printed(), /Claude Code — connected/u);
-  assert.match(printed(), /started the server and reported that it connected/u);
+  // The group says an answer came back; the clause says what the answer was.
+  assert.match(printed(), /Confirmed — this one answered us:/u);
+  assert.match(printed(), /Claude Code — it started the server and reported that it connected/u);
+});
+
+test('the three groups are three, and a client appears in exactly one', (t) => {
+  const { io, printed } = machine(t, {
+    files: ['.local/bin/goose', '.local/bin/zed', '.config/Claude/claude_desktop_config.json'],
+    pathDirs: [],
+  });
+
+  const wired = {
+    ...io,
+    machine: { ...io.machine, pathDirs: [path.join(io.machine.home, '.local', 'bin')] },
+    run: () => ({ status: 0, stdout: 'extensions:\n  nosyparker:\n    enabled: true\n', stderr: '' }),
+  };
+
+  report(wired, install(wired));
+
+  const text = printed();
+  assert.match(text, /Confirmed — this one answered us:/u);
+  assert.match(text, /Goose — it showed us its own parsed config/u);
+  assert.match(text, /Written, but unconfirmed — /u);
+
+  // Goose answered, so it is not also in the group for clients that cannot be
+  // asked. The groups partition; they do not overlap.
+  const unconfirmed = text.slice(text.indexOf('Written, but unconfirmed')).split('\n')[0];
+  assert.doesNotMatch(unconfirmed, /Goose/u);
+  assert.match(unconfirmed, /Zed/u);
+  assert.match(unconfirmed, /Claude Desktop/u);
+});
+
+test('a client that could not be checked is never counted with the ones that were', (t) => {
+  // The whole point of the grouping surviving the summary. Codex and Goose are
+  // in the confirmed group with a clause that says their config was read back;
+  // only Claude Code is allowed the sentence about the server starting.
+  const { io, printed } = machine(t, {
+    files: ['.local/bin/goose'],
+    pathDirs: [],
+  });
+
+  const wired = {
+    ...io,
+    machine: { ...io.machine, pathDirs: [path.join(io.machine.home, '.local', 'bin')] },
+    run: () => ({ status: 0, stdout: 'extensions:\n  nosyparker:\n', stderr: '' }),
+  };
+
+  report(wired, install(wired));
+
+  assert.match(printed(), /which is not the same as having started it/u);
+  assert.doesNotMatch(printed(), /it started the server and reported/u);
 });
 
 test('a client that is connected is not in the restart list, because it already works', (t) => {
@@ -215,8 +268,9 @@ test('the duplicate registration hazard is named when both sides of it are prese
 
   report(wired, install(wired));
 
-  assert.match(printed(), /VS Code — written\n/u);
-  assert.match(printed(), /Claude Desktop — written-unverified/u);
+  const group = printed().slice(printed().indexOf('Written, but unconfirmed'));
+  assert.match(group.split('\n')[0], /VS Code/u);
+  assert.match(group.split('\n')[0], /Claude Desktop/u);
   assert.match(printed(), /may appear more than once/u);
 });
 
@@ -227,7 +281,7 @@ test('with only one side of it present there is nothing to warn about', (t) => {
 
   report(io, install(io));
 
-  assert.match(printed(), /Claude Desktop — written-unverified/u);
+  assert.match(printed(), /Written, but unconfirmed — Claude Desktop\./u);
   assert.doesNotMatch(printed(), /may appear more than once/u);
 });
 

@@ -14,10 +14,12 @@
  * being up, which is also why the drift watcher runs weekly in a repository and
  * never here.
  *
- * It does not summarise. Every client gets its own answer in its own words,
- * including the ones that say we wrote a file and cannot tell whether anybody
- * read it. A single line at the end saying "installed into 6 clients" would be
- * the tick this whole phase exists to avoid printing.
+ * It does not flatten. The summary reads as three groups — confirmed, written
+ * but unconfirmable, and not done — and a client we could not check is in a
+ * group that says so rather than being counted with the ones we could. A single
+ * line saying "installed into 6 clients" would be the tick this whole phase
+ * exists to avoid printing. Three groups is not that: it is the same honesty
+ * with the taxonomy taken out of the reader's way.
  *
  * The last thing it prints is the restart list, because that is the last
  * required step of the install and not a footnote. Every client examined needs
@@ -40,7 +42,6 @@ import {
   thisMachine,
 } from './detect.js';
 import {
-  ABSENT,
   editRequest,
   FAILED,
   NOT_WRITTEN,
@@ -51,7 +52,14 @@ import {
   writeToClient,
 } from './write.js';
 import { defaultBackupDir } from './backup.js';
-import { CONNECTED, verifyClient } from './verify.js';
+import {
+  CONFIG_CONFIRMED,
+  CONNECTED,
+  IN_FILE,
+  UNCHECKED,
+  UNVERIFIABLE,
+  verifyClient,
+} from './verify.js';
 
 /**
  * @typedef {object} Io
@@ -323,11 +331,31 @@ function yamlPreview(client, values) {
 }
 
 /**
- * The report.
+ * The report: three groups, not a column of statuses.
  *
- * One block per client, with the word for what we know first and the sentence
- * that unpacks it underneath. Never a column of ticks: the six words mean six
- * different things and only one of them means the server ran.
+ * The six internal statuses are right and they stay. They are just not what a
+ * person needs at the end of an install. Eleven rows of vocabulary asks the
+ * reader to learn a taxonomy before they can find out whether the thing worked;
+ * three groups tells them what to do next, which is the only question they
+ * arrived with.
+ *
+ *   confirmed     the client itself answered us
+ *   check these   the entry is in place and this client offers no way to ask
+ *   not done      with the reason, and what to do about it
+ *
+ * The distinction the whole phase is about survives inside the first group, in
+ * the clause after each name: one client started the server and said so, and two
+ * showed us their parsed config, which is not the same thing and does not
+ * pretend to be.
+ *
+ * The second group gets one line of instruction for all of them, because the
+ * check is the same check: open the client and ask the agent something it could
+ * only know from the shared memory. That is the only test that works on a client
+ * with no read-back, and it is ten seconds.
+ *
+ * It is said plainly and without apology. Most of these applications have no way
+ * to be asked whether they loaded a server. That is a fact about them, not a
+ * shortcoming of this install and not a complaint about them either.
  *
  * @param {Io} io
  * @param {Outcome[]} outcomes
@@ -336,12 +364,53 @@ export function report(io, outcomes) {
   const here = outcomes.filter((outcome) => outcome.found.state !== NOT_INSTALLED);
   const missing = outcomes.filter((outcome) => outcome.found.state === NOT_INSTALLED);
 
-  io.out(`Looked for ${outcomes.length} clients. Found ${here.length}.\n\n`);
+  const confirmed = here.filter((outcome) => outcome.verified !== null
+    && (outcome.verified.status === CONNECTED || outcome.verified.status === CONFIG_CONFIRMED));
+  const unconfirmed = here.filter((outcome) => outcome.verified !== null
+    && (outcome.verified.status === IN_FILE || outcome.verified.status === UNVERIFIABLE
+      || outcome.verified.status === UNCHECKED));
+  const notDone = here.filter((outcome) =>
+    !confirmed.includes(outcome) && !unconfirmed.includes(outcome));
 
-  for (const outcome of here) io.out(blockFor(outcome));
+  io.out(`${confirmed.length + unconfirmed.length} of ${here.length} clients on this machine are wired up.\n\n`);
+
+  if (confirmed.length > 0) {
+    io.out(`Confirmed — ${plural(confirmed.length, 'this one', 'these')} answered us:\n\n`);
+    for (const outcome of confirmed) {
+      io.out(`  ${outcome.client.name} — ${confirmationClause(outcome)}\n`);
+      for (const blocker of outcome.verified?.blockers ?? []) {
+        io.out(`      One thing that could still stop it: ${blocker}\n`);
+      }
+    }
+    io.out('\n');
+  }
+
+  if (unconfirmed.length > 0) {
+    io.out(`Written, but unconfirmed — ${unconfirmed.map((outcome) => outcome.client.name).join(', ')}.\n\n`);
+    io.out('  These applications offer no way to ask whether they loaded a server. That is a\n');
+    io.out('  limitation of theirs, not a sign anything went wrong here. To check one yourself:\n');
+    io.out('  open it and ask the agent something it could only know from your shared memory.\n');
+    io.out('  If it knows, it is working. Ten seconds.\n\n');
+    for (const outcome of unconfirmed) {
+      for (const blocker of outcome.verified?.blockers ?? []) {
+        io.out(`  ${outcome.client.name} — one thing that could stop it: ${blocker}\n`);
+      }
+    }
+  }
+
+  if (notDone.length > 0) {
+    io.out('Not done:\n\n');
+    for (const outcome of notDone) io.out(blockFor(outcome));
+    io.out('\n');
+  }
 
   if (missing.length > 0) {
     io.out(`Not on this machine: ${missing.map((outcome) => outcome.client.name).join(', ')}.\n\n`);
+  }
+
+  const copies = here.filter((outcome) => outcome.written?.backup?.made);
+  if (copies.length > 0) {
+    io.out(`A copy of each file as it was before this ran is in ${io.backupDir}\n\n`);
   }
 
   const duplicates = duplicateRegistrationWarning(here);
@@ -352,10 +421,12 @@ export function report(io, outcomes) {
     io.out(`Quit ${waiting.map((outcome) => outcome.client.name).join(' and ')} and run this again to finish.\n\n`);
   }
 
-  const restarts = here.filter((outcome) =>
-    outcome.written !== null && outcome.written.outcome !== FAILED
-    && outcome.written.outcome !== NOT_WRITTEN
-    && outcome.verified?.status !== CONNECTED);
+  // Only the clients that are actually waiting on a restart. A client in the
+  // "not done" group has its own instruction in its own block, and telling
+  // somebody to reopen an application that is not going to work yet is telling
+  // them to do the wrong thing twice.
+  const restarts = [...confirmed, ...unconfirmed]
+    .filter((outcome) => outcome.verified?.status !== CONNECTED);
 
   if (restarts.length === 0) return;
 
@@ -367,45 +438,67 @@ export function report(io, outcomes) {
 }
 
 /**
+ * What it was that answered, for a client that answered.
+ *
+ * Two different things and two different clauses. One client started our server
+ * and reported the connection; two showed us their own parsed configuration
+ * with the entry in it, which is worth having and is not the same claim. The
+ * grouping puts them together because the reader's next action is the same for
+ * both — nothing — and the clause keeps them apart because the claims are not.
+ *
+ * @param {Outcome} outcome
+ * @returns {string}
+ */
+function confirmationClause({ verified }) {
+  return verified?.status === CONNECTED
+    ? 'it started the server and reported that it connected'
+    : 'it showed us its own parsed config with the entry in it, which is not the same as having started it';
+}
+
+/**
+ * @param {number} count
+ * @param {string} one
+ * @param {string} many
+ * @returns {string}
+ */
+function plural(count, one, many) {
+  return count === 1 ? one : many;
+}
+
+/**
  * @param {Outcome} outcome
  * @returns {string}
  */
 function blockFor({ client, found, written, verified }) {
+  const byHand = `      nosyparker setup --print-config ${client.id} prints what to add by hand.\n`;
+
   if (found.state === INSTALLED_PATH_UNKNOWN) {
-    return `${client.name} — skipped\n`
-      + `    It is on this machine, and the table has no configuration path for it on `
-      + `${client.configPaths.linux === null ? 'this platform' : 'this platform'}. `
-      + `The research behind the table could not establish one, and a guess would be a file nobody reads.\n`
-      + `    nosyparker setup --print-config ${client.id} prints what is known.\n\n`;
+    return `  ${client.name} — it is here, and this table has no configuration path for it on\n`
+      + `      ${found.state === INSTALLED_PATH_UNKNOWN ? 'this platform' : 'this platform'}. `
+      + 'The research behind it could not establish one, and a\n'
+      + '      guess would be a file nobody reads.\n'
+      + byHand;
   }
 
-  if (written === null) return `${client.name} — skipped\n\n`;
+  if (written === null) return `  ${client.name} — nothing was attempted.\n`;
 
-  if (written.outcome === NOT_WRITTEN) {
-    return `${client.name} — nothing written\n    ${written.error}\n\n`;
-  }
+  // The application is running and would overwrite the entry. Nothing is
+  // broken and nothing was tried, so this one ends in an instruction rather
+  // than an explanation.
+  if (written.outcome === NOT_WRITTEN) return `  ${client.name} — ${written.error}\n`;
 
   if (written.outcome === FAILED) {
-    return `${client.name} — failed\n    ${written.error}\n`
-      + `    Nothing was changed. nosyparker setup --print-config ${client.id} prints what to add by hand.\n\n`;
+    return `  ${client.name} — ${written.error}\n      Nothing was changed.\n${byHand}`;
   }
 
-  const lines = [`${client.name} — ${verified?.status ?? written.outcome}`];
+  // The write landed and the client was asked and said no. The blockers are
+  // usually the whole story here — Gemini's folder trust is the one that
+  // actually happens — so they come first and in full.
+  const lines = [`  ${client.name} — ${verified?.says ?? 'it could not be checked.'}`];
+  for (const blocker of verified?.blockers ?? []) lines.push(`      ${blocker}`);
+  lines.push(`      The entry is in ${written.path}, so this may only need the block above lifting.`);
 
-  if (verified !== null) {
-    lines.push(`    ${verified.says}`);
-    if (verified.cannotProve !== null) lines.push(`    It does not prove ${lower(verified.cannotProve)}`);
-    for (const blocker of verified.blockers) lines.push(`    It may not load anyway: ${blocker}`);
-  }
-
-  if (written.outcome === UNCHANGED) lines.push('    It was already there, so nothing was changed.');
-  if (written.outcome === REMOVED) lines.push('    The entry was removed.');
-  if (written.outcome === ABSENT) lines.push('    There was nothing of ours to remove.');
-  if (written.backup?.made) lines.push(`    A copy of the file as it was is at ${written.backup.backupPath}`);
-
-  lines.push(`    ${written.path}`);
-
-  return `${lines.join('\n')}\n\n`;
+  return `${lines.join('\n')}\n`;
 }
 
 /**
@@ -480,14 +573,6 @@ function duplicateRegistrationWarning(here) {
   return 'One thing to expect: VS Code and Devin read other clients\' MCP configuration files as well as\n'
     + 'their own, so the server may appear more than once in their lists. Both copies are this same\n'
     + 'server and neither is a mistake.';
-}
-
-/**
- * @param {string} text
- * @returns {string}
- */
-function lower(text) {
-  return text.charAt(0).toLowerCase() + text.slice(1);
 }
 
 /**
