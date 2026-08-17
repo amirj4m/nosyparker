@@ -33,9 +33,9 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 import { fillArgv, fillTokens } from './clients.js';
-import { backupOnce, manifestRowFor } from './backup.js';
+import { manifestRowFor, recordFirstTouch } from './backup.js';
 import { anyRunning } from './detect.js';
-import { hasEntry, insertEntry, removeEntry } from './edit.js';
+import { hasEntry, insertEntry, removeEntry, stripComments, withoutTrailingCommas } from './edit.js';
 
 /** The entry went in, and was found again afterwards. */
 export const WRITTEN = 'written';
@@ -183,7 +183,7 @@ export function removeFromClient(client, options) {
 }
 
 /**
- * A file that exists only because we made it, and now holds nothing.
+ * A file that exists only because we ran, and now holds nothing.
  *
  * The rule everywhere else is that we never remove what we did not add. This is
  * the other half of the same rule: a config file for a client that had none, an
@@ -195,9 +195,27 @@ export function removeFromClient(client, options) {
  * Cline, and after uninstalling, that directory was still the evidence that
  * Cline was installed. The next setup would have found it again.
  *
- * The test for "only ever ours" is exact rather than approximate: the file's
- * text has to equal what is left when our entry is taken out of a file that
- * contained nothing but our entry. One byte of anybody else's and it stays.
+ * Two conditions, and both have to hold.
+ *
+ * **The file was not there before we ran.** That is read from the manifest,
+ * which recorded it at the moment before the first write, because it cannot be
+ * established afterwards. A file that was already there is never removed, no
+ * matter how empty it looks.
+ *
+ * **What is left in it holds nothing.** Not "equals a string we can predict" —
+ * that was the first version of this and it was too narrow, because the file is
+ * not always ours to predict. VS Code's and Devin's own `--add-mcp` write
+ * `"inputs": []` alongside the servers object, in their own tab indentation,
+ * and neither of those is something we asked for or could have guessed. So the
+ * test is on the content: every top-level value must be an empty object or an
+ * empty array, and there must be no comments. `{"servers":{},"inputs":[]}`
+ * passes. `{"servers":{"theirs":{…}}}` does not, because `servers` has a key.
+ * `{"theme":"dark"}` does not, because a string is content. A comment does not,
+ * because a person wrote it.
+ *
+ * The narrower rule and the wider one agree on every case the narrower one
+ * covered; the wider one additionally covers scaffolding a client wrote for
+ * itself inside a file that exists only because we ran.
  *
  * @param {any} client
  * @param {WriteOptions} options
@@ -207,12 +225,7 @@ function removeWhatWasOnlyEverOurs(client, options, request) {
   const row = manifestRowFor(options.configPath, options.backupDir);
   if (row === null || row.existed) return;
 
-  const current = readOrEmpty(options.configPath);
-  const shell = client.entry === null
-    ? ''
-    : removeEntry(insertEntry('', request), request);
-
-  if (current.trim() !== '' && current !== shell) return;
+  if (!holdsNothing(readOrEmpty(options.configPath), client.format)) return;
 
   fs.rmSync(options.configPath, { force: true });
 
@@ -223,6 +236,51 @@ function removeWhatWasOnlyEverOurs(client, options, request) {
       return; // something else is in it, and it is not ours to empty
     }
   }
+}
+
+/**
+ * Is there anything at all in this file that somebody would miss.
+ *
+ * Deliberately conservative in one direction only: it is allowed to say "no,
+ * there is something here" about a file that is in fact empty, and that costs
+ * nothing but a file left behind. It must never say "nothing here" about a file
+ * with something in it, because that costs somebody their configuration.
+ *
+ * So an object holds nothing only when it has no keys at all. A key whose value
+ * is an empty object still counts as content — somebody named it — which keeps
+ * `{"servers":{"theirs":{}}}` safe even though the entry inside is empty.
+ *
+ * @param {string} text
+ * @param {string} format
+ * @returns {boolean}
+ */
+function holdsNothing(text, format) {
+  if (text.trim() === '') return true;
+
+  // YAML and TOML are not parsed anywhere in this project, so anything left in
+  // one of those beyond whitespace is treated as content. Our own removal takes
+  // the block header with it, so a file that was only ever ours ends up blank
+  // and is caught by the line above.
+  if (format !== 'json' && format !== 'jsonc') return false;
+
+  // A comment is something a person wrote, and it survives everything else here
+  // precisely so that it can.
+  const stripped = stripComments(text);
+  if (stripped !== text) return false;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(withoutTrailingCommas(stripped));
+  } catch {
+    return false;
+  }
+
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+
+  return Object.values(parsed).every((value) =>
+    (Array.isArray(value) && value.length === 0)
+    || (value !== null && typeof value === 'object' && !Array.isArray(value)
+      && Object.keys(value).length === 0));
 }
 
 /**
@@ -237,11 +295,17 @@ function writeThroughCli(client, options, request) {
       `${client.name} is installed but its own command could not be found, and this client is only written through it.`);
   }
 
-  const backup = backupOnce({
+  // No copy: the entry goes in through the application's own published
+  // interface, so we are not the ones changing this file and there is nothing
+  // of ours to undo. `~/.claude.json` is why the rule is worth stating — it is
+  // a live credential store, and copying one to guard against an edit we never
+  // make is the wrong trade.
+  const backup = recordFirstTouch({
     file: options.configPath,
     clientId: client.id,
     backupDir: options.backupDir,
     now: options.now,
+    weEdit: false,
   });
 
   const run = options.run ?? runCommand;
@@ -285,11 +349,12 @@ function writeThroughFile(client, options, request) {
   const before = readOrEmpty(options.configPath);
   const wanted = insertEntry(before, request);
 
-  const backup = backupOnce({
+  const backup = recordFirstTouch({
     file: options.configPath,
     clientId: client.id,
     backupDir: options.backupDir,
     now: options.now,
+    weEdit: true,
   });
 
   if (wanted === before) return result('file', options.configPath, backup, UNCHANGED, null);

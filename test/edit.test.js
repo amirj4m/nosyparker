@@ -12,7 +12,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { hasEntry, insertEntry, removeEntry, stripComments } from '../src/edit.js';
+import { hasEntry, insertEntry, removeEntry, stripComments, withoutTrailingCommas } from '../src/edit.js';
 
 const ENTRY = { command: '/usr/bin/node', args: ['/srv/mcp-server.js'] };
 
@@ -91,6 +91,58 @@ test('comments survive, which is the whole reason this is not a parse and rewrit
 
   assert.equal(hasEntry(after, zed), true);
   assert.equal(removeEntry(after, zed), before);
+});
+
+test('a trailing comma is JSONC, not a broken file', () => {
+  // Zed wrote this settings.json for itself on the research machine, and the
+  // default it ships has a trailing comma after the last key of every block.
+  // The installer refused to touch it and reported that the file was not valid
+  // JSON — which was wrong about a file the client had just produced, and would
+  // have meant no Zed user with default settings could ever be installed to.
+  const zed = [
+    '// Zed settings',
+    '//',
+    '// For information on how to configure Zed, see the Zed',
+    '// documentation: https://zed.dev/docs/configuring-zed',
+    '{',
+    '  "vim_mode": true,',
+    '  "ui_font_size": 16,',
+    '  "theme": {',
+    '    "mode": "system",',
+    '    "light": "One Light",',
+    '    "dark": "One Dark",',
+    '  },',
+    '}',
+    '',
+  ].join('\n');
+
+  /** @type {import('../src/edit.js').EditRequest} */
+  const request = { format: 'jsonc', rootKey: 'context_servers', name: 'nosyparker', entry: ENTRY };
+  const after = insertEntry(zed, request);
+
+  assert.equal(hasEntry(after, request), true);
+  assert.ok(after.includes('"dark": "One Dark",\n  },'), 'their trailing commas are still theirs');
+  assert.ok(after.includes('// documentation: https://zed.dev/docs/configuring-zed'));
+  assert.deepEqual(
+    JSON.parse(withoutTrailingCommas(stripComments(after))).context_servers.nosyparker,
+    ENTRY,
+  );
+
+  // And the check that was doing the refusing still refuses a genuinely broken
+  // file, so this did not buy leniency by turning the check off.
+  assert.throws(
+    () => insertEntry('{\n  "vim_mode": true,,\n}', request),
+    /not valid JSON/u,
+  );
+});
+
+test('a comma inside a string is not a trailing comma', () => {
+  const before = '{\n  "note": "ends with a comma,",\n  "mcpServers": {}\n}\n';
+
+  const after = insertEntry(before, JSON_REQUEST);
+
+  assert.equal(JSON.parse(after).note, 'ends with a comma,');
+  assert.deepEqual(JSON.parse(after).mcpServers.nosyparker, ENTRY);
 });
 
 test('a file with no root key at all gains one and keeps everything else', () => {

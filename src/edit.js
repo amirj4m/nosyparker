@@ -282,10 +282,55 @@ function checkedJson(text, request) {
  */
 function parseCheck(text, complaint) {
   try {
-    JSON.parse(stripComments(text));
+    JSON.parse(withoutTrailingCommas(stripComments(text)));
   } catch {
     throw new Error(complaint);
   }
+}
+
+/**
+ * A comma before a closing brace, replaced by a space.
+ *
+ * For the parse check only. The file is never written from this — it exists so
+ * that a valid JSONC file is not mistaken for a broken one, which is not a
+ * hypothetical: Zed wrote its own `settings.json` on this machine and the
+ * default it ships has a trailing comma after the last key of every block. On
+ * that file the installer refused to write and said the file was not valid
+ * JSON, which was wrong about a file the client itself had just produced.
+ *
+ * Offsets are preserved, like `stripComments`, so the two compose and neither
+ * moves anything the scanner has already found.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function withoutTrailingCommas(text) {
+  let out = '';
+  let i = 0;
+
+  while (i < text.length) {
+    if (text[i] === '"') {
+      const end = stringEnd(text, i);
+      out += text.slice(i, end);
+      i = end;
+      continue;
+    }
+
+    if (text[i] === ',') {
+      let ahead = i + 1;
+      while (ahead < text.length && /\s/u.test(text[ahead])) ahead += 1;
+      if (text[ahead] === '}' || text[ahead] === ']') {
+        out += ' ';
+        i += 1;
+        continue;
+      }
+    }
+
+    out += text[i];
+    i += 1;
+  }
+
+  return out;
 }
 
 /**

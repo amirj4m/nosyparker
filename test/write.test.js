@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { backupOnce, MANIFEST_NAME, readManifest } from '../src/backup.js';
+import { MANIFEST_NAME, readManifest, recordFirstTouch } from '../src/backup.js';
 import { clientById, loadClients } from '../src/clients.js';
 import {
   ABSENT,
@@ -107,7 +107,7 @@ test('a backup is taken once, and never taken again', (t) => {
   fs.writeFileSync(configPath, '{"mcpServers": {"theirs": {"command": "x"}}}\n');
   const original = fs.readFileSync(configPath, 'utf8');
 
-  const first = backupOnce({ file: configPath, clientId: 'cursor', backupDir: space.backupDir, now: NOW });
+  const first = recordFirstTouch({ weEdit: true, file: configPath, clientId: 'cursor', backupDir: space.backupDir, now: NOW });
   assert.equal(first.made, true);
   assert.equal(fs.readFileSync(/** @type {string} */ (first.backupPath), 'utf8'), original);
 
@@ -116,7 +116,8 @@ test('a backup is taken once, and never taken again', (t) => {
   // replace it with a copy of our own handiwork.
   fs.writeFileSync(configPath, '{"mcpServers": {"nosyparker": {"command": "node"}}}\n');
 
-  const second = backupOnce({
+  const second = recordFirstTouch({
+    weEdit: true,
     file: configPath, clientId: 'cursor', backupDir: space.backupDir, now: '2026-09-01T00:00:00.000Z',
   });
 
@@ -134,7 +135,7 @@ test('a file that did not exist gets a manifest row and no copy', (t) => {
   const space = workspace(t);
   const configPath = space.config('mcp.json');
 
-  const taken = backupOnce({ file: configPath, clientId: 'cursor', backupDir: space.backupDir, now: NOW });
+  const taken = recordFirstTouch({ weEdit: true, file: configPath, clientId: 'cursor', backupDir: space.backupDir, now: NOW });
 
   assert.equal(taken.made, false, 'there was nothing to copy');
   assert.equal(taken.existed, false);
@@ -153,8 +154,8 @@ test('two clients whose files are both called mcp.json get two backups', (t) => 
   fs.writeFileSync(cursor, '{"a": 1}');
   fs.writeFileSync(kimi, '{"b": 2}');
 
-  backupOnce({ file: cursor, clientId: 'cursor', backupDir: space.backupDir, now: NOW });
-  backupOnce({ file: kimi, clientId: 'kimi-code', backupDir: space.backupDir, now: NOW });
+  recordFirstTouch({ weEdit: true, file: cursor, clientId: 'cursor', backupDir: space.backupDir, now: NOW });
+  recordFirstTouch({ weEdit: true, file: kimi, clientId: 'kimi-code', backupDir: space.backupDir, now: NOW });
 
   const manifest = readManifest(path.join(space.backupDir, MANIFEST_NAME));
   assert.equal(Object.keys(manifest).length, 2);
@@ -162,6 +163,63 @@ test('two clients whose files are both called mcp.json get two backups', (t) => 
     Object.values(manifest).map((row) => row.client).sort(),
     ['cursor', 'kimi-code'],
   );
+});
+
+test('a client driven through its own command is recorded, and not copied', (t) => {
+  // The reason this rule exists: ~/.claude.json holds oauthAccount, a user id
+  // and a machine id, and we never edit it — `claude mcp add` does, which is
+  // what its documentation requires. There is nothing of ours to undo, so a
+  // copy protects against nothing and duplicates a live credential store for
+  // the privilege.
+  const space = workspace(t);
+  const configPath = space.config('claude.json');
+  fs.writeFileSync(configPath, '{"oauthAccount":{"secret":"x"},"mcpServers":{}}');
+
+  const written = writeToClient(clientById('claude-code'), options({
+    configPath,
+    backupDir: space.backupDir,
+  }, {
+    clientCommand: '/usr/bin/claude',
+    run: () => {
+      fs.writeFileSync(configPath, '{"oauthAccount":{"secret":"x"},"mcpServers":{"nosyparker":{"command":"node"}}}');
+      return { status: 0, stdout: '', stderr: '' };
+    },
+  }));
+
+  assert.equal(written.outcome, WRITTEN);
+  assert.equal(written.backup?.made, false);
+  assert.equal(written.backup?.backupPath, null);
+
+  // Nothing in the backup folder but the record itself.
+  assert.deepEqual(fs.readdirSync(space.backupDir), [MANIFEST_NAME]);
+
+  // And the record is still complete, because uninstall needs it.
+  const row = Object.values(readManifest(path.join(space.backupDir, MANIFEST_NAME)))[0];
+  assert.equal(row.existed, true);
+  assert.equal(row.backup, null);
+  assert.match(/** @type {string} */ (row.whyNoBackup), /its own command writes this file, not us/u);
+});
+
+test('no copy of any file is taken for any client we do not edit ourselves', () => {
+  // Four rows are driven by their own command, and none of them may be copied.
+  // Claude Code is the one that made the rule, but Codex, VS Code and Devin
+  // were being copied for the same non-reason.
+  const driven = loadClients().clients
+    .filter((client) => client.write.method === 'cli')
+    .map((client) => client.id);
+
+  assert.deepEqual(driven.sort(), ['claude-code', 'codex-cli', 'devin-desktop', 'vscode']);
+});
+
+test('a file we do edit ourselves is still copied before the first change', (t) => {
+  const space = workspace(t);
+  const configPath = space.config('settings.json');
+  fs.writeFileSync(configPath, '{"theme":"dark"}\n');
+
+  const written = writeToClient(clientById('gemini-cli'), options({ configPath, backupDir: space.backupDir }));
+
+  assert.equal(written.backup?.made, true);
+  assert.equal(fs.readFileSync(/** @type {string} */ (written.backup?.backupPath), 'utf8'), '{"theme":"dark"}\n');
 });
 
 test('a write that lands nowhere is a failure, however cheerful the command was', (t) => {
