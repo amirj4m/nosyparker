@@ -1,0 +1,304 @@
+/**
+ * The command, its report, and the escape hatch.
+ *
+ * Every one of these runs against a described machine and a temporary
+ * directory. The report tests are assertions about words, because the words are
+ * the deliverable: six statuses that mean six different things, and a client we
+ * could not check saying so rather than being quietly counted with the ones we
+ * could.
+ */
+
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+
+import { defaultIo, install, printConfig, report, uninstall } from '../src/setup.js';
+
+/**
+ * @param {import('node:test').TestContext} t
+ * @param {object} shape
+ * @param {string[]} [shape.files]
+ * @param {string[]} [shape.pathDirs]
+ * @param {(argv: string[]) => {status: number, stdout: string, stderr: string}} [shape.run]
+ * @returns {{io: any, printed: () => string, home: string}}
+ */
+function machine(t, { files = [], pathDirs = [], run } = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-setup-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const home = path.join(dir, 'home');
+  fs.mkdirSync(home, { recursive: true });
+
+  // The described files are made for real under the temporary home, so the
+  // writer has somewhere to write and the reader has something to read. The
+  // real home directory is never named anywhere in this file.
+  for (const file of files) {
+    const full = path.join(home, file);
+    if (file.endsWith('/')) fs.mkdirSync(full, { recursive: true });
+    else {
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      if (!fs.existsSync(full)) fs.writeFileSync(full, '');
+    }
+  }
+
+  let printed = '';
+
+  const io = defaultIo({
+    out: (/** @type {string} */ text) => {
+      printed += text;
+    },
+    machine: {
+      home,
+      platform: 'linux',
+      appData: undefined,
+      cwd: path.join(home, 'work'),
+      pathDirs,
+      // Nothing outside the temporary home is visible, so a real /usr/share/code
+      // on the machine running the tests cannot make a test pass or fail. This
+      // is the fake machine's whole job and it has to be airtight: the first
+      // version of it fell through to the real filesystem for absolute paths
+      // and duly discovered the VS Code that is actually installed here.
+      exists: (/** @type {string} */ file) => file.startsWith(home) && fs.existsSync(file),
+      readdir: (/** @type {string} */ target) => {
+        if (!target.startsWith(home)) return [];
+        try {
+          return fs.readdirSync(target);
+        } catch {
+          return [];
+        }
+      },
+    },
+    backupDir: path.join(dir, 'backups'),
+    now: '2026-08-17T10:00:00.000Z',
+    command: '/usr/bin/node',
+    serverPath: '/srv/mcp-server.js',
+    run,
+  });
+
+  return { io, printed: () => printed, home };
+}
+
+test('a machine with nothing on it installs nothing and says so', (t) => {
+  const { io, printed } = machine(t, {});
+
+  report(io, install(io));
+
+  assert.match(printed(), /Looked for 14 clients\. Found 0\./u);
+  assert.match(printed(), /Not on this machine: /u);
+  assert.doesNotMatch(printed(), /connected/u);
+});
+
+test('a client that is here is written to, checked, and reported in its own words', (t) => {
+  const { io, printed, home } = machine(t, { files: ['.gemini/'] });
+
+  const outcomes = install(io);
+  report(io, outcomes);
+
+  const gemini = outcomes.find((outcome) => outcome.client.id === 'gemini-cli');
+  assert.equal(gemini?.written?.outcome, 'written');
+
+  // Written by file, because gemini's own add command reports success and
+  // writes nothing.
+  assert.equal(gemini?.written?.method, 'file');
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(path.join(home, '.gemini', 'settings.json'), 'utf8')),
+    { mcpServers: { nosyparker: { command: '/usr/bin/node', args: ['/srv/mcp-server.js'] } } },
+  );
+
+  // And it could not be checked, because gemini's binary is not on this
+  // machine's PATH, so the report must not claim it connected.
+  assert.doesNotMatch(printed(), /started the server/u);
+});
+
+test('the report never gives two clients the same word for different knowledge', (t) => {
+  const { io, printed } = machine(t, {
+    files: ['.config/Claude/claude_desktop_config.json', '.local/bin/zed', '.cursor/'],
+    pathDirs: [],
+  });
+
+  report(io, install(io));
+
+  // Claude Desktop and Zed were both written by us and neither can be asked.
+  assert.match(printed(), /Claude Desktop — written-unverified/u);
+  assert.match(printed(), /Zed — written-unverified/u);
+  assert.match(printed(), /nothing on this machine can confirm Zed reads it/u);
+
+  // Cursor is here with no config file, and is written through its own
+  // command — which is not on this machine, so it fails rather than being
+  // written behind the client's back.
+  assert.match(printed(), /Cursor — failed/u);
+  assert.match(printed(), /its own command could not be found/u);
+});
+
+test('a client with a working command reaches connected, and only then', (t) => {
+  const { io, printed } = machine(t, {
+    files: ['.config/Claude/claude-code/2.1.227/claude', '.claude.json'],
+    run: (argv) => {
+      if (argv[1] === 'mcp' && argv[2] === 'add') return { status: 0, stdout: '', stderr: '' };
+      return { status: 0, stdout: 'nosyparker: node /srv/mcp-server.js - ✔ Connected\n', stderr: '' };
+    },
+  });
+
+  // The client's own add command is the thing being stood in for, so the file
+  // has to end up holding the entry or the read-back correctly calls it a
+  // failure. Write it the way `claude mcp add --scope user` does.
+  const claudeJson = path.join(io.machine.home, '.claude.json');
+  const io2 = { ...io, run: (/** @type {string[]} */ argv) => {
+    if (argv[1] === 'mcp' && argv[2] === 'add') {
+      fs.writeFileSync(claudeJson, JSON.stringify({
+        mcpServers: { nosyparker: { command: '/usr/bin/node', args: ['/srv/mcp-server.js'] } },
+      }));
+      return { status: 0, stdout: 'Added stdio MCP server nosyparker\n', stderr: '' };
+    }
+    return { status: 0, stdout: 'nosyparker: node /srv/mcp-server.js - ✔ Connected\n', stderr: '' };
+  } };
+
+  report(io2, install(io2));
+
+  assert.match(printed(), /Claude Code — connected/u);
+  assert.match(printed(), /started the server and reported that it connected/u);
+});
+
+test('a client that is connected is not in the restart list, because it already works', (t) => {
+  const { io, printed } = machine(t, {
+    files: ['.config/Claude/claude-code/2.1.227/claude', '.claude.json', '.local/bin/zed'],
+  });
+
+  const claudeJson = path.join(io.machine.home, '.claude.json');
+  const wired = { ...io, run: (/** @type {string[]} */ argv) => {
+    if (argv[2] === 'add') {
+      fs.writeFileSync(claudeJson, '{"mcpServers":{"nosyparker":{"command":"/usr/bin/node"}}}');
+      return { status: 0, stdout: '', stderr: '' };
+    }
+    return { status: 0, stdout: 'nosyparker - ✔ Connected\n', stderr: '' };
+  } };
+
+  report(wired, install(wired));
+
+  const restarts = printed().slice(printed().indexOf('close and reopen these'));
+  assert.match(restarts, /Zed/u);
+  assert.doesNotMatch(restarts, /Claude Code/u);
+});
+
+test('the duplicate registration hazard is named when both sides of it are present', (t) => {
+  // VS Code 1.133 reads Claude Desktop's and Cursor's config files as well as
+  // its own. Somebody who sees the same server listed twice deserves to know
+  // why rather than assuming they installed it twice.
+  const { io, printed, home } = machine(t, {
+    files: ['.local/bin/code', '.config/Code/User/', '.config/Claude/claude_desktop_config.json'],
+    pathDirs: ['/home/nowhere'],
+  });
+
+  const wired = {
+    ...io,
+    machine: { ...io.machine, pathDirs: [path.join(home, '.local', 'bin')] },
+    run: (/** @type {string[]} */ argv) => {
+      const blob = JSON.parse(argv[2]);
+      const { name, ...entry } = blob;
+      fs.writeFileSync(
+        path.join(home, '.config', 'Code', 'User', 'mcp.json'),
+        JSON.stringify({ servers: { [name]: entry } }, null, 2),
+      );
+      return { status: 0, stdout: '', stderr: '' };
+    },
+  };
+
+  report(wired, install(wired));
+
+  assert.match(printed(), /VS Code — written\n/u);
+  assert.match(printed(), /Claude Desktop — written-unverified/u);
+  assert.match(printed(), /may appear more than once/u);
+});
+
+test('with only one side of it present there is nothing to warn about', (t) => {
+  const { io, printed } = machine(t, {
+    files: ['.config/Claude/claude_desktop_config.json'],
+  });
+
+  report(io, install(io));
+
+  assert.match(printed(), /Claude Desktop — written-unverified/u);
+  assert.doesNotMatch(printed(), /may appear more than once/u);
+});
+
+test('uninstall takes our entry out and leaves everything else alone', (t) => {
+  const { io } = machine(t, { files: ['.gemini/'] });
+  const settings = path.join(io.machine.home, '.gemini', 'settings.json');
+
+  fs.writeFileSync(settings, '{\n  "theme": "dark",\n  "mcpServers": {\n    "theirs": {"command": "x"}\n  }\n}\n');
+  const before = fs.readFileSync(settings, 'utf8');
+
+  install(io);
+  assert.notEqual(fs.readFileSync(settings, 'utf8'), before);
+
+  const outcomes = uninstall(io);
+  assert.equal(outcomes.find((outcome) => outcome.client.id === 'gemini-cli')?.written?.outcome, 'removed');
+  assert.equal(fs.readFileSync(settings, 'utf8'), before);
+});
+
+test('uninstall run twice is not an error the second time', (t) => {
+  const { io } = machine(t, { files: ['.gemini/'] });
+
+  install(io);
+  uninstall(io);
+  const again = uninstall(io);
+
+  assert.equal(again.find((outcome) => outcome.client.id === 'gemini-cli')?.written?.outcome, 'absent');
+});
+
+test('--print-config with no client prints the shape that works nearly everywhere', (t) => {
+  const { io, printed } = machine(t, {});
+
+  printConfig(io, null);
+
+  const blob = JSON.parse(printed().slice(printed().indexOf('{'), printed().lastIndexOf('}') + 1));
+  assert.deepEqual(blob, {
+    mcpServers: {
+      nosyparker: { type: 'stdio', command: '/usr/bin/node', args: ['/srv/mcp-server.js'] },
+    },
+  });
+
+  // And the two things a person needs after pasting it.
+  assert.match(printed(), /"servers".*"context_servers".*"extensions"/su);
+  assert.match(printed(), /restart the application/u);
+});
+
+test('--print-config for a client nobody has heard of does not dead-end', (t) => {
+  const { io, printed } = machine(t, {});
+
+  printConfig(io, 'some-editor-released-last-tuesday');
+
+  assert.match(printed(), /There is no client called "some-editor-released-last-tuesday"/u);
+  assert.match(printed(), /--print-config with no name/u);
+});
+
+test('--print-config for a known client prints its own shape, not the common one', (t) => {
+  const { io, printed } = machine(t, {});
+
+  printConfig(io, 'goose');
+
+  assert.match(printed(), /cmd: \/usr\/bin\/node/u, 'cmd, because Goose is the one that says cmd');
+  assert.match(printed(), /enabled: true/u);
+  assert.doesNotMatch(printed(), /"mcpServers"/u);
+  assert.match(printed(), /config\.yaml/u);
+});
+
+test('--print-config names the traps, so a hand install hits none of them', (t) => {
+  const { io, printed } = machine(t, {});
+
+  printConfig(io, 'zed');
+
+  assert.match(printed(), /source: "custom"` is not required/u);
+  assert.match(printed(), /Quit and reopen Zed/u);
+});
+
+test('--print-config for a client with no path on this platform says why', (t) => {
+  const { io, printed } = machine(t, {});
+  io.machine.platform = 'darwin';
+
+  printConfig(io, 'zed');
+
+  assert.match(printed(), /could not establish one, and a guess here would be a file nobody reads/u);
+});

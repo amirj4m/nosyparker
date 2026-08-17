@@ -10,6 +10,7 @@
 
 import { defaultStorePath, LOCAL_OWNER, systemClock } from './config.js';
 import { forget, restore, screenQuery, submit } from './gate.js';
+import { defaultIo, install, printConfig, report, uninstall } from './setup.js';
 import { listDecisions, listMemories, openStore, searchMemories } from './store.js';
 
 main(process.argv.slice(2));
@@ -21,6 +22,15 @@ function main(argv) {
   const [command, ...rest] = argv;
 
   if (!command) fail('No command was given.');
+
+  // Wiring this machine's agents up to the store, and unwiring them, are the
+  // two commands that have nothing to do with the store. They are answered
+  // before it is opened, so that setting nosyparker up does not create a
+  // memory file as a side effect of being asked where the config files are.
+  if (command === 'setup' || command === 'uninstall') {
+    runSetup(command, rest);
+    return;
+  }
 
   // Opening can fail, and the one way it is meant to is worth catching: a
   // store written by a different version of this code is refused at the door,
@@ -63,6 +73,26 @@ function main(argv) {
   } finally {
     store.close();
   }
+}
+
+/**
+ * `setup`, `setup --print-config [client]`, and `uninstall`.
+ *
+ * @param {string} command
+ * @param {string[]} args
+ */
+function runSetup(command, args) {
+  const io = defaultIo();
+
+  if (command === 'setup' && args[0] === '--print-config') {
+    if (args.length > 2) fail('--print-config takes at most one client name.');
+    printConfig(io, args[1] ?? null);
+    return;
+  }
+
+  if (args.length > 0) fail(`"${command}" does not take ${args[0]}.`);
+
+  report(io, command === 'setup' ? install(io) : uninstall(io));
 }
 
 /**
