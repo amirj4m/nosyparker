@@ -72,6 +72,12 @@ export function backupOnce({ file, clientId, backupDir, now }) {
   const name = backupNameFor(file, clientId, manifest);
   const backupPath = existed ? path.join(backupDir, name) : null;
 
+  // Which directories are about to come into existence because of us. Recorded
+  // before anything is written, because afterwards there is no way to tell a
+  // directory we made from one that was always there — and an uninstall that
+  // cannot tell leaves either a mess or a hole.
+  const created = existed ? [] : missingAncestors(file);
+
   fs.mkdirSync(backupDir, { recursive: true });
 
   if (existed && backupPath !== null) {
@@ -82,15 +88,50 @@ export function backupOnce({ file, clientId, backupDir, now }) {
     fs.chmodSync(backupPath, fs.statSync(file).mode & 0o777);
   }
 
-  manifest[name] = { path: file, backup: backupPath, existed, takenAt: now, client: clientId };
+  manifest[name] = { path: file, backup: backupPath, existed, takenAt: now, client: clientId, created };
   writeManifest(manifestPath, manifest);
 
   return { made: existed, backupPath, existed };
 }
 
 /**
+ * What this file was recorded as, if anything.
+ *
+ * @param {string} file
+ * @param {string} backupDir
+ * @returns {{existed: boolean, created: string[]}|null}
+ */
+export function manifestRowFor(file, backupDir) {
+  const row = Object.values(readManifest(path.join(backupDir, MANIFEST_NAME)))
+    .find((candidate) => candidate.path === file);
+
+  return row === undefined ? null : { existed: row.existed, created: row.created ?? [] };
+}
+
+/**
+ * The directories on the way to this file that are not there yet.
+ *
+ * Nearest first, which is the order they have to be removed in.
+ *
+ * @param {string} file
+ * @returns {string[]}
+ */
+function missingAncestors(file) {
+  /** @type {string[]} */
+  const missing = [];
+
+  let dir = path.dirname(file);
+  while (!fs.existsSync(dir) && path.dirname(dir) !== dir) {
+    missing.push(dir);
+    dir = path.dirname(dir);
+  }
+
+  return missing;
+}
+
+/**
  * @param {string} manifestPath
- * @returns {Record<string, {path: string, backup: string|null, existed: boolean, takenAt: string, client: string}>}
+ * @returns {Record<string, {path: string, backup: string|null, existed: boolean, takenAt: string, client: string, created?: string[]}>}
  */
 export function readManifest(manifestPath) {
   try {

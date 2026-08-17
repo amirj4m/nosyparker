@@ -33,7 +33,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 import { fillArgv, fillTokens } from './clients.js';
-import { backupOnce } from './backup.js';
+import { backupOnce, manifestRowFor } from './backup.js';
 import { anyRunning } from './detect.js';
 import { hasEntry, insertEntry, removeEntry } from './edit.js';
 
@@ -156,6 +156,7 @@ export function removeFromClient(client, options) {
           `${path.basename(argv[0])} reported success and the entry is still in ${options.configPath}.`);
       }
 
+      removeWhatWasOnlyEverOurs(client, options, request);
       return result('cli', options.configPath, null, REMOVED, null);
     }
 
@@ -174,9 +175,53 @@ export function removeFromClient(client, options) {
         'The entry is still in the file after being removed from it.');
     }
 
+    removeWhatWasOnlyEverOurs(client, options, request);
     return result('file', options.configPath, null, REMOVED, null);
   } catch (error) {
     return result('file', options.configPath, null, FAILED, sentence(error));
+  }
+}
+
+/**
+ * A file that exists only because we made it, and now holds nothing.
+ *
+ * The rule everywhere else is that we never remove what we did not add. This is
+ * the other half of the same rule: a config file for a client that had none, an
+ * empty `mcpServers` object nobody wrote, and a directory tree made to hold
+ * them are things we did add, and leaving them behind is not "everything else
+ * untouched" — it is litter that outlives the install.
+ *
+ * It bit us. A run created `.../globalStorage/saoudrizwan.claude-dev/` for
+ * Cline, and after uninstalling, that directory was still the evidence that
+ * Cline was installed. The next setup would have found it again.
+ *
+ * The test for "only ever ours" is exact rather than approximate: the file's
+ * text has to equal what is left when our entry is taken out of a file that
+ * contained nothing but our entry. One byte of anybody else's and it stays.
+ *
+ * @param {any} client
+ * @param {WriteOptions} options
+ * @param {import('./edit.js').EditRequest} request
+ */
+function removeWhatWasOnlyEverOurs(client, options, request) {
+  const row = manifestRowFor(options.configPath, options.backupDir);
+  if (row === null || row.existed) return;
+
+  const current = readOrEmpty(options.configPath);
+  const shell = client.entry === null
+    ? ''
+    : removeEntry(insertEntry('', request), request);
+
+  if (current.trim() !== '' && current !== shell) return;
+
+  fs.rmSync(options.configPath, { force: true });
+
+  for (const dir of row.created) {
+    try {
+      fs.rmdirSync(dir);
+    } catch {
+      return; // something else is in it, and it is not ours to empty
+    }
   }
 }
 

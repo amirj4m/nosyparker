@@ -312,6 +312,72 @@ test('the uninstall report on a machine with nothing of ours says exactly that',
   assert.match(printed(), /Nothing to remove/u);
 });
 
+test('a config file that exists only because we made it goes away again', (t) => {
+  // The other half of "never remove what we did not add". A file for a client
+  // that had none, and the directories made to hold it, are things we did add.
+  const { io, home } = machine(t, { files: ['.gemini/'] });
+  const settings = path.join(home, '.gemini', 'settings.json');
+
+  install(io);
+  assert.equal(fs.existsSync(settings), true);
+
+  uninstall(io);
+
+  assert.equal(fs.existsSync(settings), false, 'no empty shell left behind');
+  assert.equal(fs.existsSync(path.join(home, '.gemini')), true, 'and their directory is still theirs');
+});
+
+test('the directories we made to hold it go too, or a client stays detected for ever', (t) => {
+  // This is the Cline case. A run created
+  // .../globalStorage/saoudrizwan.claude-dev/settings/ for a client that was
+  // never installed, and after uninstalling, that directory was still the
+  // evidence that it was.
+  const { io, home } = machine(t, {
+    files: ['.config/Code/User/globalStorage/saoudrizwan.claude-dev/'],
+  });
+  const settings = path.join(home, '.config', 'Code', 'User', 'globalStorage',
+    'saoudrizwan.claude-dev', 'settings', 'cline_mcp_settings.json');
+
+  install(io);
+  assert.equal(fs.existsSync(settings), true);
+
+  uninstall(io);
+
+  assert.equal(fs.existsSync(path.dirname(settings)), false, 'the settings directory was ours');
+  assert.equal(
+    fs.existsSync(path.join(home, '.config', 'Code', 'User', 'globalStorage', 'saoudrizwan.claude-dev')),
+    true,
+    'the extension\'s own directory was not',
+  );
+});
+
+test('a file with one byte of somebody else\'s in it stays, however empty of ours', (t) => {
+  const { io, home } = machine(t, { files: ['.gemini/'] });
+  const settings = path.join(home, '.gemini', 'settings.json');
+
+  install(io);
+
+  const withTheirs = JSON.parse(fs.readFileSync(settings, 'utf8'));
+  withTheirs.theme = 'dark';
+  fs.writeFileSync(settings, JSON.stringify(withTheirs, null, 2));
+
+  uninstall(io);
+
+  assert.equal(fs.existsSync(settings), true);
+  assert.deepEqual(JSON.parse(fs.readFileSync(settings, 'utf8')), { mcpServers: {}, theme: 'dark' });
+});
+
+test('a file that was there before we arrived is never deleted', (t) => {
+  const { io, home } = machine(t, { files: ['.gemini/'] });
+  const settings = path.join(home, '.gemini', 'settings.json');
+  fs.writeFileSync(settings, '{"mcpServers": {}}\n');
+
+  install(io);
+  uninstall(io);
+
+  assert.equal(fs.existsSync(settings), true);
+});
+
 test('the backup taken at install is left alone by uninstall', (t) => {
   const { io } = machine(t, { files: ['.gemini/'] });
   const settings = path.join(io.machine.home, '.gemini', 'settings.json');
