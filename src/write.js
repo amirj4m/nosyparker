@@ -201,7 +201,7 @@ function writeThroughFile(client, options, request) {
 
 /**
  * @param {any} client
- * @param {WriteOptions} options
+ * @param {{name: string, command: string, serverPath: string}} options
  * @returns {import('./edit.js').EditRequest}
  */
 export function editRequest(client, options) {
