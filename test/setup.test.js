@@ -87,7 +87,7 @@ test('a machine with nothing on it installs nothing and says so', (t) => {
 
   report(io, install(io));
 
-  assert.match(printed(), /Looked for 14 clients\. Found 0\./u);
+  assert.match(printed(), /Looked for 15 clients\. Found 0\./u);
   assert.match(printed(), /Not on this machine: /u);
   assert.doesNotMatch(printed(), /connected/u);
 });
@@ -349,6 +349,71 @@ test('the directories we made to hold it go too, or a client stays detected for 
     true,
     'the extension\'s own directory was not',
   );
+});
+
+test('scaffolding a client wrote for itself does not save a file we caused', (t) => {
+  // The case that made the first version of this rule too narrow. VS Code's and
+  // Devin's own --add-mcp write `"inputs": []` beside the servers object, in
+  // their own tab indentation. Neither is something we asked for or could have
+  // predicted, and on a real machine both files survived their own uninstall
+  // because of it — on a machine where neither file had existed an hour before.
+  const { io, home } = machine(t, { files: ['.local/bin/code'] });
+  const mcp = path.join(home, '.config', 'Code', 'User', 'mcp.json');
+
+  const wired = {
+    ...io,
+    machine: { ...io.machine, pathDirs: [path.join(home, '.local', 'bin')] },
+    run: (/** @type {string[]} */ argv) => {
+      const { name, ...entry } = JSON.parse(argv[2]);
+      fs.mkdirSync(path.dirname(mcp), { recursive: true });
+      fs.writeFileSync(mcp, `{\n\t"servers": {\n\t\t${JSON.stringify(name)}: ${JSON.stringify(entry)}\n\t},\n\t"inputs": []\n}`);
+      return { status: 0, stdout: '', stderr: '' };
+    },
+  };
+
+  assert.equal(install(wired).find((outcome) => outcome.client.id === 'vscode')?.written?.outcome, 'written');
+  assert.equal(fs.existsSync(mcp), true);
+
+  // Removal leaves `{"servers":{},"inputs":[]}`, which holds nothing anybody
+  // would miss, in a file that did not exist before we ran.
+  const removed = { ...wired, run: () => ({ status: 0, stdout: '', stderr: '' }) };
+  uninstall(removed);
+
+  assert.equal(fs.existsSync(mcp), false);
+});
+
+test('an empty container is not the same as an empty-named entry', (t) => {
+  // `{"servers":{"theirs":{}}}` holds something: somebody named `theirs`. The
+  // check is conservative in exactly one direction — it may leave a file that
+  // was in fact empty, and must never remove one that was not.
+  const { io, home } = machine(t, { files: ['.gemini/'] });
+  const settings = path.join(home, '.gemini', 'settings.json');
+
+  install(io);
+
+  const held = JSON.parse(fs.readFileSync(settings, 'utf8'));
+  held.mcpServers.theirs = {};
+  fs.writeFileSync(settings, JSON.stringify(held));
+
+  uninstall(io);
+
+  assert.equal(fs.existsSync(settings), true);
+  assert.deepEqual(JSON.parse(fs.readFileSync(settings, 'utf8')), { mcpServers: { theirs: {} } });
+});
+
+test('a comment in a file we created keeps that file, because a person wrote it', (t) => {
+  const { io, home } = machine(t, { files: ['.local/bin/zed'] });
+  const settings = path.join(home, '.config', 'zed', 'settings.json');
+
+  install(io);
+
+  const text = fs.readFileSync(settings, 'utf8');
+  fs.writeFileSync(settings, `// I turned this off on purpose\n${text}`);
+
+  uninstall(io);
+
+  assert.equal(fs.existsSync(settings), true);
+  assert.match(fs.readFileSync(settings, 'utf8'), /I turned this off on purpose/u);
 });
 
 test('a file with one byte of somebody else\'s in it stays, however empty of ours', (t) => {

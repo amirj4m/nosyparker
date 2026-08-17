@@ -167,9 +167,13 @@ function fromLines(client, options, blockers) {
       status: connected ? CONNECTED : CONFIG_CONFIRMED,
       tier: client.verify.tier,
       declaredTier: client.verify.tier,
-      says: connected
+      // A row may say this in its own words, and one does. Codex and Goose both
+      // report the enable flag; Copilot's output has never been seen, so its row
+      // claims only that the server was listed. The default sentence would be
+      // claiming a field we have no evidence it prints.
+      says: client.verify.says ?? (connected
         ? `${client.name} started the server and reported that it connected.`
-        : `${client.name} read its own config back and our entry is in it, enabled.`,
+        : `${client.name} read its own config back and our entry is in it, enabled.`),
       cannotProve: client.verify.cannotProve,
       blockers,
     };

@@ -38,16 +38,18 @@ function row(id) {
   return client;
 }
 
-test('the table carries the fourteen clients the research drew the line around', () => {
+test('the table carries the fifteen clients the research drew the line around', () => {
   // E.4 puts the line at seven verified, three installed-but-unverifiable and
-  // four carried from documentation. Written out rather than counted, so that
-  // adding a client is a decision somebody makes here rather than a row that
-  // appears.
+  // four carried from documentation. Copilot CLI is the fifteenth: the research
+  // contradicts itself about it — the prose says the table carries it, the tier
+  // lists omit it — and the owner settled it in. Written out rather than
+  // counted, so that adding a client is a decision somebody makes here rather
+  // than a row that appears.
   const { clients } = loadClients();
   assert.deepEqual(
     clients.map((client) => client.id).sort(),
     [
-      'claude-code', 'claude-desktop', 'cline', 'codex-cli', 'continue', 'cursor',
+      'claude-code', 'claude-desktop', 'cline', 'codex-cli', 'continue', 'copilot-cli', 'cursor',
       'devin-desktop', 'gemini-cli', 'goose', 'junie', 'kimi-code', 'vscode', 'warp', 'zed',
     ],
   );
@@ -62,8 +64,39 @@ test('the table carries the fourteen clients the research drew the line around',
   );
   assert.deepEqual(
     clients.filter((client) => client.tier === 3).map((client) => client.id).sort(),
-    ['cline', 'continue', 'junie', 'warp'],
+    ['cline', 'continue', 'copilot-cli', 'junie', 'warp'],
   );
+});
+
+test('Copilot CLI is carried on documentation alone, and says so in every field', () => {
+  // It has never been installed or run here, and the research records only what
+  // its documentation says. Two things follow, and both are deliberate.
+  const copilot = row('copilot-cli');
+
+  assert.equal(copilot.evidence, 'DOCS');
+  assert.equal(copilot.tier, 3);
+
+  // Its own documentation puts `copilot mcp list` in the same class as
+  // `claude mcp list` — a health check. We carry it one step below that,
+  // because every vendor command that turned out to lie was caught by running
+  // it, and nobody has run this one.
+  assert.equal(copilot.verify.tier, 'B+');
+  assert.match(copilot.verify.cannotProve, /nobody has run it/u);
+
+  // Written by file, because the path and the entry shape are documented and
+  // the arguments its add command takes are not. Writing the file invents
+  // nothing; guessing an argument order would.
+  assert.equal(copilot.write.method, 'file');
+  assert.deepEqual(fillTokens(copilot.entry, VALUES), {
+    type: 'local',
+    command: '/usr/bin/node',
+    args: ['/srv/mcp-server.js'],
+  });
+
+  // The community table cannot corroborate any of it: what it lists under that
+  // name is the Copilot coding agent, a web connector with no local config.
+  assert.equal(copilot.upstreamId, null);
+  assert.match(copilot.traps.join(' '), /not in the community clients\.json at all/u);
 });
 
 test('each entry is the shape that client was measured to take', () => {
@@ -158,6 +191,7 @@ test('the verification tiers are the ones the research earned, not one green tic
     'gemini-cli': 'A',
     'codex-cli': 'B+',
     goose: 'B+',
+    'copilot-cli': 'B+',
     vscode: 'B',
     cursor: 'C',
     'devin-desktop': 'B',

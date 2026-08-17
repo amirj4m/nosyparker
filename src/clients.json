@@ -339,6 +339,79 @@
       "upstreamId": "goose"
     },
     {
+      "id": "copilot-cli",
+      "name": "GitHub Copilot CLI",
+      "tier": 3,
+      "evidence": "DOCS",
+      "transports": [
+        "stdio"
+      ],
+      "format": "json",
+      "rootKey": "mcpServers",
+      "configPaths": {
+        "linux": "~/.copilot/mcp-config.json",
+        "darwin": "~/.copilot/mcp-config.json",
+        "win32": "~/.copilot/mcp-config.json"
+      },
+      "extraConfigPaths": [],
+      "entry": {
+        "type": "local",
+        "command": "{{command}}",
+        "args": [
+          "{{serverPath}}"
+        ]
+      },
+      "requiredFields": [
+        "type"
+      ],
+      "detect": {
+        "commands": [
+          "copilot"
+        ],
+        "paths": [
+          "~/.copilot"
+        ]
+      },
+      "write": {
+        "method": "file",
+        "argv": null,
+        "why": "The documentation records `copilot mcp add`, but not the arguments it takes, and nothing here has ever been run. The file path and the entry shape are documented, so writing the file invents nothing; guessing an argument order would."
+      },
+      "remove": {
+        "method": "file",
+        "argv": null
+      },
+      "verify": {
+        "tier": "B+",
+        "method": "cli-lines",
+        "argv": [
+          "copilot",
+          "mcp",
+          "list"
+        ],
+        "connected": "^[^\\n]*\\b{{name}}\\b",
+        "failed": null,
+        "says": "GitHub Copilot CLI listed the server, so it read its own configuration and holds our entry.",
+        "proves": "Copilot parsed its config and our entry is in it",
+        "cannotProve": "that the server runs. The documentation describes `copilot mcp list` as a health check and nobody has run it — every vendor command that turned out to lie was caught by running it, so this row claims the weaker thing until somebody does."
+      },
+      "blockers": [],
+      "traps": [
+        "Nothing in this row has been run or installed. It is documentation only, and the tier is deliberately one step below what that documentation claims.",
+        "The documentation gives one home-relative config path and does not break it down by operating system, so the same path is carried for all three.",
+        "The official examples write \"type\": \"local\" rather than \"stdio\", though the documentation says both are accepted. We write what the vendor's own examples write.",
+        "This client is not in the community clients.json at all, so the drift watcher can say nothing about it. What is listed there is the Copilot coding agent, which is a web connector with no local config file and a different product."
+      ],
+      "restart": "Start a new copilot session.",
+      "lastVerified": {
+        "configPaths": "2026-08-17",
+        "write": "2026-08-17",
+        "verify": "2026-08-17",
+        "traps": "2026-08-17"
+      },
+      "upstreamId": null
+    },
+    {
       "id": "vscode",
       "name": "VS Code",
       "tier": 1,

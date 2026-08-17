@@ -173,6 +173,24 @@ test('Goose echoing its parsed config is config-confirmed, not connected', () =>
   assert.match(/** @type {string} */ (checked.cannotProve), /no liveness check/u);
 });
 
+test('Copilot claims only what its row claims, not what the default sentence would', () => {
+  // Codex and Goose both report the enable flag, so the shared sentence for
+  // this tier says "enabled". Copilot's output has never been seen by anybody
+  // here, so its row supplies its own words and claims only that the server was
+  // listed. The difference is one word and it is the difference between
+  // reporting evidence and reporting an assumption.
+  const client = clientById('copilot-cli');
+
+  const checked = verifyClient(client, options(client, {
+    run: saying('nosyparker  local  node /srv/mcp-server.js\n'),
+  }));
+
+  assert.equal(checked.status, CONFIG_CONFIRMED);
+  assert.match(checked.says, /listed the server/u);
+  assert.doesNotMatch(checked.says, /enabled/u);
+  assert.match(/** @type {string} */ (checked.cannotProve), /nobody has run it/u);
+});
+
 test('a client written by its own command and read back from the file says written', (t) => {
   const client = clientById('vscode');
   const configPath = path.join(directory(t), 'mcp.json');
