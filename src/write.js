@@ -26,6 +26,16 @@
  * byte" means as an assertion rather than an intention. It also means we notice
  * an application that rewrote the file underneath us between our write and our
  * read — Devin and Claude Desktop both do that while they are running.
+ *
+ * One boundary on that guarantee, stated because it is real and small rather
+ * than left to be discovered. Every byte outside the container our entry goes
+ * into is untouched, across the whole round trip. The container's own interior
+ * whitespace is not: a `"mcpServers": {}` written on one line opens onto two
+ * when our entry goes in, and stays open when it comes out. Closing it again
+ * would mean having recorded the whitespace that was inside it, and the cheap
+ * alternative — collapsing any empty object we find — is guessing at somebody's
+ * formatting rather than restoring it. A container that was not there at all
+ * before we ran is removed entirely, which is the case that actually mattered.
  */
 
 import fs from 'node:fs';
@@ -35,7 +45,15 @@ import { spawnSync } from 'node:child_process';
 import { fillArgv, fillTokens } from './clients.js';
 import { manifestRowFor, recordFirstTouch } from './backup.js';
 import { anyRunning } from './detect.js';
-import { hasEntry, insertEntry, removeEntry, stripComments, withoutTrailingCommas } from './edit.js';
+import {
+  hadRootKey,
+  hasEntry,
+  insertEntry,
+  removeEmptyRootKey,
+  removeEntry,
+  stripComments,
+  withoutTrailingCommas,
+} from './edit.js';
 
 /** The entry went in, and was found again afterwards. */
 export const WRITTEN = 'written';
@@ -162,7 +180,16 @@ export function removeFromClient(client, options) {
 
     if (!hasEntry(before, request)) return result('file', options.configPath, null, ABSENT, null);
 
-    const after = removeEntry(before, request);
+    // Our entry, and then the container we put it in if that was ours too. A
+    // file that already existed is never deleted, but leaving an empty
+    // `mcpServers` key in it that was not there before is still a change we
+    // made and did not reverse — observed in three real files before this was
+    // closed.
+    const row = manifestRowFor(options.configPath, options.backupDir);
+    const after = row !== null && !row.rootKeyExisted
+      ? removeEmptyRootKey(removeEntry(before, request), request)
+      : removeEntry(before, request);
+
     writePreservingMode(options.configPath, after);
 
     const readBack = readOrEmpty(options.configPath);
@@ -355,6 +382,7 @@ function writeThroughFile(client, options, request) {
     backupDir: options.backupDir,
     now: options.now,
     weEdit: true,
+    rootKeyExisted: hadRootKey(before, request),
   });
 
   if (wanted === before) return result('file', options.configPath, backup, UNCHANGED, null);

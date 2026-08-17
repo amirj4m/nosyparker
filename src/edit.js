@@ -193,8 +193,74 @@ function removeJson(text, request) {
   const root = /** @type {number} */ (rootObject(text));
   const section = /** @type {{valueStart: number}} */ (memberOf(text, root, request.rootKey));
   const objectStart = skipTrivia(text, section.valueStart);
+
+  return removeMemberFrom(text, objectStart, request.name,
+    'The entry could not be removed without leaving the file unreadable.');
+}
+
+/**
+ * Did this file already have the key our entry goes under.
+ *
+ * Asked before the first write and written into the manifest, because after the
+ * write the answer is always yes and there is no way back to it.
+ *
+ * @param {string} text
+ * @param {EditRequest} request
+ * @returns {boolean}
+ */
+export function hadRootKey(text, request) {
+  if (request.format !== 'json' && request.format !== 'jsonc') return true;
+  if (text.trim() === '') return false;
+
+  const root = rootObject(text);
+  return root !== null && memberOf(text, root, request.rootKey) !== null;
+}
+
+/**
+ * Take the root key out, if we are the ones who put it there and it is empty.
+ *
+ * The other half of a guarantee that was only half kept. A file that already
+ * existed is never deleted — right — but if it had no `mcpServers` key and now
+ * has an empty one, that key is a change of ours that uninstall was leaving
+ * behind. Three real files were observed carrying one: opencode's, LM Studio's
+ * and Zed's.
+ *
+ * The same evidence discipline as everywhere else. Whether the key was there
+ * before is recorded at the moment before the first write, because it cannot be
+ * established afterwards, and the caller passes that record in. An empty
+ * container that was already in the file stays exactly where it is.
+ *
+ * @param {string} text
+ * @param {EditRequest} request
+ * @returns {string}
+ */
+export function removeEmptyRootKey(text, request) {
+  if (request.format !== 'json' && request.format !== 'jsonc') return text;
+
+  const root = rootObject(text);
+  if (root === null) return text;
+
+  const section = memberOf(text, root, request.rootKey);
+  if (section === null) return text;
+
+  const objectStart = skipTrivia(text, section.valueStart);
+  if (text[objectStart] !== '{') return text;
+  if (firstMember(text, objectStart) !== null) return text;
+
+  return removeMemberFrom(text, root, request.rootKey,
+    'The empty key could not be removed without leaving the file unreadable.');
+}
+
+/**
+ * @param {string} text
+ * @param {number} objectStart
+ * @param {string} key
+ * @param {string} complaint
+ * @returns {string}
+ */
+function removeMemberFrom(text, objectStart, key, complaint) {
   const ours = /** @type {{keyStart: number, valueEnd: number}} */
-    (memberOf(text, objectStart, request.name));
+    (memberOf(text, objectStart, key));
 
   // The comma is the awkward part. A member that is not last owns the comma
   // after it; a member that is last is separated by the comma before it, which
@@ -217,7 +283,7 @@ function removeJson(text, request) {
   }
 
   const removed = text.slice(0, from) + text.slice(to);
-  parseCheck(removed, 'The entry could not be removed without leaving the file unreadable.');
+  parseCheck(removed, complaint);
   return removed;
 }
 
@@ -251,7 +317,20 @@ function spliceIntoObject(text, objectStart, member) {
   const base = lineIndent(text, objectStart);
   const indent = `${base}  `;
   const at = objectStart + 1;
-  return `${text.slice(0, at)}\n${indent}${indentBy(member, indent)}\n${base}${text.slice(at)}`;
+
+  // Whatever whitespace is already sitting between the braces is replaced
+  // rather than inserted in front of, so that `{}` and `{\n  }` both become the
+  // same thing. Inserting in front of it looks identical the first time and
+  // accumulates a blank line on every install-and-uninstall cycle after that,
+  // which is how it was found.
+  //
+  // Only whitespace. A comment between the braces is somebody's and stays where
+  // it is, even at the cost of the blank line.
+  const close = skipTrivia(text, at);
+  const between = text.slice(at, close);
+  const resume = text[close] === '}' && between.trim() === '' ? close : at;
+
+  return `${text.slice(0, at)}\n${indent}${indentBy(member, indent)}\n${base}${text.slice(resume)}`;
 }
 
 /**

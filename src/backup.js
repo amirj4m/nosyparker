@@ -77,9 +77,12 @@ export function defaultBackupDir(home) {
  * @param {string} request.backupDir
  * @param {string} request.now an ISO 8601 timestamp
  * @param {boolean} request.weEdit false when the client's own command writes it
+ * @param {boolean} [request.rootKeyExisted] whether the file already had the key
+ *   our entry goes under, asked before the first write because it cannot be
+ *   asked afterwards
  * @returns {BackupResult}
  */
-export function recordFirstTouch({ file, clientId, backupDir, now, weEdit }) {
+export function recordFirstTouch({ file, clientId, backupDir, now, weEdit, rootKeyExisted }) {
   const manifestPath = path.join(backupDir, MANIFEST_NAME);
   const manifest = readManifest(manifestPath);
 
@@ -116,6 +119,7 @@ export function recordFirstTouch({ file, clientId, backupDir, now, weEdit }) {
     takenAt: now,
     client: clientId,
     created,
+    rootKeyExisted,
     // Written down rather than inferred, so that a person reading the manifest
     // can tell a file we chose not to copy from one there was nothing to copy
     // of. The two look identical from a null.
@@ -133,13 +137,19 @@ export function recordFirstTouch({ file, clientId, backupDir, now, weEdit }) {
  *
  * @param {string} file
  * @param {string} backupDir
- * @returns {{existed: boolean, created: string[]}|null}
+ * @returns {{existed: boolean, created: string[], rootKeyExisted: boolean}|null}
  */
 export function manifestRowFor(file, backupDir) {
   const row = Object.values(readManifest(path.join(backupDir, MANIFEST_NAME)))
     .find((candidate) => candidate.path === file);
 
-  return row === undefined ? null : { existed: row.existed, created: row.created ?? [] };
+  return row === undefined ? null : {
+    existed: row.existed,
+    created: row.created ?? [],
+    // Absent in a manifest written before this was recorded. Treated as "it was
+    // already there", which is the answer that changes nothing.
+    rootKeyExisted: row.rootKeyExisted ?? true,
+  };
 }
 
 /**
@@ -165,7 +175,7 @@ function missingAncestors(file) {
 
 /**
  * @param {string} manifestPath
- * @returns {Record<string, {path: string, backup: string|null, existed: boolean, takenAt: string, client: string, created?: string[], whyNoBackup?: string}>}
+ * @returns {Record<string, {path: string, backup: string|null, existed: boolean, takenAt: string, client: string, created?: string[], whyNoBackup?: string, rootKeyExisted?: boolean}>}
  */
 export function readManifest(manifestPath) {
   try {

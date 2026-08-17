@@ -482,8 +482,37 @@ test('a file with one byte of somebody else\'s in it stays, however empty of our
 
   uninstall(io);
 
+  // The file stays, because a person's `theme` is in it. The empty mcpServers
+  // container does not, because that key was not in the file before we ran and
+  // is as much ours to take back as the entry inside it was.
   assert.equal(fs.existsSync(settings), true);
-  assert.deepEqual(JSON.parse(fs.readFileSync(settings, 'utf8')), { mcpServers: {}, theme: 'dark' });
+  assert.deepEqual(JSON.parse(fs.readFileSync(settings, 'utf8')), { theme: 'dark' });
+});
+
+test('a container that was already in the file is left where it is', (t) => {
+  // The other side of the same rule, and the one that has to hold: an empty
+  // `mcpServers` a person wrote themselves is not ours to tidy away.
+  const { io, home } = machine(t, { files: ['.gemini/'] });
+  const settings = path.join(home, '.gemini', 'settings.json');
+  fs.writeFileSync(settings, '{\n  "mcpServers": {},\n  "theme": "dark"\n}\n');
+
+  install(io);
+  uninstall(io);
+
+  const after = fs.readFileSync(settings, 'utf8');
+  assert.match(after, /"mcpServers"/u, 'their key survived');
+  assert.match(after, /"theme": "dark"/u, 'and so did the line after it');
+  assert.deepEqual(JSON.parse(after), { mcpServers: {}, theme: 'dark' });
+
+  // The one thing that does not come back exactly. Inserting into an object
+  // written as `{}` opens it onto two lines, and removing our entry leaves it
+  // open. Restoring that would mean having recorded the whitespace inside it,
+  // and the alternative — collapsing any empty object we find — is guessing at
+  // somebody's formatting rather than restoring it. So the guarantee is stated
+  // where it actually holds: every byte outside the container our entry goes
+  // into is untouched, and the container's own interior whitespace is not
+  // covered by it.
+  assert.equal(after, '{\n  "mcpServers": {\n  },\n  "theme": "dark"\n}\n');
 });
 
 test('a file that was there before we arrived is never deleted', (t) => {
@@ -628,6 +657,35 @@ test('--print-config names the traps, so a hand install hits none of them', (t) 
 
   assert.match(printed(), /source: "custom"` is not required/u);
   assert.match(printed(), /Quit and reopen Zed/u);
+});
+
+test('--print-config names the second file, for the clients that have one', (t) => {
+  // Two clients have two configuration files apiece, and both are VS Code forks
+  // that added their own agent — Devin first, then Kiro. That is a pattern
+  // rather than a quirk, and it costs no code: the second surface is a field on
+  // the row, so the second client to have one needed a row and nothing else.
+  const { io, printed } = machine(t, {});
+
+  printConfig(io, 'kiro');
+
+  assert.match(printed(), /Kiro has a second MCP configuration file/u);
+  assert.match(printed(), /\.kiro\/settings\/mcp\.json/u);
+  assert.match(printed(), /\(key "mcpServers"\)/u);
+  assert.match(printed(), /this is the file to add it to by hand/u);
+});
+
+test('--print-config for opencode prints the shape that is unlike all the others', (t) => {
+  const { io, printed } = machine(t, {});
+
+  printConfig(io, 'opencode');
+
+  assert.match(printed(), /Add this under "mcp"/u);
+  assert.match(printed(), /"type": "local"/u);
+
+  // One array holding the program and its arguments together. Getting this
+  // wrong is a hard failure rather than an ignored field.
+  assert.match(printed(), /"command": \[\n\s+"\/usr\/bin\/node",\n\s+"\/srv\/mcp-server\.js"\n\s+\]/u);
+  assert.doesNotMatch(printed(), /"args"/u);
 });
 
 test('--print-config for a client with no path on this platform says why', (t) => {

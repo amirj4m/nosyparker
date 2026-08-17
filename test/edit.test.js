@@ -12,7 +12,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { hasEntry, insertEntry, removeEntry, stripComments, withoutTrailingCommas } from '../src/edit.js';
+import {
+  hadRootKey,
+  hasEntry,
+  insertEntry,
+  removeEmptyRootKey,
+  removeEntry,
+  stripComments,
+  withoutTrailingCommas,
+} from '../src/edit.js';
 
 const ENTRY = { command: '/usr/bin/node', args: ['/srv/mcp-server.js'] };
 
@@ -134,6 +142,69 @@ test('a trailing comma is JSONC, not a broken file', () => {
     () => insertEntry('{\n  "vim_mode": true,,\n}', request),
     /not valid JSON/u,
   );
+});
+
+test('the container we added comes out too, and one that was there does not', () => {
+  /** @type {import('../src/edit.js').EditRequest} */
+  const request = { format: 'jsonc', rootKey: 'mcp', name: 'nosyparker', entry: ENTRY };
+
+  // opencode's real file: a schema line and nothing else. Uninstalling left it
+  // holding an empty `"mcp": {}` that had never been there — a change we made
+  // and did not reverse.
+  const theirs = '{\n  "$schema": "https://opencode.ai/config.json"\n}\n';
+  assert.equal(hadRootKey(theirs, request), false);
+
+  const after = insertEntry(theirs, request);
+  const emptied = removeEntry(after, request);
+  assert.match(emptied, /"mcp": \{/u, 'removing the entry alone leaves the container');
+
+  assert.equal(removeEmptyRootKey(emptied, request), theirs);
+
+  // This function only knows how to take an empty container out. Whether it
+  // *should* is the caller's decision and is made from the manifest, because
+  // this text cannot say whether the key was here an hour ago — `hadRootKey` is
+  // what answers that, and it has to be asked before the first write.
+  const mine = '{\n  "mcp": {},\n  "theme": "dark"\n}\n';
+  assert.equal(hadRootKey(mine, request), true);
+  assert.equal(hadRootKey(theirs, request), false);
+});
+
+test('installing and uninstalling repeatedly cannot grow the file', () => {
+  // Found on a real machine: opencode's and LM Studio's files each gained a
+  // blank line inside the container on every cycle, because the empty-object
+  // insert went in front of the whitespace already between the braces instead
+  // of replacing it. One cycle looked perfect; the fourth did not.
+  /** @type {import('../src/edit.js').EditRequest} */
+  const request = { format: 'json', rootKey: 'mcpServers', name: 'nosyparker', entry: ENTRY };
+
+  let text = '{\n  "mcpServers": {}\n}\n';
+  const afterOne = removeEntry(insertEntry(text, request), request);
+
+  for (let cycle = 0; cycle < 5; cycle += 1) {
+    text = removeEntry(insertEntry(text, request), request);
+  }
+
+  assert.equal(text, afterOne, 'the fifth cycle leaves exactly what the first did');
+  assert.deepEqual(JSON.parse(text), { mcpServers: {} });
+});
+
+test('a comment between the braces is not whitespace and is not replaced', () => {
+  /** @type {import('../src/edit.js').EditRequest} */
+  const request = { format: 'jsonc', rootKey: 'mcpServers', name: 'nosyparker', entry: ENTRY };
+  const before = '{\n  "mcpServers": {\n    // I removed mine on purpose\n  }\n}\n';
+
+  const after = insertEntry(before, request);
+
+  assert.ok(after.includes('// I removed mine on purpose'));
+  assert.equal(hasEntry(after, request), true);
+});
+
+test('a container with anything left in it is never removed', () => {
+  /** @type {import('../src/edit.js').EditRequest} */
+  const request = { format: 'json', rootKey: 'mcpServers', name: 'nosyparker', entry: ENTRY };
+  const withTheirs = '{\n  "mcpServers": {\n    "theirs": {"command": "x"}\n  }\n}\n';
+
+  assert.equal(removeEmptyRootKey(withTheirs, request), withTheirs);
 });
 
 test('a comma inside a string is not a trailing comma', () => {
