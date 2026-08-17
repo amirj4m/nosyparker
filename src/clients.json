@@ -41,6 +41,7 @@
       "requiredFields": [],
       "detect": {
         "commands": ["claude"],
+        "commandFallbacks": ["~/.config/Claude/claude-code/*/claude"],
         "paths": ["~/.config/Claude/claude-code", "~/.claude/settings.json"]
       },
       "write": {
@@ -96,6 +97,7 @@
       "requiredFields": [],
       "detect": {
         "commands": ["gemini"],
+        "commandFallbacks": ["~/.npm-global/bin/gemini"],
         "paths": ["~/.gemini"]
       },
       "write": {
@@ -417,6 +419,7 @@
       "requiredFields": ["type"],
       "detect": {
         "commands": ["devin-desktop", "windsurf"],
+        "commandFallbacks": ["~/.local/Devin/bin/devin-desktop", "~/.local/Devin/devin-desktop"],
         "paths": ["~/.local/Devin", "~/.config/Devin", "~/.codeium/windsurf"]
       },
       "write": {
