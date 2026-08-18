@@ -3,9 +3,18 @@
  * hand. It parses arguments, calls one function, and prints the result in
  * plain sentences. There is no logic here that is not about printing.
  *
- * Started through `cli.js`, which quietens one Node warning before anything
- * here loads `node:sqlite`. Run this file directly and the tool still works;
- * the only difference is the warning.
+ * Started through `cli.js`, which checks the Node version and quietens one Node
+ * warning before anything here loads `node:sqlite`. Both have to happen before
+ * that load, and a static import is hoisted above everything, which is why they
+ * live in the launcher rather than at the top of this file.
+ *
+ * Run this file directly and on a supported Node the tool still works, with the
+ * warning back. On a Node older than the launcher would have refused, it does
+ * not: the import of `store.js` fails first and what comes out is Node's own
+ * `ERR_UNKNOWN_BUILTIN_MODULE` and a stack trace through its module loader.
+ * Making that path give the sentence too would mean loading the store
+ * dynamically for the sake of an invocation nothing documents, and the honest
+ * fix for somebody who hits it is the launcher that exists.
  */
 
 import { defaultStorePath, LOCAL_OWNER, systemClock } from './config.js';

@@ -713,3 +713,47 @@ test('--print-config for a client with no path on this platform says why', (t) =
 
   assert.match(printed(), /could not establish one, and a guess here would be a file nobody reads/u);
 });
+
+test('a read-only config is not reported as an application to quit', (t) => {
+  // `not-written` has two causes and they want opposite things done. Selecting
+  // the closing line on the outcome told somebody to quit Cursor, which was not
+  // running — its configuration file was read-only.
+  const { io, printed, home } = machine(t, { files: ['.cursor/', '.config/Claude/claude_desktop_config.json'] });
+
+  const cursor = path.join(home, '.cursor', 'mcp.json');
+  fs.writeFileSync(cursor, '{"mcpServers": {}}\n');
+  fs.chmodSync(cursor, 0o444);
+
+  const wired = {
+    ...io,
+    machine: { ...io.machine, processes: () => ['claude-desktop'] },
+  };
+
+  report(wired, install(wired));
+
+  // Two clients, both not written, for two different reasons — and each gets
+  // the instruction that matches its own.
+  assert.match(printed(), /Quit Claude Desktop and run this again to finish\./u);
+  assert.match(printed(), /The configuration file for Cursor is read-only\./u);
+
+  // The thing that was wrong: Cursor must not appear in the quit line.
+  const quit = printed().split('\n').find((line) => line.startsWith('Quit ')) ?? '';
+  assert.doesNotMatch(quit, /Cursor/u);
+});
+
+test('two applications running are named together, as before', (t) => {
+  const { io, printed } = machine(t, {
+    files: ['.config/Claude/claude_desktop_config.json', '.local/Devin/', '.config/Devin/'],
+  });
+
+  const wired = {
+    ...io,
+    machine: { ...io.machine, processes: () => ['claude-desktop', 'devin-desktop'] },
+  };
+
+  report(wired, install(wired));
+
+  // Named in the table's order, which puts Devin before Claude Desktop.
+  assert.match(printed(), /Quit Devin Desktop \(formerly Windsurf\) and Claude Desktop and run this again/u);
+  assert.doesNotMatch(printed(), /read-only/u);
+});

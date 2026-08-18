@@ -88,6 +88,12 @@ export const REMOVED = 'removed';
  */
 export const NOT_WRITTEN = 'not-written';
 
+/** Why nothing was written: the application would overwrite it. */
+export const RUNNING = 'running';
+
+/** Why nothing was written: somebody set the file read-only. */
+export const READ_ONLY = 'read-only';
+
 /**
  * @typedef {object} WriteResult
  * @property {string} outcome
@@ -95,6 +101,10 @@ export const NOT_WRITTEN = 'not-written';
  * @property {string|null} path
  * @property {import('./backup.js').BackupResult|null} backup
  * @property {string|null} error
+ * @property {string|null} reason why, for an outcome that has more than one
+ *   cause — `not-written` happens both because an application is running and
+ *   because a file is read-only, and those need different things done about
+ *   them
  */
 
 /**
@@ -125,12 +135,13 @@ export function writeToClient(client, options) {
 
     if (running === true) {
       return result(client.write.method, options.configPath, null, NOT_WRITTEN,
-        `${client.name} is running. ${client.writeRequiresQuit.says} Quit it and run this again.`);
+        `${client.name} is running. ${client.writeRequiresQuit.says} Quit it and run this again.`,
+        RUNNING);
     }
 
     const protectedFile = readOnlyRefusal(client, options.configPath);
     if (protectedFile !== null) {
-      return result(client.write.method, options.configPath, null, NOT_WRITTEN, protectedFile);
+      return result(client.write.method, options.configPath, null, NOT_WRITTEN, protectedFile, READ_ONLY);
     }
 
     return client.write.method === 'cli'
@@ -170,7 +181,7 @@ export function removeFromClient(client, options) {
 
     const protectedFile = readOnlyRefusal(client, options.configPath);
     if (protectedFile !== null && hasEntry(before, request)) {
-      return result('file', options.configPath, null, NOT_WRITTEN, protectedFile);
+      return result('file', options.configPath, null, NOT_WRITTEN, protectedFile, READ_ONLY);
     }
 
     if (client.remove.method === 'cli' && options.clientCommand !== null) {
@@ -621,10 +632,11 @@ export function runCommand(argv) {
  * @param {import('./backup.js').BackupResult|null} backup
  * @param {string} outcome
  * @param {string|null} error
+ * @param {string|null} [reason]
  * @returns {WriteResult}
  */
-function result(method, file, backup, outcome, error) {
-  return { outcome, method, path: file, backup, error };
+function result(method, file, backup, outcome, error, reason = null) {
+  return { outcome, method, path: file, backup, error, reason };
 }
 
 /**

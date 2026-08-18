@@ -46,7 +46,9 @@ import {
   editRequest,
   FAILED,
   NOT_WRITTEN,
+  READ_ONLY,
   REMOVED,
+  RUNNING,
   removeFromClient,
   UNCHANGED,
   WRITTEN,
@@ -448,9 +450,21 @@ export function report(io, outcomes) {
   const duplicates = duplicateRegistrationWarning(here);
   if (duplicates !== null) io.out(`${duplicates}\n\n`);
 
-  const waiting = here.filter((outcome) => outcome.written?.outcome === NOT_WRITTEN);
-  if (waiting.length > 0) {
-    io.out(`Quit ${waiting.map((outcome) => outcome.client.name).join(' and ')} and run this again to finish.\n\n`);
+  // Grouped by why, not by what. `not-written` has two causes and they need
+  // opposite things done about them, so selecting on the outcome told somebody
+  // to quit an application that was not running when what was actually wrong
+  // was a file they had set read-only.
+  const notWritten = here.filter((outcome) => outcome.written?.outcome === NOT_WRITTEN);
+  const running = notWritten.filter((outcome) => outcome.written?.reason === RUNNING);
+  const locked = notWritten.filter((outcome) => outcome.written?.reason === READ_ONLY);
+
+  if (running.length > 0) {
+    io.out(`Quit ${names(running)} and run this again to finish.\n\n`);
+  }
+  if (locked.length > 0) {
+    io.out(`The configuration ${locked.length === 1 ? 'file' : 'files'} for ${names(locked)} `
+      + `${locked.length === 1 ? 'is' : 'are'} read-only. Make ${locked.length === 1 ? 'it' : 'them'} `
+      + 'writable and run this again, or add the entry by hand with --print-config.\n\n');
   }
 
   // Only the clients that are actually waiting on a restart. A client in the
@@ -485,6 +499,14 @@ function confirmationClause({ verified }) {
   return verified?.status === CONNECTED
     ? 'it started the server and reported that it connected'
     : 'it showed us its own parsed config with the entry in it, which is not the same as having started it';
+}
+
+/**
+ * @param {Outcome[]} outcomes
+ * @returns {string}
+ */
+function names(outcomes) {
+  return outcomes.map((outcome) => outcome.client.name).join(' and ');
 }
 
 /**
