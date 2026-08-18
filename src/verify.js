@@ -310,12 +310,18 @@ export function findBlockers(client, options) {
     // condition being looked for. Reading that as "nothing to report" is how a
     // live run reported Gemini as failed and said nothing about why — the
     // client itself was printing the reason at the time.
+    // The sentence gets the same substitution the key does, so an instruction
+    // can name the person's own folder rather than describing one.
+    const says = blocker.says
+      .replaceAll('{{name}}', options.name)
+      .replaceAll('{{cwd}}', options.machine.cwd ?? '');
+
     if (settings === null) {
-      if (blocker.check === 'json-key-absent') found.push(blocker.says);
+      if (blocker.check === 'json-key-absent') found.push(says);
       continue;
     }
 
-    if (blocked(blocker, settings, options)) found.push(blocker.says);
+    if (blocked(blocker, settings, options)) found.push(says);
   }
 
   return found;

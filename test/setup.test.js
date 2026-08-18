@@ -610,7 +610,8 @@ test('a folder-trust blocker is reported when the file recording trust does not 
 
   report(wired, install(wired));
 
-  assert.match(printed(), /untrusted folder/u);
+  assert.match(printed(), /in a folder it does not trust/u);
+  assert.match(printed(), /run `\/permissions trust`/u);
 });
 
 test('--print-config with no client prints the shape that works nearly everywhere', (t) => {

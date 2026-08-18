@@ -410,7 +410,7 @@ test('Gemini folder trust is a blocker when this folder is not in the trust file
     machine,
     run: saying('✓ nosyparker: node /srv/mcp-server.js (stdio) - Connected\n'),
   }));
-  assert.match(untrusted.blockers.join(' '), /untrusted folder/u);
+  assert.match(untrusted.blockers.join(' '), /in a folder it does not trust/u);
 
   fs.writeFileSync(
     path.join(home, '.gemini', 'trustedFolders.json'),
@@ -435,4 +435,54 @@ test('no client can reach connected except the two the research proved can', () 
     assert.equal(reachable.includes(client.id), false, client.id);
     assert.notEqual(client.verify.tier, 'A', `${client.id} claims tier A`);
   }
+});
+
+test('a blocker says what to do about it, not only that something is wrong', () => {
+  // The owner asked how to unlock Gemini's folder trust and the message could
+  // not tell him, because it named the file and stopped there. Every blocker in
+  // the table now ends in an action, in the same shape as the sentence for an
+  // application that is running: what is wrong, then what to do.
+  for (const client of loadClients().clients) {
+    for (const blocker of client.blockers) {
+      assert.ok(
+        /\b(Set|Remove|Start|add|ask|Make)\b/u.test(blocker.says),
+        `${client.id}: "${blocker.says}" says what is wrong and not what to do`,
+      );
+    }
+  }
+});
+
+test('the Gemini instruction names the folder the person is actually in', (t) => {
+  // Both routes were run against a real installation before this was written.
+  // `/permissions trust` writes ~/.gemini/trustedFolders.json itself; writing
+  // that file by hand has exactly the same effect, and `gemini mcp list` goes
+  // from `Disabled` to `Connected` either way.
+  const dir = directory(t);
+  const home = path.join(dir, 'home');
+  fs.mkdirSync(path.join(home, '.gemini'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.gemini', 'trustedFolders.json'), '{"/somewhere/else": "TRUST_FOLDER"}');
+
+  const configPath = path.join(dir, 'settings.json');
+  fs.writeFileSync(configPath, '{"mcpServers": {"nosyparker": {"command": "node"}}}');
+
+  const client = clientById('gemini-cli');
+  const checked = verifyClient(client, options(client, {
+    configPath,
+    machine: {
+      home,
+      platform: 'linux',
+      cwd: '/home/p/my project',
+      pathDirs: [],
+      exists: () => false,
+      readdir: () => [],
+      processes: () => [],
+    },
+    run: saying('○ nosyparker: node (stdio) - Disabled\n'),
+  }));
+
+  const said = checked.blockers.join(' ');
+
+  assert.match(said, /Start gemini in \/home\/p\/my project and run `\/permissions trust`/u);
+  assert.match(said, /"\/home\/p\/my project": "TRUST_FOLDER"/u);
+  assert.doesNotMatch(said, /\{\{cwd\}\}/u, 'the token is filled in, not printed');
 });

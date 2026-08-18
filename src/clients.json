@@ -168,19 +168,20 @@
           "check": "json-key-absent",
           "file": "~/.gemini/trustedFolders.json",
           "key": "{{cwd}}",
-          "says": "Workspace trust: in an untrusted folder Gemini suppresses user-level MCP servers entirely, and says so only in its own output. Trust is recorded in ~/.gemini/trustedFolders.json."
+          "says": "Gemini disables every MCP server, including ones configured for your whole account, in a folder it does not trust. Start gemini in {{cwd}} and run `/permissions trust`, or add \"{{cwd}}\": \"TRUST_FOLDER\" to ~/.gemini/trustedFolders.json."
         }
       ],
       "traps": [
         "`gemini mcp add` reports success and writes nothing. Never use it to install.",
-        "~/.gemini/ is created on first run but settings.json is not written until something writes it."
+        "~/.gemini/ is created on first run but settings.json is not written until something writes it.",
+        "Folder trust is not announced on startup: gemini opens normally and only mentions it in passing. Both routes out of it were run on a real installation — the `/permissions trust` slash command writes ~/.gemini/trustedFolders.json itself, and writing that file by hand has exactly the same effect. `--skip-trust` is not accepted by the `mcp` subcommand."
       ],
       "restart": "Start a new gemini session.",
       "lastVerified": {
         "configPaths": "2026-08-17",
         "write": "2026-08-17",
         "verify": "2026-08-17",
-        "blockers": "2026-08-17",
+        "blockers": "2026-08-18",
         "traps": "2026-08-17"
       },
       "upstreamId": "gemini-cli"
@@ -827,28 +828,28 @@
           "file": "~/.config/Code/User/settings.json",
           "key": "chat.mcp.enabled",
           "value": false,
-          "says": "chat.mcp.enabled is false: MCP is switched off in this VS Code."
+          "says": "chat.mcp.enabled is false in VS Code's settings.json: MCP is switched off. Set it to true there, or search `chat.mcp.enabled` in Settings."
         },
         {
           "check": "json-setting-not-equals",
           "file": "~/.config/Code/User/settings.json",
           "key": "chat.mcp.access",
           "value": "any",
-          "says": "chat.mcp.access is not `any`: VS Code may refuse a server it did not get from a registry."
+          "says": "chat.mcp.access is not `any` in VS Code's settings.json, so it may refuse a server it did not get from a registry. Set it to `any` there if this server does not appear."
         },
         {
           "check": "json-setting-equals",
           "file": "~/.config/Code/User/settings.json",
           "key": "chat.mcp.allowManagedServersOnly",
           "value": true,
-          "says": "chat.mcp.allowManagedServersOnly is true: only managed servers load."
+          "says": "chat.mcp.allowManagedServersOnly is true in VS Code's settings.json, so only managed servers load. Set it to false there, unless your organisation set it."
         },
         {
           "check": "json-array-contains",
           "file": "~/.config/Code/User/settings.json",
           "key": "chat.mcp.deniedServers",
           "value": "{{name}}",
-          "says": "chat.mcp.deniedServers lists this server."
+          "says": "chat.mcp.deniedServers in VS Code's settings.json lists this server by name. Remove {{name}} from that list."
         }
       ],
       "traps": [
@@ -861,7 +862,7 @@
         "configPaths": "2026-08-17",
         "write": "2026-08-17",
         "verify": "2026-08-17",
-        "blockers": "2026-08-17",
+        "blockers": "2026-08-18",
         "traps": "2026-08-17"
       },
       "upstreamId": "vscode"
@@ -1017,7 +1018,7 @@
           "file": "~/.config/Devin/User/settings.json",
           "key": "chat.mcp.enabled",
           "value": false,
-          "says": "chat.mcp.enabled is false: MCP is switched off."
+          "says": "chat.mcp.enabled is false in Devin's settings.json: MCP is switched off. Set it to true in ~/.config/Devin/User/settings.json."
         }
       ],
       "traps": [
@@ -1032,7 +1033,7 @@
         "extraConfigPaths": "2026-08-17",
         "write": "2026-08-17",
         "verify": "2026-08-17",
-        "blockers": "2026-08-17",
+        "blockers": "2026-08-18",
         "traps": "2026-08-17",
         "writeRequiresQuit": "2026-08-17"
       },
@@ -1100,7 +1101,7 @@
           "check": "json-key-present",
           "file": "~/.config/Claude/config.json",
           "keyPrefix": "dxt:allowlistEnabled:",
-          "says": "An org-level extension allowlist is configured. Whether it gates hand-written mcpServers entries or only packaged extensions is unknown."
+          "says": "Claude Desktop has an organisation-level extension allowlist configured. Whether it gates a hand-written mcpServers entry or only packaged extensions was never established, so if the server does not appear after a restart, this is the thing to ask whoever administers it about."
         }
       ],
       "traps": [
@@ -1113,7 +1114,7 @@
         "configPaths": "2026-08-17",
         "write": "2026-08-17",
         "verify": "2026-08-17",
-        "blockers": "2026-08-17",
+        "blockers": "2026-08-18",
         "traps": "2026-08-17",
         "writeRequiresQuit": "2026-08-17"
       },
