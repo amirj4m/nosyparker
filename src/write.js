@@ -51,6 +51,7 @@ import { randomBytes } from 'node:crypto';
 import { fillArgv, fillTokens } from './clients.js';
 import { manifestRowFor, recordFirstTouch } from './backup.js';
 import { anyRunning } from './detect.js';
+import { noLog } from './log.js';
 import {
   hadRootKey,
   hasEntry,
@@ -117,6 +118,7 @@ export const READ_ONLY = 'read-only';
  * @property {string} backupDir
  * @property {string} now
  * @property {import('./detect.js').Machine} [machine]
+ * @property {import('./log.js').Log} [log] where to record what was touched
  * @property {(argv: string[]) => {status: number|null, stdout: string, stderr: string}} [run]
  */
 
@@ -134,6 +136,7 @@ export function writeToClient(client, options) {
       : anyRunning(client.writeRequiresQuit.processes, options.machine);
 
     if (running === true) {
+      log(options).record('refused', { client: client.id, path: options.configPath, reason: RUNNING });
       return result(client.write.method, options.configPath, null, NOT_WRITTEN,
         `${client.name} is running. ${client.writeRequiresQuit.says} Quit it and run this again.`,
         RUNNING);
@@ -141,6 +144,7 @@ export function writeToClient(client, options) {
 
     const protectedFile = readOnlyRefusal(client, options.configPath);
     if (protectedFile !== null) {
+      log(options).record('refused', { client: client.id, path: options.configPath, reason: READ_ONLY });
       return result(client.write.method, options.configPath, null, NOT_WRITTEN, protectedFile, READ_ONLY);
     }
 
@@ -202,6 +206,7 @@ export function removeFromClient(client, options) {
           `${path.basename(argv[0])} reported success and the entry is still in ${options.configPath}.`);
       }
 
+      log(options).record('removed', { client: client.id, path: options.configPath, by: path.basename(argv[0]) });
       removeWhatWasOnlyEverOurs(client, options, request);
       return result('cli', options.configPath, null, REMOVED, null);
     }
@@ -219,6 +224,9 @@ export function removeFromClient(client, options) {
       : removeEntry(before, request);
 
     writePreservingMode(options.configPath, after);
+    log(options).record('removed', {
+      client: client.id, path: options.configPath, by: 'us', was: before.length, now: after.length,
+    });
 
     const readBack = readOrEmpty(options.configPath);
     if (readBack !== after) {
@@ -283,14 +291,26 @@ function removeWhatWasOnlyEverOurs(client, options, request) {
   if (!holdsNothing(readOrEmpty(options.configPath), client.format)) return;
 
   fs.rmSync(options.configPath, { force: true });
+  log(options).record('deleted', { client: client.id, path: options.configPath, what: 'file' });
 
   for (const dir of row.created) {
     try {
       fs.rmdirSync(dir);
+      log(options).record('deleted', { client: client.id, path: dir, what: 'directory' });
     } catch {
       return; // something else is in it, and it is not ours to empty
     }
   }
+}
+
+/**
+ * The log this call was given, or one that goes nowhere.
+ *
+ * @param {WriteOptions} options
+ * @returns {import('./log.js').Log}
+ */
+function log(options) {
+  return options.log ?? noLog();
 }
 
 /**
@@ -361,6 +381,7 @@ function writeThroughCli(client, options, request) {
     backupDir: options.backupDir,
     now: options.now,
     weEdit: false,
+    log: options.log,
   });
 
   const run = options.run ?? runCommand;
@@ -379,6 +400,11 @@ function writeThroughCli(client, options, request) {
 
   const argv = fillArgv(client.write.argv, client, options);
   const ran = run([options.clientCommand, ...argv.slice(1)]);
+  log(options).record('ran', {
+    client: client.id,
+    command: path.basename(argv[0]),
+    exit: ran.status,
+  });
 
   if (ran.status !== 0) {
     return result('cli', options.configPath, backup, FAILED,
@@ -387,10 +413,16 @@ function writeThroughCli(client, options, request) {
 
   const after = readOrEmpty(options.configPath);
   if (!hasEntry(after, request)) {
+    log(options).record('wrote', {
+      client: client.id, path: options.configPath, outcome: FAILED, reason: 'entry-not-found-after-cli',
+    });
     return result('cli', options.configPath, backup, FAILED,
       `${path.basename(argv[0])} reported success and the entry is not in ${options.configPath}.`);
   }
 
+  log(options).record('wrote', {
+    client: client.id, path: options.configPath, outcome: WRITTEN, by: path.basename(argv[0]), now: after.length,
+  });
   return result('cli', options.configPath, backup, WRITTEN, null);
 }
 
@@ -402,6 +434,8 @@ function writeThroughCli(client, options, request) {
  */
 function writeThroughFile(client, options, request) {
   const before = readOrEmpty(options.configPath);
+  log(options).record('read', { client: client.id, path: options.configPath, bytes: before.length });
+
   const wanted = insertEntry(before, request);
 
   const backup = recordFirstTouch({
@@ -411,6 +445,7 @@ function writeThroughFile(client, options, request) {
     now: options.now,
     weEdit: true,
     rootKeyExisted: hadRootKey(before, request),
+    log: options.log,
   });
 
   // A previous run that was killed between opening its temporary file and
@@ -418,9 +453,20 @@ function writeThroughFile(client, options, request) {
   // next run doing it for them, before adding one of its own.
   clearAbandonedTemporaries(options.configPath);
 
-  if (wanted === before) return result('file', options.configPath, backup, UNCHANGED, null);
+  if (wanted === before) {
+    log(options).record('wrote', { client: client.id, path: options.configPath, outcome: UNCHANGED });
+    return result('file', options.configPath, backup, UNCHANGED, null);
+  }
 
   writePreservingMode(options.configPath, wanted);
+  log(options).record('wrote', {
+    client: client.id,
+    path: options.configPath,
+    outcome: WRITTEN,
+    by: 'us',
+    was: before.length,
+    now: wanted.length,
+  });
 
   const readBack = readOrEmpty(options.configPath);
   if (readBack !== wanted) {

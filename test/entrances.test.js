@@ -13,8 +13,12 @@
  * module that can reach `store.js` or `gate.js`, directly or through anything
  * else, and a module that joins it fails a test.
  *
- * It matters most for Phase 3, which added seven modules that write to files
- * other programs own. None of them may touch the store. If one ever needs to —
+ * It matters most for the modules that write to files other programs own. None
+ * of them may touch the store — including the action log, which is the newest
+ * and the one most likely to be mistaken for a caller. It writes a file beside
+ * the store and has nothing to do with it: the decision log inside `store.js`
+ * is about memories and is written through the gate, and this is about paths on
+ * disk. Different subject, different file, and neither reads the other. If one ever needs to —
  * if setup ever records something about what it did — this test fails, and the
  * fix is to go through `gate.submit` and add the module here, in that order.
  *
@@ -63,6 +67,7 @@ const PHASE_3 = [
   'src/clients.js',
   'src/detect.js',
   'src/edit.js',
+  'src/log.js',
   'src/setup.js',
   'src/verify.js',
   'src/write.js',

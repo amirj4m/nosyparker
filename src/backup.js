@@ -80,9 +80,10 @@ export function defaultBackupDir(home) {
  * @param {boolean} [request.rootKeyExisted] whether the file already had the key
  *   our entry goes under, asked before the first write because it cannot be
  *   asked afterwards
+ * @param {import('./log.js').Log} [request.log]
  * @returns {BackupResult}
  */
-export function recordFirstTouch({ file, clientId, backupDir, now, weEdit, rootKeyExisted }) {
+export function recordFirstTouch({ file, clientId, backupDir, now, weEdit, rootKeyExisted, log }) {
   const manifestPath = path.join(backupDir, MANIFEST_NAME);
   const manifest = readManifest(manifestPath);
 
@@ -128,6 +129,15 @@ export function recordFirstTouch({ file, clientId, backupDir, now, weEdit, rootK
         : 'the file did not exist',
   };
   writeManifest(manifestPath, manifest);
+
+  log?.record('backup', {
+    client: clientId,
+    path: file,
+    copied: backupPath !== null,
+    to: backupPath ?? undefined,
+    existed,
+    why: manifest[name].whyNoBackup,
+  });
 
   return { made: backupPath !== null, backupPath, existed };
 }

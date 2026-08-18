@@ -43,6 +43,7 @@ import {
   thisMachine,
 } from './detect.js';
 import {
+  ABSENT,
   editRequest,
   FAILED,
   NOT_WRITTEN,
@@ -55,6 +56,7 @@ import {
   writeToClient,
 } from './write.js';
 import { defaultBackupDir } from './backup.js';
+import { defaultLogPath, noLog, openLog } from './log.js';
 import {
   CONFIG_CONFIRMED,
   CONNECTED,
@@ -73,6 +75,7 @@ import {
  * @property {string} name
  * @property {string} command
  * @property {string} serverPath
+ * @property {import('./log.js').Log} log
  * @property {(argv: string[]) => {status: number|null, stdout: string, stderr: string}} [run]
  */
 
@@ -92,8 +95,29 @@ export function defaultIo(overrides = {}) {
     name: loadClients().serverName,
     command: server.command,
     serverPath: server.serverPath,
+    log: noLog(),
     ...overrides,
   };
+}
+
+/**
+ * The io a real invocation gets, with a real log attached.
+ *
+ * Separate from `defaultIo` so that a test has to ask for a log by name and
+ * cannot acquire one by forgetting to. Nothing in the suite writes to the real
+ * log; nothing in the suite writes to a log it did not create.
+ *
+ * @param {string} command
+ * @param {Partial<Io>} [overrides]
+ * @returns {Io}
+ */
+export function ioWithLog(command, overrides = {}) {
+  const machine = overrides.machine ?? thisMachine();
+  return defaultIo({
+    machine,
+    log: openLog({ file: defaultLogPath(machine.home), command }),
+    ...overrides,
+  });
 }
 
 /**
@@ -125,6 +149,21 @@ export function install(io) {
   // left behind.
   const detected = loadClients().clients.map((client) => ({ client, found: detect(client, io.machine) }));
 
+  io.log.record('run', {
+    clients: detected.length,
+    interpreter: io.command,
+    server: io.serverPath,
+    cwd: io.machine.cwd,
+  });
+  for (const { client, found } of detected) {
+    io.log.record('detect', {
+      client: client.id,
+      state: found.state,
+      path: found.configPath ?? undefined,
+      command: found.command ?? undefined,
+    });
+  }
+
   for (const { client, found } of detected) {
     if (found.state === NOT_INSTALLED || found.state === INSTALLED_PATH_UNKNOWN) {
       outcomes.push({ client, found, written: null, verified: null });
@@ -140,6 +179,7 @@ export function install(io) {
       backupDir: io.backupDir,
       now: io.now,
       machine: io.machine,
+      log: io.log,
       run: io.run,
     };
 
@@ -157,8 +197,24 @@ export function install(io) {
         editRequest: editRequest(client, options),
       });
 
+    if (verified !== null) {
+      io.log.record('verify', {
+        client: client.id,
+        method: client.verify.method,
+        tier: verified.tier,
+        status: verified.status,
+        blockers: verified.blockers.length,
+      });
+    }
+
     outcomes.push({ client, found, written, verified });
   }
+
+  io.log.record('done', {
+    found: outcomes.filter((o) => o.found.state !== NOT_INSTALLED).length,
+    written: outcomes.filter((o) => o.written?.outcome === WRITTEN).length,
+    failed: outcomes.filter((o) => o.written?.outcome === FAILED).length,
+  });
 
   return outcomes;
 }
@@ -178,6 +234,8 @@ export function uninstall(io) {
   /** @type {Outcome[]} */
   const outcomes = [];
 
+  io.log.record('run', { clients: loadClients().clients.length, cwd: io.machine.cwd });
+
   for (const client of loadClients().clients) {
     const found = detect(client, io.machine);
 
@@ -194,11 +252,17 @@ export function uninstall(io) {
       clientCommand: found.command,
       backupDir: io.backupDir,
       now: io.now,
+      log: io.log,
       run: io.run,
     });
 
     outcomes.push({ client, found, written: removed, verified: null });
   }
+
+  io.log.record('done', {
+    removed: outcomes.filter((o) => o.written?.outcome === REMOVED).length,
+    absent: outcomes.filter((o) => o.written?.outcome === ABSENT).length,
+  });
 
   return outcomes;
 }

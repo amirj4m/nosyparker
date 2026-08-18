@@ -19,7 +19,7 @@
 
 import { defaultStorePath, LOCAL_OWNER, systemClock } from './config.js';
 import { forget, restore, screenQuery, submit } from './gate.js';
-import { defaultIo, install, printConfig, report, reportRemoval, uninstall } from './setup.js';
+import { defaultIo, install, ioWithLog, printConfig, report, reportRemoval, uninstall } from './setup.js';
 import { listDecisions, listMemories, openStore, searchMemories } from './store.js';
 
 main(process.argv.slice(2));
@@ -91,7 +91,10 @@ function main(argv) {
  * @param {string[]} args
  */
 function runSetup(command, args) {
-  const io = defaultIo();
+  // `--print-config` prints and touches nothing, so it gets no log. The log is
+  // a record of what was done to files, and a command that does nothing to any
+  // file has nothing to record.
+  const io = args[0] === '--print-config' ? defaultIo() : ioWithLog(command);
 
   if (command === 'setup' && args[0] === '--print-config') {
     if (args.length > 2) fail('--print-config takes at most one client name.');
