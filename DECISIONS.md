@@ -346,3 +346,41 @@ an entry goes in and stays open when it comes out. Closing it again would mean
 having recorded the whitespace inside it, and the cheap alternative — collapsing
 any empty object we find — is guessing at somebody's formatting rather than
 restoring it.
+
+## A new entrance goes into `doctor` in the same commit
+
+*Pointed at from `diagnose` in `src/doctor.js`.*
+
+The entrances test already applies this rule to the static case: a module that
+can reach `store.js` or `gate.js` is on a list, and a new one fails a test
+rather than waiting for a review to notice. It was written because the same
+defect was fixed three times, each time at whichever doors existed that week,
+and *"where the callers are"* was treated as a stable fact when it never was.
+
+`doctor` is the same idea against a running machine rather than against the
+import graph, and it needs the same rule or it decays the same way. Phase 3
+ended with sixteen defects found after the fact, sixteen of which the suite was
+green for; the reason `doctor` exists is that the suite cannot compose the real
+table with the real filesystem. That only stays true if it keeps up.
+
+**So: whatever a later phase adds that touches something outside this process —
+a file, a client, a scheduled job, a second store — is checked by `doctor` in
+the commit that adds it.** Not the commit after, and not when somebody notices.
+
+This matters immediately. Phase 4 adds a review loop that touches the store,
+which is the first thing `doctor` will have to know about that is not a config
+file: a store that cannot be opened, or that a running process is holding, is
+exactly the class of failure this command exists to find, and it will not find
+it by itself.
+
+Two things that follow, so the rule cannot be met in the letter and missed in
+the spirit:
+
+- **A check that cannot be made is reported as not made.** `doctor` already
+  distinguishes a client it asked from one that offers no way to be asked, and
+  a new subject with no way to check it says so rather than being left out. A
+  silent omission reads as a clean bill of health.
+- **It still changes nothing.** Whatever is added, `doctor` diagnoses. The
+  moment it repairs something, its output stops being evidence of what the
+  machine was like and starts being evidence of what it was like after this
+  command had a go at it.

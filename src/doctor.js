@@ -33,6 +33,12 @@
  * **The documents still match the program.** The checks a test already runs,
  * run again where a person can see them.
  *
+ * What a later phase has to do with all this is in DECISIONS.md under "A new
+ * entrance goes into `doctor` in the same commit" — the same rule the entrances
+ * test applies to the import graph, applied to the running machine, because
+ * this command decays into a reassuring noise the moment it stops keeping up
+ * with what the project touches.
+ *
  * It never changes anything. If it finds a broken entry it says to run `setup`;
  * it does not run it. The one thing it writes is a line in our own action log
  * saying it ran, which is the same record `setup` leaves and is not a change to
