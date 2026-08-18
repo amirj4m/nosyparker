@@ -190,6 +190,20 @@ function insertJson(text, request) {
 
   const existing = memberOf(text, objectStart, request.name);
   if (existing !== null) {
+    // An entry that already says what ours says is left exactly as it is, in
+    // whatever shape the file has it. Two reasons, and the second is the one
+    // that was actually wrong.
+    //
+    // Rewriting an entry that already means the right thing is reformatting
+    // somebody's file for nothing, which is what every other line of this
+    // module exists to avoid. And without this the function is not idempotent:
+    // where the container is on one line, the first insert matches that layout
+    // and a second produces the multi-line form, so `insertEntry(text) !== text`
+    // — which `doctor` uses to ask "is this still what setup would write" —
+    // said no about a file setup had just written. Every JSON client was
+    // reported broken immediately after a successful install.
+    if (sameEntry(text.slice(existing.valueStart, existing.valueEnd), request.entry)) return text;
+
     const replaced = text.slice(0, existing.valueStart)
       + indentBy(JSON.stringify(request.entry, null, 2), indentAt(text, existing.keyStart))
       + text.slice(existing.valueEnd);
@@ -356,6 +370,42 @@ function spliceIntoObject(text, objectStart, member) {
  */
 function oneLine(member) {
   return member.replaceAll(/\n\s*/gu, ' ').replaceAll('[ ', '[').replaceAll(' ]', ']');
+}
+
+/**
+ * Does what is in the file already say what our entry says.
+ *
+ * On content rather than on text, because the question is whether the entry
+ * works, not whether it is spelled the way this version spells it. A file with
+ * the same fields in a different order, or on one line instead of five, is not
+ * a file that needs rewriting.
+ *
+ * @param {string} valueText the entry exactly as it appears in the file
+ * @param {unknown} entry what we would write
+ * @returns {boolean}
+ */
+function sameEntry(valueText, entry) {
+  try {
+    return canonical(JSON.parse(withoutBom(withoutTrailingCommas(stripComments(valueText)))))
+      === canonical(entry);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A value written so that two of them compare equal when they mean the same.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    return `{${Object.entries(value).sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 /**
@@ -875,6 +925,13 @@ function lineStart(text, at) {
  * The whitespace between the start of this line and this position, if that is
  * all there is between them.
  *
+ * Spaces and tabs only. `trim` counts a byte order mark as whitespace, and a
+ * file that begins with one and holds everything on a single line then reports
+ * the mark itself as its indentation — which puts a U+FEFF into the middle of
+ * the file and makes it unparseable. The write is refused rather than made, so
+ * nothing was ever damaged, but a Notepad-saved one-line config could not be
+ * installed into at all.
+ *
  * @param {string} text
  * @param {number} at
  * @returns {string}
@@ -882,7 +939,7 @@ function lineStart(text, at) {
 function indentAt(text, at) {
   const start = lineStart(text, at);
   const before = text.slice(start, at);
-  return before.trim() === '' ? before : '';
+  return /^[ \t]*$/u.test(before) ? before : '';
 }
 
 /**
@@ -895,7 +952,7 @@ function indentAt(text, at) {
 function lineIndent(text, at) {
   const start = lineStart(text, at);
   const line = text.slice(start, text.indexOf('\n', start) === -1 ? undefined : text.indexOf('\n', start));
-  return line.slice(0, line.length - line.trimStart().length);
+  return (/^[ \t]*/u.exec(line) ?? [''])[0];
 }
 
 /**

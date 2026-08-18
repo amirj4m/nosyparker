@@ -493,3 +493,65 @@ test('a genuinely broken file with a mark on the front is still refused', () => 
     /not valid JSON/u,
   );
 });
+
+test('inserting the same entry twice changes nothing the second time, in any layout', () => {
+  // Not idempotent for a container written on one line: the first insert
+  // matched that layout, the second produced the multi-line form. `doctor` asks
+  // "is this still what setup would write" by inserting and comparing, so it
+  // said no about a file setup had just written — every JSON client reported
+  // broken immediately after a successful install.
+  //
+  // The layouts are here because none of the fixtures had this one. They were
+  // all `JSON.stringify(…, null, 2)` or an empty one-line container, and the
+  // empty one happens to pass.
+  const layouts = {
+    'container on one line, with a member': '{\n  "mcpServers": {"a": {"command": "a"}}\n}\n',
+    'whole file on one line': '{"mcpServers":{"a":1}}',
+    'container on one line, empty': '{\n  "mcpServers": {}\n}\n',
+    'pretty-printed with a member': '{\n  "mcpServers": {\n    "a": {"command": "a"}\n  }\n}\n',
+    'no container at all': '{\n  "theme": "dark"\n}\n',
+    'empty file': '',
+    'tab indented': '{\n\t"mcpServers": {\n\t\t"a": 1\n\t}\n}\n',
+    'with comments and a trailing comma': '// mine\n{\n  "mcpServers": {\n    "a": 1,\n  },\n}\n',
+    'with a byte order mark, on one line': '﻿{"mcpServers":{"a":1}}',
+  };
+
+  for (const [label, before] of Object.entries(layouts)) {
+    const once = insertEntry(before, JSON_REQUEST);
+    assert.equal(insertEntry(once, JSON_REQUEST), once, label);
+    assert.equal(hasEntry(once, JSON_REQUEST), true, label);
+  }
+});
+
+test('an entry that says the same thing in a different order is left alone', () => {
+  // The comparison is on content, not on text, because the question is whether
+  // the entry works rather than whether it is spelled the way this version
+  // spells it. Rewriting one that already means the right thing would be
+  // reformatting somebody's file for nothing.
+  const reordered = '{"mcpServers":{"nosyparker":{"args":["/srv/mcp-server.js"],"command":"/usr/bin/node"}}}';
+
+  assert.equal(insertEntry(reordered, JSON_REQUEST), reordered);
+});
+
+test('an entry that says something different is still replaced', () => {
+  const stale = insertEntry('', { ...JSON_REQUEST, entry: { command: '/old/node', args: ['/srv/mcp-server.js'] } });
+  const fresh = insertEntry(stale, JSON_REQUEST);
+
+  assert.notEqual(fresh, stale);
+  assert.deepEqual(JSON.parse(fresh).mcpServers.nosyparker, ENTRY);
+});
+
+test('a file that begins with a byte order mark and holds one line can be written', () => {
+  // `trim` counts U+FEFF as whitespace, so a one-line file starting with one
+  // reported the mark itself as its indentation — which put a U+FEFF into the
+  // middle of the file and made it unparseable. The write was refused rather
+  // than made, so nothing was ever damaged; a Notepad-saved one-line config
+  // simply could not be installed into.
+  const before = '﻿{"mcpServers":{}}';
+
+  const after = insertEntry(before, JSON_REQUEST);
+
+  assert.equal(after.charCodeAt(0), 0xfeff, 'the mark is still where it was');
+  assert.equal(after.slice(1).includes('﻿'), false, 'and there is not a second one');
+  assert.equal(hasEntry(after, JSON_REQUEST), true);
+});
