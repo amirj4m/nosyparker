@@ -115,9 +115,19 @@ export function diagnose(io) {
       says.push(`Its entry names ${named}, which exists but is not the interpreter running now (${io.command}).`);
     }
 
-    if (state !== BROKEN && insertEntry(text, request) !== text) {
-      state = BROKEN;
-      says.push('Its entry is not the one setup would write now. Something has edited it, or it was written by an older version. Run setup again.');
+    // Only for the files this project writes itself. For a client written
+    // through its own command, "what setup would write" is not our formatting —
+    // it is whatever that command produces, tabs and extra keys and all — so
+    // comparing against our own serialiser would report every one of them as
+    // broken. Which it did, on the first real run, behind a crash that was
+    // hiding it.
+    if (client.write.method === 'file') {
+      if (state !== BROKEN && insertEntry(text, request) !== text) {
+        state = BROKEN;
+        says.push('Its entry is not the one setup would write now. Something has edited it, or it was written by an older version. Run setup again.');
+      }
+    } else {
+      says.push(`${client.name} writes this file with its own command, so this checks that the entry is there and points somewhere real, and not how it is laid out.`);
     }
 
     const verified = found.command === null && client.verify.method !== 'file-reread'

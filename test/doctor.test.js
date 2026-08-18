@@ -29,10 +29,11 @@ import { defaultIo, install } from '../src/setup.js';
  * @param {import('node:test').TestContext} t
  * @param {object} [shape]
  * @param {string[]} [shape.files]
+ * @param {string[]} [shape.pathDirs] relative to the temporary home
  * @param {(argv: string[]) => {status: number, stdout: string, stderr: string}} [shape.run]
  * @returns {{io: any, home: string, dir: string, interpreter: string, printed: () => string}}
  */
-function machine(t, { files = [], run } = {}) {
+function machine(t, { files = [], pathDirs = [], run } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-doctor-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
@@ -60,7 +61,7 @@ function machine(t, { files = [], run } = {}) {
       platform: 'linux',
       appData: undefined,
       cwd: home,
-      pathDirs: [],
+      pathDirs: pathDirs.map((dir) => path.join(home, dir)),
       exists: (/** @type {string} */ file) => file.startsWith(home) && fs.existsSync(file),
       processes: () => [],
       readdir: (/** @type {string} */ target) => {
@@ -253,4 +254,51 @@ test('the interpreter is read back out of every format it can be', () => {
   // And something it cannot read is null, which is reported as unchecked
   // rather than as sound.
   assert.equal(interpreterIn('{ not json', clientById('gemini-cli'), 'nosyparker'), null);
+});
+
+test('a client whose own command writes the file is not judged on our formatting', (t) => {
+  // Both halves of this were found by running the command on a real machine
+  // with 335 tests green, and the first was hiding the second.
+  //
+  // Codex's file is TOML, which this project has no writer for, so asking "is
+  // this what setup would write" threw and took the whole command down. And
+  // behind that: every client written through its own command would have been
+  // called broken, because their commands write their own formatting — VS Code
+  // uses tabs and adds an `inputs` key — and comparing that against our own
+  // serialiser can only ever differ.
+  const { io, home, interpreter } = machine(t, {
+    files: ['.codex/', '.config/Code/User/', '.local/bin/code'],
+    pathDirs: ['.local/bin'],
+  });
+
+  fs.writeFileSync(path.join(home, '.codex', 'config.toml'),
+    `[mcp_servers.nosyparker]\ncommand = "${interpreter}"\nargs = ["/srv/mcp-server.js"]\n`);
+
+  // Exactly the shape VS Code's own --add-mcp produces, tabs and all.
+  fs.writeFileSync(path.join(home, '.config', 'Code', 'User', 'mcp.json'),
+    `{\n\t"servers": {\n\t\t"nosyparker": {\n\t\t\t"type": "stdio",\n\t\t\t"command": "${interpreter}",\n\t\t\t"args": [\n\t\t\t\t"/srv/mcp-server.js"\n\t\t\t]\n\t\t}\n\t},\n\t"inputs": []\n}`);
+
+  const { findings } = diagnose(io);
+
+  for (const id of ['codex-cli', 'vscode']) {
+    const finding = findings.find((candidate) => candidate.client === id);
+    assert.ok(finding, `${id} was not looked at`);
+    assert.notEqual(finding.state, BROKEN, `${id} was called broken over its own formatting`);
+    assert.match(finding.says.join(' '), /writes this file with its own command/u);
+  }
+});
+
+test('a client written by its own command is still checked for a missing interpreter', (t) => {
+  // Not judging their formatting is not the same as not checking them. The one
+  // failure this command exists for applies to them too.
+  const { io, home, dir, interpreter } = machine(t, { files: ['.codex/'] });
+
+  fs.writeFileSync(path.join(home, '.codex', 'config.toml'),
+    `[mcp_servers.nosyparker]\ncommand = "${interpreter}"\nargs = ["/srv/mcp-server.js"]\n`);
+  fs.rmSync(path.join(dir, 'runtime'), { recursive: true, force: true });
+
+  const codex = diagnose(io).findings.find((finding) => finding.client === 'codex-cli');
+
+  assert.equal(codex?.state, BROKEN);
+  assert.match(codex?.says.join(' ') ?? '', /is not there any more/u);
 });
