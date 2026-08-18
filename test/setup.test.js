@@ -213,7 +213,9 @@ test('a client that could not be checked is never counted with the ones that wer
   const wired = {
     ...io,
     machine: { ...io.machine, pathDirs: [path.join(io.machine.home, '.local', 'bin')] },
-    run: () => ({ status: 0, stdout: 'extensions:\n  nosyparker:\n', stderr: '' }),
+    // The real shape. A name line on its own is no longer enough, because a
+    // line reporting a problem with our extension has that too.
+    run: () => ({ status: 0, stdout: '  extensions:\n    nosyparker:\n      enabled: true\n', stderr: '' }),
   };
 
   report(wired, install(wired));

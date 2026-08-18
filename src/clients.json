@@ -319,22 +319,23 @@
           "info",
           "-v"
         ],
-        "connected": "^\\s+{{name}}:",
-        "failed": null,
-        "proves": "Goose parsed config.yaml and our extension is in it",
+        "connected": "^([ \\t]+){{name}}:[ \\t]*$\\n(?:\\1[ \\t]+.*\\n)*?\\1[ \\t]+enabled:[ \\t]*true\\b",
+        "failed": "^([ \\t]+){{name}}:[ \\t]*(?:$\\n(?:\\1[ \\t]+.*\\n)*?\\1[ \\t]+enabled:[ \\t]*false\\b|[ \\t]*\\S)",
+        "proves": "Goose parsed config.yaml, our extension is in it, and its own read-back shows it enabled",
         "cannotProve": "that the server runs. No session can start without a configured provider, so there is no liveness check here."
       },
       "blockers": [],
       "traps": [
         "The field is `cmd`, not `command`, and `enabled: true` is required — an entry without it never loads.",
         "Malformed YAML makes Goose fall back silently to its built-in defaults: every one of the user's own extensions disappears with no error. This is why the write is a pure insertion and is checked byte for byte afterwards.",
-        "`goose doctor` needs a configured provider and exits with an error without one. `goose info -v` does not."
+        "`goose doctor` needs a configured provider and exits with an error without one. `goose info -v` does not.",
+        "The check used to match the name line alone, which meant two things: a line reporting a problem with our extension confirmed our extension, and the sentence claiming it was `enabled` was never checked against the enable flag it named. It now requires `enabled: true` among that entry's own indented lines, so an entry switched off is a failure and a sibling's flag cannot be read as ours."
       ],
       "restart": "Start a new goose session.",
       "lastVerified": {
         "configPaths": "2026-08-17",
         "write": "2026-08-17",
-        "verify": "2026-08-17",
+        "verify": "2026-08-18",
         "traps": "2026-08-17"
       },
       "upstreamId": "goose"

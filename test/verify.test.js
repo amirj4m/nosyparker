@@ -165,13 +165,49 @@ test('Codex not listing it at all is a failure', () => {
 test('Goose echoing its parsed config is config-confirmed, not connected', () => {
   const client = clientById('goose');
 
+  // The real shape, taken from `goose info -v` on a real machine: the entry is
+  // a block, and the fields inside it come in whatever order Goose feels like.
   const checked = verifyClient(client, options(client, {
-    run: saying('extensions:\n  nosyparker:\n    type: stdio\n    enabled: true\n  developer:\n    type: builtin\n'),
+    run: saying('  extensions:\n    nosyparker:\n      type: stdio\n      name: nosyparker\n      enabled: true\n    developer:\n      enabled: true\n      type: builtin\n'),
   }));
 
   assert.equal(checked.status, CONFIG_CONFIRMED);
   assert.equal(checked.tier, 'B+');
   assert.match(/** @type {string} */ (checked.cannotProve), /no liveness check/u);
+});
+
+test('Goose has to show the enable flag, not just the name', () => {
+  // Two defects in one pattern, both closed here. The check matched the name
+  // line alone, so a line reporting a problem with our extension confirmed our
+  // extension — copilot's shape exactly, in a tier B+ row. And the sentence it
+  // produced said `enabled`, which the pattern had never looked at.
+  const client = clientById('goose');
+
+  const off = verifyClient(client, options(client, {
+    run: saying('  extensions:\n    nosyparker:\n      type: stdio\n      enabled: false\n'),
+  }));
+  assert.equal(off.status, VERIFY_FAILED);
+
+  const bare = verifyClient(client, options(client, { run: saying('  nosyparker:\n') }));
+  assert.notEqual(bare.status, CONFIG_CONFIRMED);
+
+  const broken = verifyClient(client, options(client, {
+    run: saying('  nosyparker: <error reading extension>\n'),
+  }));
+  assert.equal(broken.status, VERIFY_FAILED);
+});
+
+test('one extension being enabled is not another extension being enabled', () => {
+  // The trap in the obvious version of this pattern: a lazy match from our name
+  // skips over our own `enabled: false` and finds the next `enabled: true`,
+  // which belongs to somebody else. The entry's own indentation bounds it.
+  const client = clientById('goose');
+
+  const checked = verifyClient(client, options(client, {
+    run: saying('  extensions:\n    nosyparker:\n      enabled: false\n    developer:\n      enabled: true\n'),
+  }));
+
+  assert.equal(checked.status, VERIFY_FAILED);
 });
 
 test('no client claims success for a line that says it failed', () => {
