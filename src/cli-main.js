@@ -86,7 +86,10 @@ function runSetup(command, args) {
 
   if (command === 'setup' && args[0] === '--print-config') {
     if (args.length > 2) fail('--print-config takes at most one client name.');
-    printConfig(io, args[1] ?? null);
+    // A name we do not know is a failure, and exits like one. It printed a
+    // helpful sentence either way, but a script that asked about a client and
+    // got a zero would have every reason to think it had been given an entry.
+    if (!printConfig(io, args[1] ?? null)) process.exit(1);
     return;
   }
 

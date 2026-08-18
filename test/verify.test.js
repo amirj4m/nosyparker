@@ -24,6 +24,7 @@ import {
   UNVERIFIABLE,
   VERIFY_FAILED,
   verifyClient,
+  withoutColour,
 } from '../src/verify.js';
 
 /**
@@ -218,11 +219,13 @@ test('no client claims success for a line that says it failed', () => {
 
 test('and every client still recognises the output it was actually measured printing', () => {
   // The other half. A check that says no to everything is not a check either,
-  // and these are the lines these clients really printed on a real machine.
+  // and these are the lines these clients really printed on a real machine —
+  // opencode's with the terminal colour codes it really emits, which is how the
+  // word-boundary fix above was caught breaking it.
   const real = {
     'claude-code': 'nosyparker: node /srv/mcp-server.js - \u2714 Connected',
     'gemini-cli': '\u2713 nosyparker: node /srv/mcp-server.js (stdio) - Connected',
-    opencode: '\u25cf  \u2713 nosyparker connected',
+    opencode: '\u25cf  \u2713 nosyparker \u001b[90mconnected',
     goose: 'extensions:\n  nosyparker:\n    enabled: true',
   };
 
@@ -237,6 +240,30 @@ test('and every client still recognises the output it was actually measured prin
       `${id} no longer recognises its own output: ${checked.status}`,
     );
   }
+});
+
+test('colour codes are taken off before anything is matched', () => {
+  // A real regression, caught by running the thing rather than by the tests.
+  // Tightening opencode's pattern to a whole word — so that `disconnected`
+  // could not satisfy it — turned a client that genuinely starts the server
+  // into one reported as never mentioning it, because opencode colours the word
+  // and the escape ends in `m`, which is a word character sitting exactly where
+  // the boundary needed to be.
+  const client = clientById('opencode');
+
+  const coloured = verifyClient(client, options(client, {
+    run: saying('\u25cf  \u2713 nosyparker \u001b[90mconnected\n'),
+  }));
+  assert.equal(coloured.status, CONNECTED);
+
+  // And the tightening it was protecting still holds, colours or not.
+  const broken = verifyClient(client, options(client, {
+    run: saying('\u25cf  \u2717 nosyparker \u001b[31mdisconnected\n'),
+  }));
+  assert.equal(broken.status, VERIFY_FAILED);
+
+  assert.equal(withoutColour('\u001b[90mconnected\u001b[0m'), 'connected');
+  assert.equal(withoutColour('nothing to strip'), 'nothing to strip');
 });
 
 test('Copilot asks nothing, because nobody has ever seen what it answers', () => {

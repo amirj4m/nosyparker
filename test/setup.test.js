@@ -633,10 +633,24 @@ test('--print-config with no client prints the shape that works nearly everywher
 test('--print-config for a client nobody has heard of does not dead-end', (t) => {
   const { io, printed } = machine(t, {});
 
-  printConfig(io, 'some-editor-released-last-tuesday');
+  const found = printConfig(io, 'some-editor-released-last-tuesday');
 
   assert.match(printed(), /There is no client called "some-editor-released-last-tuesday"/u);
   assert.match(printed(), /--print-config with no name/u);
+
+  // And it says no to its caller as well as to the reader. It printed something
+  // helpful either way, but a script that asked about a client and got a zero
+  // has every reason to think it was handed an entry.
+  assert.equal(found, false);
+});
+
+test('--print-config says yes when it did print an entry', (t) => {
+  const { io } = machine(t, {});
+
+  assert.equal(printConfig(io, null), true, 'the shape that works nearly everywhere');
+  assert.equal(printConfig(io, 'zed'), true, 'a client written by file');
+  assert.equal(printConfig(io, 'claude-code'), true, 'a client written by its own command');
+  assert.equal(printConfig(io, 'goose'), true, 'a client whose file is YAML');
 });
 
 test('--print-config for a known client prints its own shape, not the common one', (t) => {

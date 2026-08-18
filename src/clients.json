@@ -222,7 +222,7 @@
           "{{command}}",
           "{{serverPath}}"
         ],
-        "why": "`codex mcp add` created config.toml and wrote the entry verbatim on the research machine. The exact argument order was not recorded there, so the read-back below is what makes this safe: a wrong invocation shows up as a missing entry, not as a green tick."
+        "why": "`codex mcp add` created config.toml and wrote the entry verbatim on the research machine. The exact argument order was not recorded there, so the read-back below is what makes this safe: a wrong invocation shows up as a missing entry, not as a green tick. Run against a real installation on 2026-08-18 to answer the one question a CLI-written row cannot answer for itself: it writes the interpreter path through verbatim, with no normalisation, no expansion and no rewriting, so the absolute path we hand it is the absolute path the file ends up holding."
       },
       "remove": {
         "method": "cli",
@@ -256,7 +256,7 @@
       "restart": "Start a new codex session.",
       "lastVerified": {
         "configPaths": "2026-08-17",
-        "write": "2026-08-17",
+        "write": "2026-08-18",
         "verify": "2026-08-17",
         "traps": "2026-08-17"
       },

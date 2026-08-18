@@ -217,6 +217,9 @@ export function uninstall(io) {
  *
  * @param {Io} io
  * @param {string|null} clientId
+ * @returns {boolean} false when the client is one we have never heard of, so
+ *   that a script checking the exit code is told the same thing a person reading
+ *   the message is
  */
 export function printConfig(io, clientId) {
   const values = { name: io.name, command: io.command, serverPath: io.serverPath };
@@ -243,13 +246,13 @@ export function printConfig(io, clientId) {
       'while they are running.',
       '',
     ].join('\n'));
-    return;
+    return true;
   }
 
   const client = clientById(clientId);
   if (client === null) {
     io.out(`There is no client called "${clientId}" in the table. Run --print-config with no name for the shape that works nearly everywhere.\n`);
-    return;
+    return false;
   }
 
   const configPath = configPathFor(client, io.machine);
@@ -303,6 +306,7 @@ export function printConfig(io, clientId) {
   }
 
   io.out(`${client.restart}\n`);
+  return true;
 }
 
 /**

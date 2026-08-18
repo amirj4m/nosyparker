@@ -155,7 +155,7 @@ function fromLines(client, options, blockers) {
   const argv = fillTokens(client.verify.argv, { name: options.name, command: '', serverPath: '' });
   const ran = run([/** @type {string} */ (options.clientCommand), ...argv.slice(1)]);
 
-  const output = `${ran.stdout}\n${ran.stderr}`;
+  const output = withoutColour(`${ran.stdout}\n${ran.stderr}`);
 
   // The exit code is deliberately not consulted. `claude mcp list` exits 0 with
   // no servers configured at all, so a zero here means the command ran, not
@@ -348,6 +348,27 @@ function blocked(blocker, settings, options) {
     default:
       return false;
   }
+}
+
+/**
+ * Terminal colour codes taken out before anything is matched against.
+ *
+ * These are presentation, not content, and leaving them in breaks patterns in a
+ * way that is invisible in a terminal and obvious in a string. opencode prints
+ * `\u2713 nosyparker \u001b[90mconnected` — the escape sits directly between the
+ * name and the word, so `\bconnected\b` finds no word boundary there, because
+ * the character before `connected` is the `m` ending the escape.
+ *
+ * That is not hypothetical: tightening opencode's pattern to a whole word to
+ * stop `disconnected` matching turned a client that genuinely starts the server
+ * into one reported as never mentioning it. Both halves are right — the word
+ * boundary and this — and neither works without the other.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function withoutColour(text) {
+  return text.replaceAll(/\u001b\[[0-9;]*[A-Za-z]/gu, '');
 }
 
 /**
