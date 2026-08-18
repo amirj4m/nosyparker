@@ -71,6 +71,14 @@ test('a document that stops being true is noticed', (t) => {
     ['README.md', '/issues', '/discussions'],
   ];
 
+  // And the one that is about the program rather than a document: a usage
+  // string naming a command nobody has.
+  const cli = path.join(root, 'src', 'cli-main.js');
+  fs.mkdirSync(path.dirname(cli), { recursive: true });
+  fs.writeFileSync(cli, 'fail("Which one? nosyparker restore <id>");');
+  assert.ok(failing() > 0, 'a usage string naming a command nobody has was not noticed');
+  fs.rmSync(cli);
+
   for (const [file, from, to] of mutations) {
     const target = path.join(root, file);
     const original = fs.readFileSync(target, 'utf8');

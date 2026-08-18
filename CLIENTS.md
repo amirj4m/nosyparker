@@ -1,6 +1,6 @@
 # Which agents nosyparker can wire itself into
 
-`nosyparker setup` finds the AI tools already installed on your machine and adds
+`node src/cli.js setup` finds the AI tools already installed on your machine and adds
 itself to each one's configuration. This is the list of what it knows how to do
 that for, and — just as important — how sure it is afterwards.
 
@@ -92,7 +92,7 @@ MCP configuration files. Setup uses its own `kiro --add-mcp`, which writes the
 file Kiro inherited from VS Code, `~/.config/Kiro/User/mcp.json`. Kiro's own
 agent also reads `~/.kiro/settings/mcp.json`, and whether it reads the inherited
 one was never established — so if the server does not appear in Kiro, that is
-the file to add it to by hand. `nosyparker setup --print-config kiro` prints
+the file to add it to by hand. `node src/cli.js setup --print-config kiro` prints
 both.
 
 **Claude Desktop.** Anthropic's desktop app. Officially macOS and Windows; the
@@ -175,8 +175,14 @@ the path out of each entry and tells you if it is no longer there.
 
 It also checks that each entry is still exactly what `setup` would write, asks
 the clients that can answer whether they are using the server, and says plainly
-which clients cannot be asked at all. It exits 0 when it found nothing wrong and
-1 when it did, so it can go in a script.
+which clients cannot be asked at all. And if `setup` installed into a client
+whose configuration has since been deleted, emptied, made unreadable or broken,
+it says which and what to do — that is the likeliest reason to run it.
+
+**Exit codes**, if you want it in a script or a shell prompt: `0` when it found
+nothing wrong, `1` when it did. A client that cannot be asked is not counted as
+wrong — most of them cannot, and exiting non-zero for that would make the code
+mean "you have clients installed" rather than "something needs attention".
 
 ---
 

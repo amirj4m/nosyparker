@@ -19,6 +19,7 @@
 
 import { defaultStorePath, LOCAL_OWNER, systemClock } from './config.js';
 import { forget, restore, screenQuery, submit } from './gate.js';
+import { invocation } from './clients.js';
 import { diagnose, reportDiagnosis } from './doctor.js';
 import { defaultIo, install, ioWithLog, printConfig, report, reportRemoval, uninstall } from './setup.js';
 import { listDecisions, listMemories, openStore, searchMemories } from './store.js';
@@ -142,7 +143,7 @@ function runAdd(store, args) {
   }
 
   const text = words.join(' ');
-  if (words.length === 0) fail('Say what you want to store: nosyparker add "<text>"');
+  if (words.length === 0) fail(`Say what you want to store: ${invocation()} add "<text>"`);
 
   const result = submit(store, { owner: LOCAL_OWNER, text, replaces });
   printOutcome(result);
@@ -154,7 +155,7 @@ function runAdd(store, args) {
  */
 function runSearch(store, args) {
   const query = args.join(' ');
-  if (query.trim() === '') fail('Say what to look for: nosyparker search "<query>"');
+  if (query.trim() === '') fail(`Say what to look for: ${invocation()} search "<query>"`);
 
   // The same screen an agent gets, so a secret typed at the terminal is
   // refused and written to the log here too rather than only through a tool.
@@ -237,10 +238,10 @@ function runLog(store, args) {
  */
 function runForget(store, args) {
   const [rawId, ...reasonParts] = args;
-  if (rawId === undefined) fail('Which one? nosyparker forget <id> "<reason>"');
+  if (rawId === undefined) fail(`Which one? ${invocation()} forget <id> "<reason>"`);
 
   const reason = reasonParts.join(' ');
-  if (reason.trim() === '') fail('Say why: nosyparker forget <id> "<reason>"');
+  if (reason.trim() === '') fail(`Say why: ${invocation()} forget <id> "<reason>"`);
 
   printOutcome(forget(store, { owner: LOCAL_OWNER, id: toId(rawId), reason }));
 }
@@ -251,7 +252,7 @@ function runForget(store, args) {
  */
 function runRestore(store, args) {
   const [rawId, ...extra] = args;
-  if (rawId === undefined) fail('Which one? nosyparker restore <id>');
+  if (rawId === undefined) fail(`Which one? ${invocation()} restore <id>`);
   refuseExtra('restore', extra);
 
   printOutcome(restore(store, { owner: LOCAL_OWNER, id: toId(rawId) }));

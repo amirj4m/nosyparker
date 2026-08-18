@@ -66,6 +66,8 @@ const PHASE_3 = [
   'src/backup.js',
   'src/clients.js',
   'src/detect.js',
+  'src/doctor.js',
+  'src/documentation.js',
   'src/edit.js',
   'src/log.js',
   'src/setup.js',

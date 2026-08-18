@@ -152,7 +152,18 @@ export function checkDocumentation(root = repositoryRoot()) {
       // A person stuck enough to be reading either one should not then be told
       // to run something that does not exist.
       const script = invocation().split(' ').slice(-1)[0];
+
+      // Item 4 swept the messages that end "run setup again" and missed the
+      // other half of the CLI: five usage strings still told somebody to run
+      // `nosyparker add`, which is not a command anybody has. A sweep finds what
+      // it looks for; this looks at every string the program can print.
+      const printing = fs.readdirSync(path.join(root, 'src'))
+        .filter((file) => file.endsWith('.js'))
+        .filter((file) => withoutComments(read(`src/${file}`))
+          .match(/nosyparker (add|search|list|log|forget|restore|setup|uninstall|doctor)\b/u));
+
       return [
+        ...printing.map((file) => `src/${file} names a command nobody has`),
         ...(script.endsWith('/src/cli.js') ? [] : [`the program points at ${script}`]),
         ...(readme.includes('node src/cli.js setup') ? [] : ['the README does not name setup']),
         ...(readme.includes('node src/cli.js doctor') ? [] : ['the README does not name doctor']),
@@ -176,6 +187,18 @@ export function checkDocumentation(root = repositoryRoot()) {
         ? [] : ['the code no longer points at it']),
     ]),
   ];
+}
+
+/**
+ * Source with its comments taken out, so prose about a mistake is not read as
+ * the mistake. Several modules explain in a comment why `nosyparker setup` was
+ * wrong, and those sentences have to survive the check that made them true.
+ *
+ * @param {string} source
+ * @returns {string}
+ */
+function withoutComments(source) {
+  return source.replaceAll(/\/\*[\s\S]*?\*\//gu, '').replaceAll(/^\s*\/\/.*$/gmu, '');
 }
 
 /**
