@@ -124,11 +124,17 @@ list.
 looks for. The extension only starts up when you first open its panel, so there
 is nothing to check before then.
 
-**Cline**, **Continue**, **Warp**, **JetBrains Junie**, and **GitHub Copilot CLI**
-are all written from their published documentation rather than from a running
+**Continue**, **Warp**, **JetBrains Junie** and **GitHub Copilot CLI** are
+written from their published documentation rather than from a running
 installation. They follow shapes we have verified elsewhere and there is no
 reason to think they are wrong, but nobody has watched them work. Continue in
 particular does not always notice a changed file — reload it if nothing happens.
+
+**Cline** is one step weaker again, and it is the only entry on this page that
+is. Its path comes from third-party write-ups rather than from Cline's own
+documentation, so nobody has watched it work *and* the shape is not the
+vendor's own word. If you use Cline and the server does not appear, that entry
+is the first thing to doubt.
 
 Copilot is worth one more sentence, because it is the one case where we
 deliberately ignore a check a vendor documents. Its `copilot mcp list` is

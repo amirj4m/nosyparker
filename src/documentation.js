@@ -187,6 +187,24 @@ export function checkDocumentation(root = repositoryRoot()) {
       ];
     })()),
 
+    check('CLIENTS.md does not claim a firmer basis than a row has', (() => {
+      // The document grouped Cline with the four clients written from vendor
+      // documentation; its row says third-party write-ups, which is weaker.
+      // A reader deciding whether to trust an entry was being told the wrong
+      // thing about which one to doubt first.
+      const documented = clients.filter((client) => client.evidence === 'DOCS').map(short);
+      const weaker = clients.filter((client) => client.evidence === 'SECONDARY').map(short);
+      const paragraph = clientsMd.split('\n\n')
+        .find((block) => block.includes('written from their published documentation')) ?? '';
+
+      return [
+        ...weaker.filter((name) => paragraph.includes(name))
+          .map((name) => `${name} is in the documented group and its row says SECONDARY`),
+        ...documented.filter((name) => !clientsMd.includes(name))
+          .map((name) => `${name} is documented-only and CLIENTS.md never says so`),
+      ];
+    })()),
+
     check('the README says what is in the folder it keeps things in', (() => {
       // Nothing held this: the log was a user-visible file in somebody's home
       // directory that no document mentioned at all, and "Removing it" said the
