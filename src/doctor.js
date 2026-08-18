@@ -369,7 +369,9 @@ const REVIEWS_SHOWN = 5;
  * stand off the bottom of a list that has to stay short enough to read.
  *
  * The line about a review having taken most of the store is a report and not a
- * rule. Nothing refuses on it, nothing caps on it, and the same review would
+ * rule. Why it is here rather than in the gate, why it does not change the exit
+ * code, and why that was settled the way it was: DECISIONS.md, "Saying it
+ * louder, and not acting on it". Nothing refuses on it, nothing caps on it, and the same review would
  * have been written exactly the same way with this file deleted. It is a
  * sentence in front of a person, and where the sentence starts appearing is a
  * decision about telling rather than about memories, which is why the number
