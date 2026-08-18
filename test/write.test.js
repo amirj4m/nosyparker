@@ -16,6 +16,7 @@ import test from 'node:test';
 
 import { MANIFEST_NAME, readManifest, recordFirstTouch } from '../src/backup.js';
 import { clientById, loadClients } from '../src/clients.js';
+import { canEdit } from '../src/edit.js';
 import {
   ABSENT,
   FAILED,
@@ -637,4 +638,59 @@ test('a client written by its own command is not second-guessed about permission
   // It fails on the read-back, which is the honest outcome, rather than being
   // refused by us on a rule that is not ours to apply here.
   assert.notEqual(written.outcome, NOT_WRITTEN);
+});
+
+test('a client whose format we cannot edit says so, when its own command has gone', (t) => {
+  // Found by asking which side of each fork the composition tests never take.
+  // Codex is written and unwired by its own command and its file is TOML, which
+  // this project has no writer for and never needed one for. The fallback that
+  // makes uninstall work on a machine where a client has been deleted cannot
+  // work for it, and said "There is no way to edit a "toml" file here" — an
+  // internal sentence about formats, in front of somebody whose config still
+  // has our entry in it.
+  const space = workspace(t);
+  const configPath = space.config('config.toml');
+  fs.writeFileSync(configPath,
+    '[mcp_servers.nosyparker]\ncommand = "/usr/bin/node"\n\n[mcp_servers.theirs]\ncommand = "other"\n');
+
+  const removed = removeFromClient(clientById('codex-cli'), options({
+    configPath,
+    backupDir: space.backupDir,
+  }, { clientCommand: null }));
+
+  assert.equal(removed.outcome, FAILED);
+  assert.match(/** @type {string} */ (removed.error), /which this cannot edit/u);
+  assert.match(/** @type {string} */ (removed.error), /Remove the \[mcp_servers\.nosyparker\] section from/u);
+  assert.match(/** @type {string} */ (removed.error), new RegExp(configPath.replaceAll('/', '\\/'), 'u'));
+
+  // And it left the file alone, including the entry that is not ours.
+  assert.match(fs.readFileSync(configPath, 'utf8'), /mcp_servers\.theirs/u);
+});
+
+test('the same client unwires cleanly when its own command is there', (t) => {
+  const space = workspace(t);
+  const configPath = space.config('config.toml');
+  fs.writeFileSync(configPath, '[mcp_servers.nosyparker]\ncommand = "/usr/bin/node"\n');
+
+  const removed = removeFromClient(clientById('codex-cli'), options({
+    configPath,
+    backupDir: space.backupDir,
+  }, {
+    clientCommand: '/usr/bin/codex',
+    run: () => {
+      fs.writeFileSync(configPath, '');
+      return { status: 0, stdout: '', stderr: '' };
+    },
+  }));
+
+  assert.equal(removed.outcome, REMOVED);
+});
+
+test('every format the table uses can be edited, except the one written for us', () => {
+  // The fork itself, stated: this is the only client whose file this project
+  // cannot edit, and it is the only one that never needed editing.
+  const cannot = loadClients().clients.filter((client) => !canEdit(client.format));
+
+  assert.deepEqual(cannot.map((client) => client.id), ['codex-cli']);
+  assert.equal(cannot[0].write.method, 'cli');
 });

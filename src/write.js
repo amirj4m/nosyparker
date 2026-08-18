@@ -53,6 +53,7 @@ import { manifestRowFor, recordFirstTouch } from './backup.js';
 import { anyRunning } from './detect.js';
 import { noLog } from './log.js';
 import {
+  canEdit,
   hadRootKey,
   hasEntry,
   insertEntry,
@@ -212,6 +213,19 @@ export function removeFromClient(client, options) {
     }
 
     if (!hasEntry(before, request)) return result('file', options.configPath, null, ABSENT, null);
+
+    // The fallback exists so an uninstall works on a machine where the client
+    // has been deleted, upgraded or moved off PATH. For one client it cannot:
+    // Codex's file is TOML, which this project has no writer for, because Codex
+    // has always written its own. Saying so with the path and the section name
+    // is worth more than an internal sentence about formats.
+    if (!canEdit(client.format)) {
+      return result('file', options.configPath, null, FAILED,
+        `${client.name} is normally unwired with its own command, which is not on this machine, `
+        + `and its configuration is ${client.format.toUpperCase()}, which this cannot edit. `
+        + `Remove the [${client.rootKey}.${options.name}] section from ${options.configPath} by hand, `
+        + 'or put that command back and run this again.');
+    }
 
     // Our entry, and then the container we put it in if that was ours too. A
     // file that already existed is never deleted, but leaving an empty

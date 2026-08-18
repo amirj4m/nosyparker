@@ -68,6 +68,23 @@ export function insertEntry(text, request) {
 }
 
 /**
+ * Can this project edit a file of this format at all.
+ *
+ * TOML is the one it cannot, and deliberately: Codex writes its own file
+ * through its own command, so there has never been anything for us to insert.
+ * That is fine until the fallback path is reached — an uninstall on a machine
+ * where the client has since been deleted edits the file itself — and then the
+ * honest answer is that we cannot, said as a sentence rather than as an
+ * internal error about formats.
+ *
+ * @param {string} format
+ * @returns {boolean}
+ */
+export function canEdit(format) {
+  return ['json', 'jsonc', 'yaml-map', 'yaml-list'].includes(format);
+}
+
+/**
  * Take our entry out, leaving everything else exactly as it is.
  *
  * If the entry is not there the text comes back unchanged. That is the ordinary
