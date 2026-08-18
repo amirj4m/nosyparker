@@ -192,6 +192,22 @@ mean "you have clients installed" rather than "something needs attention".
 
 ---
 
+## If your configs are symlinks
+
+Keeping dotfiles in a repository and linking them into place is a common
+arrangement, and it is one setup understands. If `~/.cursor/mcp.json` is a link
+into `~/dotfiles/`, setup follows the link and edits the file at the end of it.
+Your link stays a link, and the change lands where your repository can see it.
+
+A chain of links is followed to the end. A link pointing at a file that does not
+exist yet gets that file created, so the link starts working. A link out of your
+home directory is followed too — you made it deliberately, and setup records
+where it actually wrote.
+
+`uninstall` takes the entry back out of the same file and leaves the link alone.
+
+---
+
 ## When setup declines to write
 
 Three cases, and none of them is a failure of your setup:

@@ -43,6 +43,11 @@ alongside the keys that are.
 }
 ```
 
+If the file you are editing is a symlink into a dotfiles repository, edit the
+file it points at rather than replacing the link. `setup` does this for you;
+doing it by hand is the one place it is easy to get wrong, and replacing the
+link disconnects your repository from your live config without saying so.
+
 **Both paths have to be absolute, including the one to Node.** Run `which node`
 to get it, or `node -e 'console.log(process.execPath)'`.
 
