@@ -53,6 +53,7 @@ import {
   removeEmptyRootKey,
   removeEntry,
   stripComments,
+  withoutBom,
   withoutTrailingCommas,
 } from './edit.js';
 
@@ -122,6 +123,11 @@ export function writeToClient(client, options) {
         `${client.name} is running. ${client.writeRequiresQuit.says} Quit it and run this again.`);
     }
 
+    const protectedFile = readOnlyRefusal(client, options.configPath);
+    if (protectedFile !== null) {
+      return result(client.write.method, options.configPath, null, NOT_WRITTEN, protectedFile);
+    }
+
     return client.write.method === 'cli'
       ? writeThroughCli(client, options, request)
       : writeThroughFile(client, options, request);
@@ -156,6 +162,11 @@ export function removeFromClient(client, options) {
 
   try {
     const before = readOrEmpty(options.configPath);
+
+    const protectedFile = readOnlyRefusal(client, options.configPath);
+    if (protectedFile !== null && hasEntry(before, request)) {
+      return result('file', options.configPath, null, NOT_WRITTEN, protectedFile);
+    }
 
     if (client.remove.method === 'cli' && options.clientCommand !== null) {
       if (!hasEntry(before, request)) return result('cli', options.configPath, null, ABSENT, null);
@@ -298,7 +309,7 @@ function holdsNothing(text, format) {
 
   let parsed;
   try {
-    parsed = JSON.parse(withoutTrailingCommas(stripped));
+    parsed = JSON.parse(withoutBom(withoutTrailingCommas(stripped)));
   } catch {
     return false;
   }
@@ -516,6 +527,48 @@ export function clearAbandonedTemporaries(file) {
  */
 function escapeForFilename(text) {
   return text.replaceAll(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
+/**
+ * A file somebody has deliberately protected.
+ *
+ * An atomic write does not need permission to write the file — it writes a new
+ * one beside it and renames over the top, which POSIX allows with nothing but
+ * permission on the directory. So a config at `0444` was being rewritten
+ * happily, and because the mode is carried over onto the replacement, the
+ * person who set it could not tell afterwards.
+ *
+ * That is standard behaviour for an atomic write and it is still the wrong
+ * answer here. Read-only on a configuration file is not an accident of the
+ * filesystem, it is somebody saying leave this alone, and the one thing this
+ * phase must never do is make a change the owner of the file cannot see. So it
+ * is refused, in the same words as an application that is running: nothing was
+ * attempted, nothing is broken, and here is the thing to do about it.
+ *
+ * Only for files we edit ourselves. Where the client's own command does the
+ * writing, what it makes of a read-only file is between them.
+ *
+ * @param {any} client
+ * @param {string} file
+ * @returns {string|null} a sentence, or null to go ahead
+ */
+function readOnlyRefusal(client, file) {
+  if (client.write.method !== 'file') return null;
+
+  let mode;
+  try {
+    mode = fs.statSync(file).mode;
+  } catch {
+    return null; // not there yet, which is not the same as protected
+  }
+
+  if ((mode & 0o200) !== 0) return null;
+
+  return `${file} is read-only (${(mode & 0o777).toString(8).padStart(4, '0')}). `
+    + 'Nothing was written, because a file set read-only is somebody saying to leave it alone, '
+    + 'and rewriting it anyway would not have shown up in its permissions afterwards. '
+    + `Make it writable and run this again, or add the entry by hand with `
+    + `\`nosyparker setup --print-config ${client.id}\`.`;
 }
 
 /**

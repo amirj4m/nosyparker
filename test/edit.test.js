@@ -19,6 +19,7 @@ import {
   removeEmptyRootKey,
   removeEntry,
   stripComments,
+  withoutBom,
   withoutTrailingCommas,
 } from '../src/edit.js';
 
@@ -457,4 +458,38 @@ test('a string containing a brace does not confuse it either', () => {
 
   assert.equal(JSON.parse(after).note, '{"mcpServers": {}}');
   assert.deepEqual(JSON.parse(after).mcpServers.nosyparker, ENTRY);
+});
+
+test('a file that begins with a byte order mark is not a broken file', () => {
+  // Notepad and older versions of VS Code write one, four of the twenty clients
+  // are supported on Windows, and `JSON.parse` refuses a string that starts
+  // with U+FEFF. Without this we declined to install and said the file was not
+  // valid JSON — a sentence about their file being broken, when their own
+  // editor wrote it and every other program they own reads it happily.
+  const before = '﻿{\n  "mcpServers": {},\n  "theme": "dark"\n}\n';
+
+  const after = insertEntry(before, JSON_REQUEST);
+
+  assert.equal(hasEntry(after, JSON_REQUEST), true);
+
+  // And it is still their file: the mark is where it was, because nothing here
+  // rewrites the bytes it did not add. An editor expecting one still finds one.
+  assert.equal(after.charCodeAt(0), 0xfeff);
+  assert.equal(JSON.parse(withoutBom(after)).theme, 'dark');
+});
+
+test('the mark is only skipped at the start, and only for reading', () => {
+  assert.equal(withoutBom('﻿{}'), ' {}', 'offsets do not move');
+  assert.equal(withoutBom('{}'), '{}');
+
+  // One in the middle of a string is somebody's data, not an encoding artefact.
+  const inside = '{"note": "a﻿b"}';
+  assert.equal(withoutBom(inside), inside);
+});
+
+test('a genuinely broken file with a mark on the front is still refused', () => {
+  assert.throws(
+    () => insertEntry('﻿{ "mcpServers": { "a": }', JSON_REQUEST),
+    /not valid JSON/u,
+  );
 });

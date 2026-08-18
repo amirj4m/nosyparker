@@ -53,7 +53,7 @@
  */
 
 import { expandPath, fillTokens } from './clients.js';
-import { hasEntry, stripComments } from './edit.js';
+import { hasEntry, stripComments, withoutBom } from './edit.js';
 import { readOrEmpty, runCommand } from './write.js';
 
 /** The client started the server and said so. */
@@ -302,7 +302,7 @@ export function findBlockers(client, options) {
 
   for (const blocker of client.blockers ?? []) {
     const file = expandPath(blocker.file, options.machine);
-    const settings = parseOrNull(stripComments(readOrEmpty(file)));
+    const settings = parseOrNull(withoutBom(stripComments(readOrEmpty(file))));
 
     // A missing file is not the absence of a blocker. Gemini's folder trust is
     // recorded in a file that does not exist until something is trusted, so no

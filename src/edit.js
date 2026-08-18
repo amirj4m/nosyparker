@@ -361,10 +361,37 @@ function checkedJson(text, request) {
  */
 function parseCheck(text, complaint) {
   try {
-    JSON.parse(withoutTrailingCommas(stripComments(text)));
+    JSON.parse(withoutBom(withoutTrailingCommas(stripComments(text))));
   } catch {
     throw new Error(complaint);
   }
+}
+
+/**
+ * A byte order mark at the start, replaced by a space.
+ *
+ * For the parse check only, like the two passes above it, and for the same
+ * reason: `JSON.parse` refuses a file that begins with U+FEFF, and a config
+ * saved by Notepad or by an older VS Code begins with one. Four of the twenty
+ * clients are supported on Windows, which is where those files come from.
+ *
+ * Without this we refused to install and said "the file as it stands is not
+ * valid JSON", which is a sentence about the file being broken when the file is
+ * fine — the reader's own editor wrote it, and every other program they own
+ * reads it. Telling somebody their working file is corrupt is a worse failure
+ * than the one it was guarding against.
+ *
+ * Nothing removes it from the file. The splice keeps every byte of the original
+ * including this one, so a file that arrived with a BOM leaves with it, and the
+ * editor that expects one is not surprised. The scanner needed no change at
+ * all: JavaScript's `\s` already counts U+FEFF as whitespace, so it was only
+ * ever the parse that objected.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function withoutBom(text) {
+  return text.charCodeAt(0) === 0xfeff ? ` ${text.slice(1)}` : text;
 }
 
 /**

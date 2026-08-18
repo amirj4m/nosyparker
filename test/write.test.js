@@ -573,3 +573,68 @@ test('the backup is taken before the write, so it is a copy of what was there', 
   assert.equal(written.backup?.made, true);
   assert.equal(fs.readFileSync(/** @type {string} */ (written.backup?.backupPath), 'utf8'), before);
 });
+
+test('a config somebody set read-only is not written, and is told so', (t) => {
+  // An atomic write does not need permission on the file — it renames a new one
+  // over the top, which POSIX allows with only directory permission. So a 0444
+  // config was being rewritten happily, and because the mode is carried onto
+  // the replacement, the person who set it could not tell afterwards. Read-only
+  // on a config is somebody saying leave this alone, and a change its owner
+  // cannot see is the one thing this phase must not make.
+  const space = workspace(t);
+  const configPath = space.config('settings.json');
+  fs.writeFileSync(configPath, '{"theme": "dark"}\n');
+  fs.chmodSync(configPath, 0o444);
+
+  const written = writeToClient(clientById('gemini-cli'), options({ configPath, backupDir: space.backupDir }));
+
+  assert.equal(written.outcome, NOT_WRITTEN);
+  assert.match(/** @type {string} */ (written.error), /is read-only \(0444\)/u);
+  assert.match(/** @type {string} */ (written.error), /--print-config gemini-cli/u);
+
+  assert.equal(fs.readFileSync(configPath, 'utf8'), '{"theme": "dark"}\n');
+  assert.equal(fs.statSync(configPath).mode & 0o777, 0o444);
+});
+
+test('and uninstall will not touch it either', (t) => {
+  const space = workspace(t);
+  const configPath = space.config('settings.json');
+  fs.writeFileSync(configPath, '{"mcpServers": {"nosyparker": {"command": "node"}}}\n');
+  fs.chmodSync(configPath, 0o444);
+
+  const removed = removeFromClient(clientById('gemini-cli'), options({ configPath, backupDir: space.backupDir }));
+
+  assert.equal(removed.outcome, NOT_WRITTEN);
+  assert.match(fs.readFileSync(configPath, 'utf8'), /nosyparker/u);
+});
+
+test('a writable config is written exactly as before', (t) => {
+  const space = workspace(t);
+  const configPath = space.config('settings.json');
+  fs.writeFileSync(configPath, '{"theme": "dark"}\n', { mode: 0o644 });
+
+  assert.equal(
+    writeToClient(clientById('gemini-cli'), options({ configPath, backupDir: space.backupDir })).outcome,
+    WRITTEN,
+  );
+});
+
+test('a client written by its own command is not second-guessed about permissions', (t) => {
+  // What a vendor's own tool makes of a read-only file is between them and it.
+  const space = workspace(t);
+  const configPath = space.config('mcp.json');
+  fs.writeFileSync(configPath, '{"servers": {}}\n');
+  fs.chmodSync(configPath, 0o444);
+
+  const written = writeToClient(clientById('vscode'), options({
+    configPath,
+    backupDir: space.backupDir,
+  }, {
+    clientCommand: '/usr/bin/code',
+    run: () => ({ status: 0, stdout: '', stderr: '' }),
+  }));
+
+  // It fails on the read-back, which is the honest outcome, rather than being
+  // refused by us on a rule that is not ours to apply here.
+  assert.notEqual(written.outcome, NOT_WRITTEN);
+});
