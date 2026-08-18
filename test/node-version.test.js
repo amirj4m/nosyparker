@@ -38,17 +38,29 @@ test('the Node running these tests is one this project supports', () => {
   assert.equal(isSupported(), true);
 });
 
-test('what it says names the version, the version needed, and one thing to do', () => {
+test('what it says names the version needed, the version found, and one thing to do', () => {
   const said = tooOldMessage('18.19.1');
 
-  assert.match(said, /this is Node 18\.19\.1/u);
   assert.match(said, /needs Node 22\.5 or newer/u);
-  assert.match(said, /nvm install 22/u);
+  assert.match(said, /This is Node 18\.19\.1/u);
+  assert.match(said, /Install a newer Node from nodejs\.org/u);
 
-  // Nothing about module loaders, builtins, or which import failed. The person
-  // reading this did not ask for SQLite and does not need to know it exists,
-  // beyond the one clause that explains why the version matters.
-  assert.doesNotMatch(said, /ERR_UNKNOWN_BUILTIN_MODULE|ModuleLoader|node:sqlite/u);
+  // Nothing about module loaders, builtins, or which import failed, and nothing
+  // about SQLite: that is our reason for needing the version, not the reader's
+  // problem, and a person who has met this from any other command line tool is
+  // not expecting an explanation.
+  assert.doesNotMatch(said, /ERR_UNKNOWN_BUILTIN_MODULE|ModuleLoader|node:sqlite|SQLite/u);
+
+  // It reads for somebody who has never heard of a version manager: the plain
+  // instruction comes first and stands alone, and the clause for people who do
+  // have one names itself rather than assuming the word.
+  const [instruction] = said.split('\n').filter((line) => line.startsWith('Install'));
+  assert.ok(instruction.includes('nodejs.org'));
+  assert.match(said, /a tool like nvm/u);
+  assert.ok(said.indexOf('nodejs.org') < said.indexOf('nvm'), 'the plain route comes first');
+
+  // Short. Four lines including the blank one.
+  assert.ok(said.split('\n').length <= 4, `${said.split('\n').length} lines is too many`);
 });
 
 test('a supported Node is let through without a word', () => {

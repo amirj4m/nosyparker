@@ -21,6 +21,15 @@
  *
  * It checks rather than trusting `engines`, because `engines` is advice that
  * only npm reads, and nobody installs this with npm yet.
+ *
+ * The message is deliberately plain and deliberately short, and it is not an
+ * invention: a person installing command line tools has met this before — the
+ * owner had it from Hermes the same week — so the expected shape is the version
+ * needed, the version found, and one thing to do. It does not explain that this
+ * is about SQLite, because that is our reason and not their problem, and it
+ * leads with "install a newer Node" rather than with a version manager, because
+ * most people do not have one and the ones who do will recognise the clause at
+ * the end without being taught the words.
  */
 
 /** The first Node that has `node:sqlite`. */
@@ -45,12 +54,10 @@ export function tooOldMessage(version) {
   const running = version ?? process.versions.node;
 
   return [
-    `nosyparker needs Node ${OLDEST_SUPPORTED.major}.${OLDEST_SUPPORTED.minor} or newer, and this is Node ${running}.`,
+    `nosyparker needs Node ${OLDEST_SUPPORTED.major}.${OLDEST_SUPPORTED.minor} or newer. This is Node ${running}.`,
     '',
-    'It stores your memories in a SQLite file, and SQLite arrived in Node',
-    `${OLDEST_SUPPORTED.major}.${OLDEST_SUPPORTED.minor}. There is nothing to configure: install a newer Node and run this again.`,
-    '',
-    'If you use nvm, `nvm install 22` and `nvm use 22` is the whole of it.',
+    'Install a newer Node from nodejs.org and run this again. If you manage Node',
+    'versions with a tool like nvm, switch to 22 there instead.',
   ].join('\n');
 }
 
