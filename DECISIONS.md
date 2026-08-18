@@ -394,3 +394,32 @@ the spirit:
   moment it repairs something, its output stops being evidence of what the
   machine was like and starts being evidence of what it was like after this
   command had a go at it.
+
+## Before trusting a checker, make it fail  [record]
+
+Five times now a check written to hold something has been wrong about the thing
+rather than the other way round, and every time the check said everything was
+fine. Listing them, because the shape only becomes obvious in a row:
+
+- A coverage sweep asked "is this client named in any test file", which every
+  client is, because the table tests enumerate all twenty. It reported total
+  coverage of forks it had not looked at.
+- A probe recording which clients each code path processes silently recorded
+  nothing for `verifyClient`, because the module imports no `node:fs` and the
+  injected `require` was never defined. An empty result read as an empty answer.
+- A documentation checker compared prose shape rather than facts and reported
+  three documents wrong that were right — Claude Code's "Wired automatically
+  through", Codex's "Wired through", the README's section count.
+- The same checker's mutation harness replaced the first occurrence of a string,
+  so a claim appearing twice survived being "removed" and the mutation passed.
+- The section check in this file compared titles with backticks stripped against
+  source that still had them, and called a pointer that was right there missing.
+
+The rule that follows is cheap and has caught every one of them: **a new check
+is not finished until it has been made to fail on purpose.** Break the thing it
+guards, watch it complain, put it back. If it cannot be made to fail, it is not
+a check — it is a sentence that happens to run.
+
+The mutation tests in `test/documentation.test.js` and the three mutations
+behind `test/entrances.test.js` exist because of this, and are the pattern to
+copy rather than the exception.
