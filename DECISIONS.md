@@ -465,14 +465,37 @@ anywhere, for any purpose, ever.** The moment such a line exists, the sentence
 at the top of the README — nothing in it expires — stops being true, and every
 argument for widening it slightly will sound as reasonable as the first one did.
 
-Held by a test rather than by this paragraph. `review.test.js` asserts that no
-module which can reach a memory names `Date.now`, `new Date`, `Date.parse` or
-`getTime`; the list of modules is the entrances list, and anything joining that
-one joins this. Writing a timestamp down is fine and this project does it
-constantly — every memory, every decision, every line of the action log — which
-is why the check is scoped to where reading one would be a decision about a
-memory rather than banned outright. The loose version of the rule would have
-flagged `log.js` and `setup.js`, which are correct.
+Held by a test rather than by this paragraph, and the first version of that test
+was wrong in the most instructive way available. It forbade *naming a clock* —
+`Date.now`, `new Date`, `Date.parse`, `getTime` — and a reviewer walked straight
+past it with the rule this section is about:
+
+```js
+if (memory.created_at < '2024-01-01T00:00:00.000Z') { actions.leaveBehind(…) }
+```
+
+No clock anywhere. Timestamps here are ISO 8601 strings, ISO 8601 sorts as text,
+and that is a deliberate property of the format and part of why it was chosen —
+so the comparison a clock would have been needed for is a language operator
+available to anything holding two rows. **The guard forbade the phrasing of the
+mistake and the design made the phrasing unnecessary.**
+
+What replaced it asks four questions of every module on the memory path: is a
+clock named at all, is a `*_at` column compared with anything but null, is a
+moment written out next to a comparison, is there arithmetic on one. Comments
+are stripped and string literals are kept, because `WHERE created_at < ?` is the
+same rule one layer down where JavaScript cannot see it. Eleven mutations were
+run against it, including all four the reviewer got past the old one with, and
+the eleventh is a control that has to *pass*: a real clock in `log.js`. Writing a
+timestamp down is fine and this project does it constantly — every memory, every
+decision, every line of the action log — so the check is scoped to where reading
+one would be a decision about a memory rather than banned outright.
+
+The list of modules is derived from the import graph rather than written down.
+The hand-written version missed `doctor.js` when that module joined the
+entrances, inside the commit whose own test says a module joining one list joins
+the other in the same commit for the same reason. Two lists kept by hand had
+already drifted apart in the change that promised they would not.
 
 The state a review can reach is `overtaken`, and its name is part of this. Not
 `expired`, which describes a timer. Not `forgotten`, which is the person saying
