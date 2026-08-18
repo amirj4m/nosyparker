@@ -55,6 +55,10 @@ test('a document that stops being true is noticed', (t) => {
   }
   fs.mkdirSync(path.join(root, 'src'));
   fs.copyFileSync(path.join(real, 'src/write.js'), path.join(root, 'src/write.js'));
+  // The check reads the scripts too, since a command nobody has can be named
+  // there as easily as anywhere else.
+  fs.mkdirSync(path.join(root, 'scripts'));
+  fs.copyFileSync(path.join(real, 'scripts/drift.mjs'), path.join(root, 'scripts/drift.mjs'));
 
   const failing = () => checkDocumentation(root).filter((check) => !check.ok).length;
   assert.equal(failing(), 0, 'the copy starts clean');
@@ -78,6 +82,18 @@ test('a document that stops being true is noticed', (t) => {
   fs.writeFileSync(cli, 'fail("Which one? nosyparker restore <id>");');
   assert.ok(failing() > 0, 'a usage string naming a command nobody has was not noticed');
   fs.rmSync(cli);
+
+  // And the half that was not held at all: two of the seven original instances
+  // were in documents, fixed by hand with nothing watching them. Each of the
+  // four documents and the scripts, one at a time.
+  for (const file of ['README.md', 'CLIENTS.md', 'CONNECTING.md', 'DECISIONS.md', 'scripts/drift.mjs']) {
+    const target = path.join(root, file);
+    const original = fs.readFileSync(target, 'utf8');
+
+    fs.writeFileSync(target, `${original}\n\`nosyparker setup\` is the command.\n`);
+    assert.ok(failing() > 0, `a command nobody has, named in ${file}, was not noticed`);
+    fs.writeFileSync(target, original);
+  }
 
   for (const [file, from, to] of mutations) {
     const target = path.join(root, file);

@@ -135,7 +135,7 @@ the commonest trigram is, but how much of the query is made of dense ones.
 how long one memory may be, and `REPETITION_LIMIT` caps how much one memory may
 repeat itself. Take away any one and the worst case returns — which is what
 happened when `TEXT_LIMIT` was enforced in the MCP adapter but not at the
-terminal, leaving a 856 MB search reachable through `nosyparker add`.
+terminal, leaving a 856 MB search reachable through the `add` command.
 
 The worst that now fits inside all three is about nine and a half thousand
 dense characters in a single memory, which costs around 91 MB to search.
@@ -244,7 +244,7 @@ Written down for Phase 3, which is where it will matter.
 
 The same defect was fixed three times, and each fix was placed at whichever
 doors existed that week. Item 14 bounded the query in the MCP adapter, and
-`nosyparker search` was still open. Item 42 bounded the text at both doors, and
+the `search` command was still open. Item 42 bounded the text at both doors, and
 a library caller of `submit` was still open. It would be easy to read that as
 carelessness three times over, and the sharper reading is the review's: it was
 not that the bound was in the wrong place, it was that *"where the callers are"*

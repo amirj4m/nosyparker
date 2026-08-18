@@ -156,14 +156,29 @@ export function checkDocumentation(root = repositoryRoot()) {
       // Item 4 swept the messages that end "run setup again" and missed the
       // other half of the CLI: five usage strings still told somebody to run
       // `nosyparker add`, which is not a command anybody has. A sweep finds what
-      // it looks for; this looks at every string the program can print.
-      const printing = fs.readdirSync(path.join(root, 'src'))
-        .filter((file) => file.endsWith('.js'))
-        .filter((file) => withoutComments(read(`src/${file}`))
-          .match(/nosyparker (add|search|list|log|forget|restore|setup|uninstall|doctor)\b/u));
+      // it looks for.
+      //
+      // And the check that replaced it only read `src`, so two of the seven
+      // original instances — both in documents — were fixed by hand with
+      // nothing holding them. It reads the documents and the scripts too now,
+      // which is the whole of what this project can print or publish.
+      const names = /nosyparker (add|search|list|log|forget|restore|setup|uninstall|doctor)\b/u;
+      const sources = [
+        ...fs.readdirSync(path.join(root, 'src')).filter((file) => file.endsWith('.js'))
+          .map((file) => `src/${file}`),
+        ...fs.readdirSync(path.join(root, 'scripts')).filter((file) => file.endsWith('.mjs'))
+          .map((file) => `scripts/${file}`),
+      ];
+      const printing = [
+        ...sources.filter((file) => names.test(withoutComments(read(file)))),
+        // Documents have no comments to strip, and prose about the mistake is
+        // the mistake here: a reader copies what a document shows them.
+        ...['README.md', 'CLIENTS.md', 'CONNECTING.md', 'DECISIONS.md']
+          .filter((file) => names.test(read(file))),
+      ];
 
       return [
-        ...printing.map((file) => `src/${file} names a command nobody has`),
+        ...printing.map((file) => `${file} names a command nobody has`),
         ...(script.endsWith('/src/cli.js') ? [] : [`the program points at ${script}`]),
         ...(readme.includes('node src/cli.js setup') ? [] : ['the README does not name setup']),
         ...(readme.includes('node src/cli.js doctor') ? [] : ['the README does not name doctor']),
