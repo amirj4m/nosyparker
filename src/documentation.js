@@ -110,6 +110,78 @@ export function checkDocumentation(root = repositoryRoot()) {
         return readme.includes(`${word} clients`) ? [`the README still says ${word} clients`] : [];
       })),
 
+    check('the README lists every tool an agent has, and says how many there are', (() => {
+      // The rule this closes is the owner's, written down after Phase 2: any
+      // phase that adds or removes a capability updates the README in the same
+      // phase. Phase 4 added four tools and the README said six, which is the
+      // one sentence in it a person reads to find out what this thing does.
+      //
+      // `src/tools.js` is read as text rather than imported, because that file
+      // reaches the store and this one may not — the entrances test says so.
+      // The same technique as the gate's vocabulary check, for the same reason:
+      // a name that exists but is unreachable is still a name.
+      const tools = [...read('src/tools.js').matchAll(/^ {4}name: '([^']+)',$/gmu)]
+        .map((match) => match[1]);
+
+      return [
+        ...(tools.length === 0 ? ['no tool names could be read out of src/tools.js'] : []),
+        ...tools.filter((tool) => !readme.includes(`**${tool}**`))
+          .map((tool) => `the README does not list ${tool}`),
+        // Lowercased, because the number opens a sentence and is capitalised
+        // there. A check that missed for that reason would be a check nobody
+        // could satisfy without rewriting the sentence around it.
+        ...words.flatMap((word, n) => {
+          const said = readme.toLowerCase().includes(`${word} things an agent can do`);
+          if (n === tools.length) {
+            return said ? [] : [`the README does not say ${word} things an agent can do`];
+          }
+          return said ? [`the README still says ${word} things an agent can do`] : [];
+        }),
+        // CONNECTING.md tells somebody what they should see in their client's
+        // own list once it is connected, which is the one number in that
+        // document a person checks against their screen. It said six.
+        ...words.flatMap((word, n) => {
+          const said = connecting.includes(`${word} tools`);
+          if (n === tools.length) {
+            return said ? [] : [`CONNECTING.md does not say ${word} tools`];
+          }
+          return said ? [`CONNECTING.md still says ${word} tools`] : [];
+        }),
+      ];
+    })()),
+
+    check('no sentence the gate says out loud names one of its own functions', (() => {
+      // Found by running it. A review offered to a closed pass answered "Start
+      // one with beginReview", and `beginReview` is a function inside this
+      // program. Nobody has it. The agent reading that sentence has
+      // `review_start`; the person at the terminal has neither.
+      //
+      // This is the same defect as Phase 3's "run `nosyparker setup`", which
+      // named a command nobody has, and it has the same shape: a sentence
+      // written by somebody looking at the code, read by somebody who is not.
+      // That one got a check and this is its other half.
+      //
+      // Some exports are also tool names — `forget`, `restore`, `submit` — and
+      // naming those is right and is what the explanations do. The tell is the
+      // capital letter: no tool and no terminal command has one.
+      const gate = read('src/gate.js').replaceAll(/\/\*[\s\S]*?\*\//gu, '');
+      const internal = [...gate.matchAll(/^export function ([a-z]+[A-Z]\w*)/gmu)]
+        .map((match) => match[1]);
+
+      // What the program says out loud is every string literal in it. Matching
+      // the `explanation:` fields alone would miss the ones built by a helper,
+      // and `restoreExplanation` and `undoExplanation` are both helpers.
+      const spoken = [...gate.matchAll(/'([^'\\\n]*)'|`([^`\\]*)`/gu)]
+        .map((match) => match[1] ?? match[2] ?? '')
+        .join('\n');
+
+      return [
+        ...(internal.length === 0 ? ['no exported function names could be read out of the gate'] : []),
+        ...internal.filter((name) => spoken.includes(name))
+          .map((name) => `the gate says "${name}", which is a function and not something a caller has`),
+      ];
+    })()),
+
     check('the README names every client that can confirm the server started',
       clients.filter((client) => client.verify.tier === 'A' && !readme.includes(client.name))
         .map((client) => `the README does not name ${client.id}`)),

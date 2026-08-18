@@ -25,14 +25,15 @@ const SERVER = path.join(import.meta.dirname, '..', 'src', 'mcp-server.js');
 /** Invented, and assembled here so this file does not itself hold a key. */
 const SECRET = ['AKIA', 'QQQZZZTESTKEY999'].join('');
 
-test('the server lists exactly the six tools, each with something to read', async (t) => {
+test('the server lists exactly the ten tools, each with something to read', async (t) => {
   const agent = await connect(t, freshStoreFile(t));
 
   const { tools } = await agent.listTools();
 
   assert.deepEqual(
     tools.map((tool) => tool.name),
-    ['remember', 'recall', 'forget', 'restore', 'list', 'why'],
+    ['remember', 'recall', 'forget', 'restore', 'list', 'why',
+      'review_start', 'review_finding', 'review_end', 'review_undo'],
   );
 
   for (const tool of tools) {
@@ -434,6 +435,130 @@ test('two agents on the same store read each other, in both directions', async (
  */
 const serverPids = new WeakMap();
 
+test('a whole review, over the protocol, and then undone', async (t) => {
+  const agent = await connect(t, freshStoreFile(t));
+
+  await say(agent, 'remember', { text: 'Next month I am going to Berlin' });
+  await say(agent, 'remember', { text: 'I live in Tehran' });
+  await say(agent, 'remember', { text: 'I prefer tea' });
+  await say(agent, 'remember', { text: 'I prefer coffee' });
+
+  const started = await say(agent, 'review_start', { reviewer: 'a test agent' });
+
+  // The date on every line is the whole reason this tool exists rather than
+  // `list`, and an agent that cannot see it cannot reach any of the
+  // conclusions the tool asks it for.
+  assert.match(started, /review 1/u);
+  assert.match(started, /^1\. \[stored \d{4}-\d\d-\d\dT[\d:.]+Z\] Next month I am going to Berlin$/mu);
+  assert.match(started, /^2\. \[stored \d{4}-\d\d-\d\dT[\d:.]+Z\] I live in Tehran$/mu);
+
+  const overtaken = await say(agent, 'review_finding', {
+    review: 1,
+    id: 1,
+    outcome: 'overtaken',
+    reasoning: 'It says "next month" and the month it named has gone by. Nothing replaced it.',
+    derived_from: [1],
+  });
+  assert.match(overtaken, /will not be shown any more/u);
+
+  const unsure = await say(agent, 'review_finding', {
+    review: 1,
+    id: 3,
+    outcome: 'could_not_tell',
+    reasoning: 'Memories 3 and 4 disagree and neither says when. I am not going to guess.',
+    derived_from: [3, 4],
+  });
+  assert.match(unsure, /could not tell/u);
+
+  // The one with no moment in it, and nothing said about it, is untouched.
+  const after = await say(agent, 'list', {});
+  assert.doesNotMatch(after, /going to Berlin/u);
+  assert.match(after, /I live in Tehran/u);
+  assert.match(after, /I prefer tea/u);
+
+  const closed = await say(agent, 'review_end', { review: 1 });
+  assert.match(closed, /will take no more findings/u);
+
+  // Closed means closed.
+  const late = await say(agent, 'review_finding', {
+    review: 1,
+    id: 2,
+    outcome: 'overtaken',
+    reasoning: 'trying it on',
+    derived_from: [2],
+  });
+  assert.match(late, /was closed/u);
+
+  // What a person reads afterwards to judge whether the agent thought well.
+  const why = await say(agent, 'why', {});
+  assert.match(why, /review: 1/u);
+  assert.match(why, /reviewer said: It says "next month"/u);
+  assert.match(why, /read: 3 4/u);
+
+  const undone = await say(agent, 'review_undo', { review: 1 });
+  assert.match(undone, /is undone/u);
+  assert.match(await say(agent, 'list', {}), /going to Berlin/u);
+});
+
+test('a review cannot forget, and cannot reason from a memory that is not there', async (t) => {
+  const agent = await connect(t, freshStoreFile(t));
+
+  await say(agent, 'remember', { text: 'I live in Tehran' });
+  await say(agent, 'review_start', { reviewer: 'a test agent' });
+
+  const invented = await say(agent, 'review_finding', {
+    review: 1,
+    id: 1,
+    outcome: 'overtaken',
+    reasoning: 'I read something that does not exist',
+    derived_from: [1, 404],
+  });
+  assert.match(invented, /404/u);
+
+  const nothing = await say(agent, 'review_finding', {
+    review: 1,
+    id: 1,
+    outcome: 'overtaken',
+    reasoning: 'I read nothing at all',
+    derived_from: [],
+  });
+  assert.match(nothing, /does not say which memories/u);
+
+  // There is no outcome that forgets, and the schema says so before the call
+  // is ever made.
+  const { tools } = await agent.listTools();
+  const finding = tools.find((tool) => tool.name === 'review_finding');
+  assert.deepEqual(
+    /** @type {any} */ (finding?.inputSchema.properties).outcome.enum,
+    ['overtaken', 'superseded', 'could_not_tell'],
+  );
+
+  assert.match(await say(agent, 'list', {}), /I live in Tehran/u);
+});
+
+test('a secret in a review\'s reasoning reaches neither the store nor the log', async (t) => {
+  const file = freshStoreFile(t);
+  const agent = await connect(t, file);
+
+  await say(agent, 'remember', { text: 'I live in Tehran' });
+  await say(agent, 'review_start', { reviewer: 'a test agent' });
+
+  const refused = await say(agent, 'review_finding', {
+    review: 1,
+    id: 1,
+    outcome: 'overtaken',
+    reasoning: `the key ${SECRET} says they moved`,
+    derived_from: [1],
+  });
+
+  assert.doesNotMatch(refused, /QQQZZZ/u);
+  assert.match(await say(agent, 'list', {}), /I live in Tehran/u);
+
+  // The door a refusal could have been laundered through, checked at the file
+  // rather than at the answer.
+  assert.equal(contains(fs.readFileSync(file), SECRET), false);
+});
+
 /**
  * Start a server on its own process and connect a client to it.
  *
@@ -772,3 +897,50 @@ function ordinary(length) {
   }
   return text.slice(0, length);
 }
+
+test('review_end tells the agent to pass the outcome on, because nobody else can', async (t) => {
+  const agent = await connect(t, freshStoreFile(t));
+  const { tools } = await agent.listTools();
+  const end = tools.find((tool) => tool.name === 'review_end')?.description ?? '';
+
+  // The gap this closes is not a safety one. Everything about a review is
+  // recorded, bounded and reversible; what a reviewer could not answer yes to
+  // was whether it should run unattended, and the reason was that a pass which
+  // archived a whole store left no trace anybody would see. `doctor` says more
+  // now, but `doctor` is pulled — it reaches whoever is already looking.
+  //
+  // The agent that just ran the review is the only party that can reach the
+  // person who is not looking, in the conversation where they asked for it, and
+  // this description is the whole of the influence available over whether it
+  // does. So the claims are tested the way every other description claim here
+  // is: against the live server, over the protocol.
+  // Whitespace-tolerant, because the descriptions are wrapped by hand and a
+  // claim moving across a line break is not a claim disappearing.
+  for (const claim of [
+    /tell the person what the review did/u,
+    /cannot see this store while they are\s+talking to you/u,
+    /how many\s+memories it put away/u,
+    /how many are still being shown/u,
+    /can be\s+put back/u,
+    /review_undo/u,
+    /lead with that/u,
+  ]) {
+    assert.match(end.replace(/\n/gu, ' '), new RegExp(claim.source.replace(/\\s\+/gu, ' '), 'u'));
+  }
+
+  // And the sentence it has to pass on is one this call actually hands it,
+  // rather than something the description asks it to work out.
+  await say(agent, 'remember', { text: 'Next week I am presenting at the all-hands' });
+  await say(agent, 'remember', { text: 'I live in Tehran' });
+  await say(agent, 'review_start', { reviewer: 'a test agent' });
+  await say(agent, 'review_finding', {
+    review: 1, id: 1, outcome: 'overtaken',
+    reasoning: 'The week it named has gone by and nothing replaced it.',
+    derived_from: [1],
+  });
+
+  const closed = await say(agent, 'review_end', { review: 1 });
+  assert.match(closed, /changed 1 memory/u);
+  assert.match(closed, /1 memory is being shown now/u);
+  assert.match(closed, /Undoing it puts back everything it changed/u);
+});

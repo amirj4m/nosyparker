@@ -5,11 +5,12 @@ rather than scrolled past. Each section is pointed at from the place it
 explains, and a check enforces that rather than this sentence asking you to
 believe it.
 
-One section is marked **[record]** instead. That is a retrospective — what a
-phase learned, written for the next one — and it explains no particular line, so
-nothing points at it. A section that is neither pointed at nor marked is one of
-the two things having quietly become the other, which is what happened to that
-one before it was marked.
+Two sections are marked **[record]** instead. Those are retrospectives — what a
+phase learned, written for the next one — and they explain no particular line,
+so nothing points at them. A section that is neither pointed at nor marked is
+one of the two things having quietly become the other, which is what happened to
+the first of them before it was marked. This paragraph said "one" while there
+were two, which is the same defect one level up and was found by counting.
 
 Nothing here is instructions. If this file and the code disagree, the code is
 what runs and this file is out of date.
@@ -395,6 +396,49 @@ the spirit:
   machine was like and starts being evidence of what it was like after this
   command had a go at it.
 
+## Saying it louder, and not acting on it
+
+A review can put away every memory in a store. It should be able to: somebody
+may well ask for exactly that, and a program that refused would be forming a
+judgement about a review, which is the thing Phase 4 exists not to do.
+
+A reviewer ran that case — one pass, forty memories out of forty, plausible
+reasons — and `doctor` afterwards said "the memory store opens, and no review is
+open". Nothing wrong. Everything gone from `list`, the only trace in `why`,
+which a person has to think to go and read. Reversible, and only if you notice.
+
+Three things follow, and the third is the one that was argued over.
+
+**Say what happened, do not decide about it.** `closeReview` reports two exact
+counts — how many it changed, how many are on show — and no share and no
+threshold. `doctor` compares those two numbers and adds a sentence when a review
+moved most of a store. Where a number becomes worth saying out loud is a
+decision about telling, not about memories, which is why it lives in the
+reporting command and not in the gate. Nothing anywhere refuses, caps or warns
+programmatically on the ratio.
+
+**Counts are not dates.** That comparison is two integers and no clock, and
+choosing to *mention* something because of a proportion is neither a comparison
+of moments nor a decision about a memory. It does not touch the rule above.
+
+**An unusual review does not turn the exit code red, and this is settled.** It
+was argued both ways and the second argument won:
+
+- For red: unattended means nobody is reading, so the status is the only signal
+  that travels.
+- Against, and decisive: the review stays in the log, so `doctor` would be red
+  from that day on. A permanently red command is one people stop running, and
+  the failure mode of a check nobody reads is worse than the failure mode of a
+  sentence somebody might skim. Time-scoping it — "reviews from the last week" —
+  would need exactly the comparison the section above forbids.
+
+What actually closes the unattended gap is neither of those, because both act on
+somebody who is already looking. `doctor` is pulled. The agent that just ran the
+review is the only party that can reach the person who is not looking, in the
+conversation where they asked for it, and `review_end`'s description is the
+whole of the influence available over whether it does. That is where the fix
+went.
+
 ## Before trusting a checker, make it fail  [record]
 
 Five times now a check written to hold something has been wrong about the thing
@@ -415,11 +459,149 @@ fine. Listing them, because the shape only becomes obvious in a row:
 - The section check in this file compared titles with backticks stripped against
   source that still had them, and called a pointer that was right there missing.
 
-The rule that follows is cheap and has caught every one of them: **a new check
-is not finished until it has been made to fail on purpose.** Break the thing it
-guards, watch it complain, put it back. If it cannot be made to fail, it is not
-a check — it is a sentence that happens to run.
+Phase 4 added a sixth and a seventh, and they are the reason this section now
+carries two rules rather than one.
 
-The mutation tests in `test/documentation.test.js` and the three mutations
-behind `test/entrances.test.js` exist because of this, and are the pattern to
-copy rather than the exception.
+The sixth: the guard on the one line that must hold — that nothing decides
+anything from a date — passed its own suite while accepting the exact rule it
+was written to forbid. It matched the phrasing (`Date.now`, `new Date`) and the
+rule needs no clock, because timestamps here are ISO 8601 strings and ISO 8601
+sorts as text. Rewritten to match the comparison, it caught four of twelve
+mutations; the eight it missed were ordinary refactoring, beginning with
+extracting a variable. A lexical check on what sits next to what survives
+exactly one assignment. It is now a check on whether the value can get out at
+all, which does not decay the same way.
+
+The seventh is about how that was found. The reviewer ran twelve mutations and
+**checked which test failed for each** — and two of its own attempts looked
+caught and were not, because breaking behaviour turns other tests red without
+the guard firing at all. A harness that asks "did the suite go red" scores a
+guard that never fired. One of ours does the same thing: a mutation to the SQL
+turns ten other tests red as well as the guard.
+
+So, two rules.
+
+**A new check is not finished until it has been made to fail on purpose.** Break
+the thing it guards, watch it complain, put it back. If it cannot be made to
+fail, it is not a check — it is a sentence that happens to run. Do it in the
+same commit that adds the check, not afterwards: every guard in this project
+that was wrong was wrong on the day it was written.
+
+**Assert on the name of the test that fires, not on the suite going red.** A
+mutation that breaks behaviour turns other tests red, and a harness reading only
+the exit code will report a guard as working when it never ran. Name the test
+you expect, check it is among the failures, and keep at least one control
+mutation that must *not* fire it — the controls in this project's own harness
+caught a false positive in the guard's allowlist.
+
+The mutation tests in `test/documentation.test.js`, the three mutations behind
+`test/entrances.test.js`, and the twenty-three behind the date guard exist
+because of this, and are the pattern to copy rather than the exception.
+
+## Time as evidence, never as a rule
+
+The owner's previous memory project deleted things. Not by accident and not
+through a bug: it had a rule that anything older than a number of days went
+away. No reading, no content, age alone as sufficient cause. It worked exactly
+as designed and it destroyed the thing it existed to hold.
+
+So Phase 4 had a problem. Some memories really do stop being true — "next week
+I am presenting at the all-hands" is worth keeping the day it is said and is
+noise a year later — and nothing was able to notice. The obvious fix is a
+timer, and the obvious fix is the thing that already failed.
+
+The distinction that resolves it is between a statement whose *content* names a
+moment and a row that is merely *old*.
+
+- "Next month I am going to Berlin", stored in January, names a moment. Whether
+  that moment has gone by is a question about the sentence, and the date it was
+  stored on is what lets somebody answer it.
+- "I live in Tehran" names no moment. It is exactly as true after ten years as
+  the day it was written. Nothing about its age can ever be a reason to touch
+  it, and no amount of time passing makes it stale.
+
+Reading the sentence is what tells the two apart, and reading is not something
+this program does. So the design is:
+
+**The timestamp is data shown to the agent. No code here reads it and concludes
+anything.**
+
+Every memory has carried `created_at` since Phase 1. `review_start` shows it on
+every line, which is the only reason that tool exists rather than `list`. The
+agent reads the sentence, looks at the date, and decides. The store records
+what it decided and why, and can put it all back.
+
+The line is worth stating as an absolute because a softened version of it is
+worthless. Not "we only use dates carefully". Not "the threshold is
+configurable". **No comparison of a stored timestamp against the current time,
+anywhere, for any purpose, ever.** The moment such a line exists, the sentence
+at the top of the README — nothing in it expires — stops being true, and every
+argument for widening it slightly will sound as reasonable as the first one did.
+
+Held by a test rather than by this paragraph, and the first version of that test
+was wrong in the most instructive way available. It forbade *naming a clock* —
+`Date.now`, `new Date`, `Date.parse`, `getTime` — and a reviewer walked straight
+past it with the rule this section is about:
+
+```js
+if (memory.created_at < '2024-01-01T00:00:00.000Z') { actions.leaveBehind(…) }
+```
+
+No clock anywhere. Timestamps here are ISO 8601 strings, ISO 8601 sorts as text,
+and that is a deliberate property of the format and part of why it was chosen —
+so the comparison a clock would have been needed for is a language operator
+available to anything holding two rows. **The guard forbade the phrasing of the
+mistake and the design made the phrasing unnecessary.**
+
+What replaced it matched the comparison instead — and was walked past a second
+time, by this:
+
+```js
+const c = memory.created_at;
+if (c < at) { … }
+```
+
+Which is not evasion either. It is what happens when somebody extracts a
+variable. A check on what sits next to what survives exactly one assignment, and
+eight of twelve mutations got past it: a rendered pair compared, an
+`Intl.Collator`, a `localeCompare` inside a sort, a `slice` of the year, a
+`String()` on both sides, a property name built by concatenation, a two-element
+sort read at `[0]`. Every one of them ordinary refactoring rather than an
+attempt to hide.
+
+The third version asks a different question — not *is the mistake spelled this
+way* but **can the value get out at all**. Outside `store.js`, a timestamp
+column may appear in exactly two places: inside a `${…}` being rendered into a
+sentence for a person, and in a comparison against null. Not assigned to
+anything, not passed to anything, no method called on it. Once it is in a
+variable nothing lexical can follow it, and every one of those eight mutations
+begins by getting it out. Fourteen mentions satisfy that today, across four
+files.
+
+`store.js` is exempt and keeps the comparison rules: its SQL names these columns
+in every statement it has, and a rule forbidding that would forbid the file.
+Comments are stripped and string literals are kept, because `WHERE created_at <
+?` is the same rule one layer down where JavaScript cannot see it.
+
+Twenty mutations that must fire and three that must not, and the harness asserts
+on the *name* of the failing test — the SQL one turns ten other tests red as
+well, and a harness reading only the exit code would have scored a guard that
+never ran. What it does not catch, said rather than left to be found: reaching
+the column with no `_at` token anywhere, `Object.values(memory)[4] < at`. That is
+hiding rather than refactoring, and a lexical check cannot follow it.
+
+Writing a timestamp down is fine and this project does it constantly — every
+memory, every decision, every line of the action log — so the check is scoped to
+the modules where reading one would be a decision about a memory rather than
+banned outright.
+
+The list of modules is derived from the import graph rather than written down.
+The hand-written version missed `doctor.js` when that module joined the
+entrances, inside the commit whose own test says a module joining one list joins
+the other in the same commit for the same reason. Two lists kept by hand had
+already drifted apart in the change that promised they would not.
+
+The state a review can reach is `overtaken`, and its name is part of this. Not
+`expired`, which describes a timer. Not `forgotten`, which is the person saying
+they do not want something shown. Overtaken by events: the world moved and this
+did not, which says nothing whatever about how old the row is.

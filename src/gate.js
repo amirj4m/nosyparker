@@ -81,19 +81,82 @@
  * about the same topic, it never decides on its own that one memory updates
  * another, and it does not infer anything from the text beyond the shapes
  * listed above. It accepts a claim; it does not form one.
+ *
+ * ## The review
+ *
+ * `beginReview`, `review`, `closeReview` and `undoReview` are the four doors an
+ * agent walking the store uses. They are doors, not a process: nothing here
+ * starts a review, schedules one, or decides that one is due. An agent decides
+ * that, an agent reads the memories, and an agent reaches every conclusion. The
+ * structure and the rules are ours and the judgement is entirely its.
+ *
+ * **What a review is forbidden to conclude**, said as a list rather than left
+ * to be inferred from what happens not to be implemented:
+ *
+ *   - It may not forget anything. `forget` is the person saying they do not
+ *     want something shown, and an agent reaching that verdict on their behalf
+ *     is the thing this project exists not to do. There is no path from here to
+ *     `putAway`.
+ *   - It may not delete anything, which is true of every door in this file.
+ *   - It may mark a memory superseded by another memory that is already stored,
+ *     and it may mark one overtaken. Those are the only two changes it can make.
+ *   - It may not act on ambiguity. `could-not-tell` is a first-class outcome
+ *     that changes nothing and is written down with its reasoning, and it is
+ *     the right answer whenever the agent is unsure. Forced to choose between
+ *     two readings, an unresolvable contradiction falls whichever way the code
+ *     happens to fall, and the code has no business deciding that.
+ *
+ * **No rule here reads a clock.** Nothing in this file, or anywhere under
+ * `src/`, compares a timestamp against the current time and concludes
+ * something. A memory carries `created_at` and a review is shown it; whether a
+ * statement that named a moment has had that moment go by is a reading of the
+ * statement, which is why the agent does it and this does not. A memory with no
+ * moment in it is never stale, however old the row. The whole of the reasoning,
+ * and the project this rule exists because of: DECISIONS.md, "Time as evidence,
+ * never as a rule".
+ *
+ * **Every finding says what it was derived from**, and that is a field, checked
+ * against the store inside the transaction that writes it. Not a convention: a
+ * sentence claiming "based on memory 12" is a sentence, and nothing can check
+ * a sentence. Without the field this door is a way to launder a refusal —
+ * anything the other doors turn away could come back through here as a review's
+ * own conclusion, with no record of where it came from. The reasoning goes
+ * through rules 1 to 4 exactly as an offered memory does, for the same reason.
+ *
+ * The vocabulary opens by eight, all of them here:
+ *
+ *   review-began     a review was started
+ *   review-closed    it was closed and will take no more findings
+ *   review-undone    everything it changed was put back
+ *   review-not-open  refused, because that review is closed, undone or not there
+ *   review-unknown   refused, because the memory being judged is not there
+ *   derived-from     refused, because the derivation record is not usable
+ *   overtaken        the memory was found no longer current, nothing replaces it
+ *   undecided        the reviewer could not tell, and nothing was changed
+ *
+ * `replaces` and `replaces-unknown` are reused rather than doubled. Marking one
+ * stored memory as replaced by another is the same judgement `submit` makes
+ * with `replaces`, reached at a different door, and `replaces-unknown` covers
+ * every way the replacement id is unusable — not there, not active, or the
+ * memory itself.
  */
 
 import { detectCredential, credentialExplanation, credentialPlaceholder } from './credentials.js';
 import {
+  decisionsInPass,
   findDuplicate,
   getMemory,
+  getPass,
+  listMemories,
+  listPasses,
   PURGED_REPLACEMENT_REASON,
   recordDecision,
   REPETITION_LIMIT,
   repetitionOf,
   TEXT_LIMIT,
+  unknownMemories,
 } from './store.js';
-import { controlCharacterIn, isBlank, namedCodePoint } from './text.js';
+import { controlCharacterIn, enumValue, isBlank, namedCodePoint } from './text.js';
 
 /**
  * Rule 2, which both entry points that take free text apply.
@@ -158,7 +221,7 @@ function excerpt(text) {
 
 /**
  * @typedef {object} GateResult
- * @property {'stored'|'superseded'|'forgotten'|'restored'|'refused'} verdict
+ * @property {'stored'|'superseded'|'forgotten'|'restored'|'refused'|'overtaken'|'undecided'|'began'|'closed'|'undone'} verdict
  * @property {string} rule
  * @property {string} explanation
  * @property {number|null} memory_id the memory this decision produced or acted on
@@ -416,64 +479,29 @@ export function forget(store, { owner, id, reason }) {
       const badOwner = refuseCredentialOwner(owner);
       if (badOwner) return badOwner;
 
-      // 1. file-not-fact, by length, for the same reasons as in submit: it is
-      // free, and it bounds what the checks below read. A reason is stored on
-      // the row as well as in the log, so its length matters as much.
-      if (reason.length > TEXT_LIMIT) {
-        return {
-          owner,
-          verdict: 'refused',
-          rule: 'file-not-fact',
-          explanation:
-            `Nothing was changed. That reason is ${reason.length.toLocaleString('en')} ` +
-            `characters and the limit is ${TEXT_LIMIT.toLocaleString('en')}. A reason is a ` +
-            'sentence somebody reads later to understand why a memory was put away, not a ' +
-            'document.',
-          input_excerpt: '[not recorded: longer than this store takes]',
-        };
-      }
-
-      // 2. credential. A reason is free text from a caller like any other, and
-      // it is written to the row as well as to the log, so it is guarded the
-      // same way. This comes first here for the same reason it comes first in
-      // submit: nothing else may touch the text before it has been checked.
-      const credential = detectCredential(reason);
-      if (credential) {
-        return {
-          owner,
-          verdict: 'refused',
-          rule: 'credential',
-          explanation: credentialExplanation(credential),
-          input_excerpt: credentialPlaceholder(credential),
-        };
-      }
-
-      // 3. control-character. The reason is written to the row as well as to
-      // the log, so it can be cut in half by a NUL exactly as a memory can —
-      // and a reason that reads back as blank is a memory put away for no
-      // stated reason. The adapter's own blank check was walked past this way.
-      const unreadable = refuseControlCharacter(owner, reason);
-      if (unreadable) return unreadable;
-
-      // 4. empty. The same rule as an empty memory and the same name, because
-      // it is the same judgement: there was nothing there.
+      // Rules 1 to 4, on the reason. A reason is free text from a caller like
+      // any other and is written to the row as well as to the log, so it is
+      // guarded the way the memory itself is: length first because it is free
+      // and bounds what the rest read, then credentials before anything else
+      // touches the text, then a character that will not read back whole — a
+      // reason cut in half by a NUL is a memory put away for no stated reason,
+      // which is how the adapter's own blank check was walked past — then
+      // empty, which is the same name as an empty memory because it is the
+      // same judgement.
       //
-      // It was in the adapter, where it refused without writing anything down
-      // — so a memory put away for no stated reason and a refusal to put one
-      // away left the same trace, which is none. Here it leaves its row like
-      // every other decision, and the terminal gets it too rather than having
-      // its own copy of the check.
-      if (isBlank(reason)) {
-        return {
-          owner,
-          verdict: 'refused',
-          rule: 'empty',
-          explanation:
-            'No reason was given, so nothing was changed. A memory put away without a ' +
-            'reason is one nobody can judge later. Say why it should stop being shown.',
-          input_excerpt: '',
-        };
-      }
+      // They are {@link screenFreeText} rather than four blocks here. This
+      // project's recurring defect is one door screening text and another not,
+      // and the review added two more doors with the same three checks to make.
+      const bad = screenFreeText(store, owner, reason, {
+        what: 'reason',
+        shouldBe:
+          'A reason is a sentence somebody reads later to understand why a memory was put ' +
+          'away, not a document.',
+        empty:
+          'No reason was given, so nothing was changed. A memory put away without a ' +
+          'reason is one nobody can judge later. Say why it should stop being shown.',
+      });
+      if (bad) return bad;
 
       // Archived rows included, because forgetting is about the row rather
       // than about what is on show.
@@ -624,6 +652,614 @@ function restoreExplanation(id, replacedBy, replacementWasPurged) {
   }
 
   return `Memory ${id} is being shown again.`;
+}
+
+/**
+ * Rules 1 to 4, applied to a piece of free text that is not the memory itself.
+ *
+ * The reviewer's name and its reasoning are both free text from a caller and
+ * both are written to a row, so both are screened the way a reason for
+ * forgetting is. Gathered here rather than written out three more times: the
+ * last time this project let a door do its own screening, a NUL walked past a
+ * check that lived in an adapter.
+ *
+ * The repetition rule is among them, and was not. A reason and a reasoning are
+ * both written to the decision log, and that log is never shortened — so a
+ * pasted server log offered as a reason sat in it for good, having walked past
+ * the one rule in this file whose whole job is to say "that is a document, not
+ * something to keep". Both doors had the gap and both are closed here, because
+ * both are the same judgement: a memory refused as a file does not become a
+ * fact by arriving in a different field.
+ *
+ * It is the same rule and so it is the same name. `file-not-fact` is already
+ * reached two ways, by length and by repetition; this is the second of those,
+ * applied at two more doors.
+ *
+ * @param {Store} store
+ * @param {string} owner
+ * @param {string} text
+ * @param {object} words
+ * @param {string} words.what what this text is, for the sentence
+ * @param {string} words.shouldBe what this text is for, said in a sentence. It closes
+ *   both the too-long refusal and the too-repetitive one, which want the same sentence.
+ * @param {string} words.empty the whole sentence for an empty one
+ * @returns {import('./store.js').DecisionPlan|null}
+ */
+function screenFreeText(store, owner, text, words) {
+  if (text.length > TEXT_LIMIT) {
+    return {
+      owner,
+      verdict: 'refused',
+      rule: 'file-not-fact',
+      explanation:
+        `Nothing was changed. That ${words.what} is ${text.length.toLocaleString('en')} ` +
+        `characters and the limit is ${TEXT_LIMIT.toLocaleString('en')}. ${words.shouldBe}`,
+      input_excerpt: '[not recorded: longer than this store takes]',
+    };
+  }
+
+  const credential = detectCredential(text);
+  if (credential) {
+    return {
+      owner,
+      verdict: 'refused',
+      rule: 'credential',
+      explanation: credentialExplanation(credential),
+      input_excerpt: credentialPlaceholder(credential),
+    };
+  }
+
+  const unreadable = refuseControlCharacter(owner, text);
+  if (unreadable) return unreadable;
+
+  if (isBlank(text)) {
+    return {
+      owner,
+      verdict: 'refused',
+      rule: 'empty',
+      explanation: words.empty,
+      input_excerpt: '',
+    };
+  }
+
+  // Last of the five, for the reason length is first: this is the only one that
+  // costs anything, and by here the text is bounded, is not a secret, and is
+  // not empty.
+  if (repetitionOf(store, text) > REPETITION_LIMIT) {
+    return {
+      owner,
+      verdict: 'refused',
+      rule: 'file-not-fact',
+      explanation:
+        `Nothing was changed, because that ${words.what} reads as a file rather than as ` +
+        'something written for a person to read: the same few characters over and over, the ' +
+        `way a log or an export or a dump looks. It would sit in the record for good, and the ` +
+        `record is never shortened. ${words.shouldBe}`,
+      input_excerpt: excerpt(text),
+    };
+  }
+
+  return null;
+}
+
+/**
+ * The two rules that move a memory, as one set.
+ *
+ * Written out three times before this — in `closeReview` to count, in
+ * `undoReview` to walk, and in the summary to report — which is three places to
+ * forget when a fifth outcome arrives.
+ */
+const MOVED_A_MEMORY = new Set(['overtaken', 'replaces']);
+
+/**
+ * What each review did, newest first, for somebody being shown a report.
+ *
+ * This is here rather than in `store.js` because it counts rules, and the rule
+ * names are this file's vocabulary. A query in the storage layer that knew the
+ * words `overtaken` and `replaces` would be the gate's vocabulary written down
+ * a second time, in a place the closure test does not read.
+ *
+ * `showing` is the number of memories on show right now, not a share and not a
+ * verdict. Two exact numbers, so that the report can say "it changed forty and
+ * none are being shown" without anything here deciding that forty is a lot.
+ * Where a number becomes something worth saying out loud is a question for
+ * whoever is doing the telling; it is not a rule and it is not in the gate.
+ *
+ * @param {Store} store
+ * @param {string} owner
+ * @returns {{pass: import('./store.js').Pass, changed: number, undecided: number, showing: number}[]}
+ */
+export function reviewSummaries(store, owner) {
+  const showing = listMemories(store, owner).length;
+
+  return listPasses(store, owner).map((pass) => {
+    const rows = decisionsInPass(store, owner, pass.id);
+    return {
+      pass,
+      changed: rows.filter((row) => MOVED_A_MEMORY.has(row.rule)).length,
+      undecided: rows.filter((row) => row.rule === 'undecided').length,
+      showing,
+    };
+  });
+}
+
+/**
+ * Start a review, and say which agent is doing it.
+ *
+ * Nothing is reviewed here. This opens a pass and hands back its id; every
+ * finding names it, and undoing the pass undoes all of them together. A review
+ * that is never closed is not an error and nothing tidies it away, but `doctor`
+ * will say it is there.
+ *
+ * @param {Store} store
+ * @param {object} request
+ * @param {string} request.owner
+ * @param {string} request.reviewer which agent this is, in its own words
+ * @returns {GateResult & {pass_id: number|null}}
+ */
+export function beginReview(store, { owner, reviewer }) {
+  return withPass(
+    recordDecision(store, (actions, at) => {
+      const badOwner = refuseCredentialOwner(owner);
+      if (badOwner) return badOwner;
+
+      const bad = screenFreeText(store, owner, reviewer, {
+        what: 'name',
+        shouldBe: 'A reviewer is a name, not a document.',
+        empty:
+          'No review was started, because nothing said which agent was doing it. A review ' +
+          'that changes memories has to be attributable to something. Say what you are.',
+      });
+      if (bad) return bad;
+
+      const pass = actions.openPass({ owner, reviewer, at });
+
+      return {
+        owner,
+        verdict: 'began',
+        rule: 'review-began',
+        explanation:
+          `Review ${pass} is open. Every finding has to name it, and undoing it puts back ` +
+          'everything it changed.',
+        input_excerpt: excerpt(reviewer),
+        pass_id: pass,
+      };
+    }),
+  );
+}
+
+/**
+ * The pass this decision belongs to, or is about, if there is one. Named
+ * rather than inferred, because the pass is what a caller needs back from
+ * `beginReview` and has no other way to learn.
+ *
+ * @param {ReturnType<typeof recordDecision>} written
+ * @returns {GateResult & {pass_id: number|null}}
+ */
+function withPass(written) {
+  return { ...asResult(written), pass_id: written.plan.pass_id ?? null };
+}
+
+/**
+ * Say whether a pass will take a finding.
+ *
+ * The pass is read by the caller and inside the transaction that writes the
+ * result, like every other rule here, so a review closed by one agent cannot
+ * take a finding from another that read it a moment earlier.
+ *
+ * @param {import('./store.js').Pass|null} found
+ * @param {number} pass the id, for the sentence, since there may be no row
+ * @returns {string|null} what is wrong with it, or null if it is open
+ */
+function whyNotOpen(found, pass) {
+  if (found === null) return `There is no review ${pass} belonging to you`;
+  if (found.undone_at !== null) return `Review ${pass} was undone on ${found.undone_at}`;
+  if (found.closed_at !== null) return `Review ${pass} was closed on ${found.closed_at}`;
+  return null;
+}
+
+/**
+ * What a review found about one memory.
+ *
+ * Three outcomes and no fourth. `overtaken` and `superseded` change a memory;
+ * `could-not-tell` changes nothing and is written down anyway, which is the
+ * whole of its value.
+ *
+ * @param {Store} store
+ * @param {object} finding
+ * @param {string} finding.owner
+ * @param {number} finding.pass
+ * @param {number} finding.id the memory being judged
+ * @param {'overtaken'|'superseded'|'could-not-tell'} finding.outcome
+ * @param {string} finding.reasoning why, in the reviewer's own words
+ * @param {number[]} finding.derivedFrom the memories it read to get there
+ * @param {number|null} [finding.replacedBy] the memory that replaces it, for `superseded`
+ * @returns {GateResult}
+ */
+export function review(store, { owner, pass, id, outcome, reasoning, derivedFrom, replacedBy = null }) {
+  if (outcome !== 'overtaken' && outcome !== 'superseded' && outcome !== 'could-not-tell') {
+    // Not a judgement about a memory, so not a rule and not a row: it is a
+    // caller that has not read the schema, and the shape of a call is the
+    // adapter's business exactly as a non-numeric id is.
+    // Named when it is safe to name and not otherwise. This used to
+    // interpolate whatever arrived, which for a field an agent fills in from a
+    // variable is an unbounded echo of the caller's text back at it.
+    throw new TypeError(
+      'A review outcome is "overtaken", "superseded" or "could-not-tell", and this call ' +
+        `gave ${enumValue(outcome) ?? 'something else'}. Nothing was done.`,
+    );
+  }
+
+  return asResult(
+    recordDecision(store, (actions, at) => {
+      const badOwner = refuseCredentialOwner(owner);
+      if (badOwner) return badOwner;
+
+      const bad = screenFreeText(store, owner, reasoning, {
+        what: 'reasoning',
+        shouldBe:
+          'Reasoning is the sentence somebody reads later to judge whether you thought ' +
+          'correctly, not a document.',
+        empty:
+          'Nothing was changed, because no reasoning was given. A review that says what it ' +
+          'concluded and not why is one nobody can check afterwards, which is the only ' +
+          'reason this door exists.',
+      });
+      if (bad) return bad;
+
+      // Read here rather than through `whyNotOpen` alone, because every row
+      // below this one carries `pass_id` and that column is a foreign key: a
+      // finding naming a review that was never started has nothing to point at.
+      // `found === null` is tested here as well as inside `whyNotOpen`, which
+      // reads as one check too many and is not. Every row below carries
+      // `pass_id`, and this is what says the pass exists to point at — to the
+      // reader and to the type checker, which cannot see that a null `shut`
+      // means a non-null `found` and was reporting five of these.
+      const found = getPass(store, owner, pass);
+      const shut = whyNotOpen(found, pass);
+      if (found === null || shut !== null) {
+        return {
+          owner,
+          verdict: 'refused',
+          rule: 'review-not-open',
+          explanation:
+            `${shut}, so nothing was changed. A finding has to name a review that is open; ` +
+            'start a new one.',
+          input_excerpt: excerpt(reasoning),
+          pass_id: found === null ? null : found.id,
+        };
+      }
+
+      // The derivation record, checked rather than believed. Empty and wrong
+      // are one judgement here — either way there is no usable record of what
+      // this conclusion was reached from — so they share a rule and differ in
+      // the sentence.
+      const derived = [...new Set(derivedFrom)];
+      if (derived.length === 0) {
+        return {
+          owner,
+          verdict: 'refused',
+          rule: 'derived-from',
+          explanation:
+            'Nothing was changed, because the finding does not say which memories it was ' +
+            'reached from. Name them, including the one being judged. A conclusion nothing ' +
+            'was read to reach is not a review finding.',
+          input_excerpt: '',
+          pass_id: found.id,
+          reasoning,
+        };
+      }
+
+      const missing = unknownMemories(store, owner, derived);
+      if (missing.length > 0) {
+        return {
+          owner,
+          verdict: 'refused',
+          rule: 'derived-from',
+          explanation:
+            `Nothing was changed. ${missing.length === 1 ? 'Memory' : 'Memories'} ` +
+            `${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not ` +
+            `${missing.length === 1 ? 'a memory' : 'memories'} of yours, so the finding ` +
+            'names something it cannot have read. Check the ids.',
+          input_excerpt: '',
+          pass_id: found.id,
+          reasoning,
+        };
+      }
+
+      // Active only. A memory already put away, already replaced or already
+      // left behind is not one a review has anything to change about, and
+      // judging it again would move a state somebody else set.
+      const memory = getMemory(store, owner, id);
+      if (memory === null) {
+        return {
+          owner,
+          verdict: 'refused',
+          rule: 'review-unknown',
+          explanation:
+            `Nothing was changed, because memory ${id} is not one of your active memories. ` +
+            'It may have been forgotten, replaced or already reviewed. Read the list again.',
+          input_excerpt: '',
+          pass_id: found.id,
+          reasoning,
+          derived_from: derived.join(' '),
+        };
+      }
+
+      /** @type {Omit<import('./store.js').DecisionPlan, 'verdict'|'rule'|'explanation'>} */
+      const common = {
+        owner,
+        // Empty, and not an oversight. `input_excerpt` is the cut-down copy of
+        // what a caller offered, kept because a refusal otherwise records
+        // nothing about what was refused. A review's offering is its reasoning,
+        // and that is stored whole in its own column — so an excerpt here would
+        // be the same sentence twice on every row, once truncated, under a
+        // label that means "the memory text" everywhere else in the log.
+        input_excerpt: '',
+        pass_id: found.id,
+        reasoning,
+        derived_from: derived.join(' '),
+      };
+
+      if (outcome === 'could-not-tell') {
+        return {
+          ...common,
+          verdict: 'undecided',
+          rule: 'undecided',
+          explanation:
+            `Nothing was changed. Memory ${id} was read and the reviewer could not tell, ` +
+            'and that is written down here rather than resolved. It stays exactly as it was.',
+          memory_id: id,
+        };
+      }
+
+      if (outcome === 'overtaken') {
+        actions.leaveBehind({ owner, id, at, reason: reasoning });
+
+        return {
+          ...common,
+          verdict: 'overtaken',
+          rule: 'overtaken',
+          explanation:
+            `Memory ${id} will not be shown any more, because a review found it is no longer ` +
+            'current and there is nothing to put in its place. It is still in the file and ' +
+            'can be brought back with restore, or by undoing this review.',
+          memory_id: id,
+        };
+      }
+
+      const replacement = replacedBy === null ? null : getMemory(store, owner, replacedBy);
+      if (replacement === null || replacement.id === id) {
+        return {
+          owner,
+          verdict: 'refused',
+          rule: 'replaces-unknown',
+          explanation:
+            replacedBy === id
+              ? `Nothing was changed. Memory ${id} cannot replace itself.`
+              : `Nothing was changed, because memory ${replacedBy} is not one of your active ` +
+                'memories, so it cannot be the thing that replaces this one. Check the id.',
+          input_excerpt: '',
+          pass_id: found.id,
+          reasoning,
+          derived_from: derived.join(' '),
+          memory_id: id,
+        };
+      }
+
+      actions.retire({ owner, id, at, supersededBy: replacement.id });
+      actions.claimSupersedes({ owner, id: replacement.id, nowSupersedes: id });
+
+      // memory_id is the memory that stands and related_memory_id the one
+      // retired, which is the way round `submit` writes a `replaces` row. One
+      // rule, one shape, whichever door it came through.
+      return {
+        ...common,
+        verdict: 'superseded',
+        rule: 'replaces',
+        explanation:
+          `Memory ${id} was retired in favour of memory ${replacement.id}, which a review ` +
+          'found says the same thing more recently. The old one is still in the file and can ' +
+          'be brought back.',
+        memory_id: replacement.id,
+        related_memory_id: id,
+      };
+    }),
+  );
+}
+
+/**
+ * Close a review. It takes no more findings afterwards.
+ *
+ * This is not bookkeeping. The previous project had a `finish()` that nothing
+ * ever called, so every review it ever ran was still open, and a review that is
+ * never closed is one that can be added to forever by anything holding its id.
+ * Closing has teeth here — a finding offered to a closed pass is refused, and
+ * there is a test that offers one — and undoing still works afterwards, because
+ * deciding a review was wrong usually happens after reading what it did.
+ *
+ * @param {Store} store
+ * @param {object} request
+ * @param {string} request.owner
+ * @param {number} request.pass
+ * @returns {GateResult}
+ */
+export function closeReview(store, { owner, pass }) {
+  return asResult(
+    recordDecision(store, (actions, at) => {
+      const badOwner = refuseCredentialOwner(owner);
+      if (badOwner) return badOwner;
+
+      const found = getPass(store, owner, pass);
+      const shut = whyNotOpen(found, pass);
+      if (found === null || shut !== null) {
+        return {
+          owner,
+          verdict: 'refused',
+          rule: 'review-not-open',
+          explanation: `${shut}, so there was nothing to close.`,
+          input_excerpt: '',
+          pass_id: found === null ? null : found.id,
+        };
+      }
+
+      actions.shutPass({ owner, pass, at });
+
+      const findings = decisionsInPass(store, owner, pass);
+      const changed = findings.filter((row) => MOVED_A_MEMORY.has(row.rule)).length;
+      const undecided = findings.filter((row) => row.rule === 'undecided').length;
+
+      // How much is left, said plainly, because a review that emptied a store
+      // and one that tidied two things away say the same sentence otherwise.
+      // Two counts and no share: whether this number is alarming is not a
+      // judgement this door makes, and there is no threshold here to trip.
+      const showing = listMemories(store, owner).length;
+
+      return {
+        owner,
+        verdict: 'closed',
+        rule: 'review-closed',
+        explanation:
+          `Review ${pass} is closed and will take no more findings. It changed ${changed} ` +
+          `${changed === 1 ? 'memory' : 'memories'} and left ${undecided} undecided. ` +
+          `${showing === 0 ? 'Nothing is being shown now' : `${showing} ` +
+            `${showing === 1 ? 'memory is' : 'memories are'} being shown now`}. ` +
+          'Undoing it puts back everything it changed.',
+        input_excerpt: '',
+        pass_id: pass,
+      };
+    }),
+  );
+}
+
+/**
+ * Put back everything one review changed.
+ *
+ * One decision, one row, one transaction. Reversing each finding as its own
+ * decision would read better in the log and would be wrong: an undo that fails
+ * halfway leaves a store in a state no agent chose and no row explains. So the
+ * whole review comes back or none of it does, and the explanation names every
+ * memory either way.
+ *
+ * Findings are walked newest first, which matters when a review touched the
+ * same memory twice — the later change has to come off before the earlier one
+ * is looked at.
+ *
+ * A memory that is not in the state this review left it in is left exactly
+ * alone and named as left alone. Something else has happened to it since: the
+ * person may have restored it themselves, or a later review or a newer memory
+ * may have moved it on. Putting it back would be this undo overwriting somebody
+ * else's decision, which is the one thing an undo must never do.
+ *
+ * @param {Store} store
+ * @param {object} request
+ * @param {string} request.owner
+ * @param {number} request.pass
+ * @returns {GateResult}
+ */
+export function undoReview(store, { owner, pass }) {
+  return asResult(
+    recordDecision(store, (actions, at) => {
+      const badOwner = refuseCredentialOwner(owner);
+      if (badOwner) return badOwner;
+
+      const found = getPass(store, owner, pass);
+      if (found === null || found.undone_at !== null) {
+        return {
+          owner,
+          verdict: 'refused',
+          rule: 'review-not-open',
+          explanation:
+            found === null
+              ? `There is no review ${pass} belonging to you, so nothing was changed.`
+              : `Review ${pass} was already undone on ${found.undone_at}, so nothing was ` +
+                'changed. Undoing it twice would put back states that something else has ' +
+                'set since.',
+          input_excerpt: '',
+          pass_id: found === null ? null : found.id,
+        };
+      }
+
+      /** @type {number[]} */
+      const back = [];
+      /** @type {string[]} */
+      const alone = [];
+
+      for (const row of decisionsInPass(store, owner, pass)) {
+        if (row.rule === 'overtaken') {
+          const id = /** @type {number} */ (row.memory_id);
+          const memory = getMemory(store, owner, id, { includeArchived: true });
+          if (memory?.state === 'overtaken') {
+            actions.bringBack({ owner, id, at, wasInState: 'overtaken', wasSupersededBy: null });
+            back.push(id);
+          } else {
+            alone.push(`memory ${id} is ${memory?.state ?? 'gone'} now, not overtaken`);
+          }
+          continue;
+        }
+
+        if (row.rule === 'replaces') {
+          const retired = /** @type {number} */ (row.related_memory_id);
+          const stands = /** @type {number} */ (row.memory_id);
+          const memory = getMemory(store, owner, retired, { includeArchived: true });
+
+          if (memory?.state === 'superseded' && memory.superseded_by === stands) {
+            actions.bringBack({
+              owner,
+              id: retired,
+              at,
+              wasInState: 'superseded',
+              wasSupersededBy: stands,
+            });
+            actions.unlinkSupersedes({ owner, id: stands, noLongerSupersedes: retired });
+            back.push(retired);
+          } else {
+            alone.push(
+              `memory ${retired} is no longer the one memory ${stands} replaced`,
+            );
+          }
+        }
+
+        // `undecided` changed nothing, so there is nothing to put back, and the
+        // three lifecycle rows are not findings at all.
+      }
+
+      actions.abandonPass({ owner, pass, at });
+
+      return {
+        owner,
+        verdict: 'undone',
+        rule: 'review-undone',
+        explanation: undoExplanation(pass, back, alone),
+        input_excerpt: '',
+        pass_id: pass,
+      };
+    }),
+  );
+}
+
+/**
+ * @param {number} pass
+ * @param {number[]} back
+ * @param {string[]} alone
+ * @returns {string}
+ */
+function undoExplanation(pass, back, alone) {
+  const parts = [
+    back.length === 0
+      ? `Review ${pass} is undone. It had changed nothing, so nothing was put back.`
+      : `Review ${pass} is undone. ${back.length === 1 ? 'Memory' : 'Memories'} ` +
+        `${back.join(', ')} ${back.length === 1 ? 'is' : 'are'} being shown again.`,
+  ];
+
+  if (alone.length > 0) {
+    parts.push(
+      `${alone.length} of its changes ${alone.length === 1 ? 'was' : 'were'} left alone, ` +
+        `because something else has happened since: ${alone.join('; ')}.`,
+    );
+  }
+
+  return parts.join(' ');
 }
 
 /**

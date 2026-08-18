@@ -72,6 +72,8 @@ import {
  * @property {(text: string) => void} out
  * @property {import('./detect.js').Machine} machine
  * @property {string} backupDir
+ * @property {string} [storePath] the memory store. Only `doctor` reads it, and only
+ *   a test ever sets it: left out, that command asks `config.js` where it is.
  * @property {string} now
  * @property {string} name
  * @property {string} command

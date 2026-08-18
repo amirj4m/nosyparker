@@ -19,6 +19,10 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { BROKEN, diagnose, interpreterIn, NOT_ASKABLE, reportDiagnosis, SOUND } from '../src/doctor.js';
+import { DatabaseSync } from 'node:sqlite';
+import { beginReview, closeReview, review, submit, undoReview } from '../src/gate.js';
+import { LOCAL_OWNER } from '../src/config.js';
+import { listMemories, openStore } from '../src/store.js';
 import { clientById } from '../src/clients.js';
 import { defaultLogPath, openLog } from '../src/log.js';
 import { defaultIo, install } from '../src/setup.js';
@@ -74,6 +78,10 @@ function machine(t, { files = [], pathDirs = [], run } = {}) {
       },
     },
     backupDir: path.join(home, '.nosyparker', 'backups'),
+    // Inside the temporary home like everything else. Without this the store
+    // check would look at the real one in the real home directory, which no
+    // test in this project may touch.
+    storePath: path.join(home, '.nosyparker', 'memory.sqlite'),
     now: '2026-08-18T10:00:00.000Z',
     command: interpreter,
     serverPath: '/srv/mcp-server.js',
@@ -128,7 +136,7 @@ test('a config this did install into, with the entry gone, is broken', (t) => {
   assert.equal(gemini?.state, BROKEN);
   assert.match(gemini?.says.join(' ') ?? '', /its entry is no longer in it/u);
   assert.match(gemini?.says.join(' ') ?? '', /setup` to put it back/u);
-  assert.equal(reportDiagnosis(io, { findings, documents: [] }), 1);
+  assert.equal(reportDiagnosis(io, { findings, documents: [], store: { state: SOUND, says: [] } }), 1);
 });
 
 test('each way of losing a config gets the answer that fits it', (t) => {
@@ -433,4 +441,224 @@ test('a format with no parser here says so in its own name, in capitals', (t) =>
   const codex = diagnose(io).findings.find((finding) => finding.client === 'codex-cli');
 
   assert.match(codex?.says.join(' ') ?? '', /cannot read an interpreter back out of TOML/u);
+});
+
+// ---------------------------------------------------------------------------
+// The memory store, which this command reads and never writes.
+// ---------------------------------------------------------------------------
+
+test('asking after the store does not create it', (t) => {
+  const { io, home } = machine(t);
+  const file = path.join(home, '.nosyparker', 'memory.sqlite');
+
+  const { store } = diagnose(io);
+
+  assert.equal(fs.existsSync(file), false, 'diagnose created a memory store');
+  assert.equal(store.state, NOT_ASKABLE);
+  assert.match(store.says.join(' '), /no memory store at/u);
+  assert.equal(reportDiagnosis(io, diagnose(io)), 0, 'no store yet is not a fault');
+});
+
+test('a store this version cannot open is reported, in the sentence the store gives', (t) => {
+  const { io, home, printed } = machine(t);
+  const file = path.join(home, '.nosyparker', 'memory.sqlite');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+
+  // A file from before Phase 4: it has a memories table, so it is not a new
+  // store, and it says it was written at schema version 1. This is what
+  // somebody who has just updated has on disk, and this command is the first
+  // one they will run.
+  const older = new DatabaseSync(file);
+  older.exec('CREATE TABLE memories (id INTEGER PRIMARY KEY)');
+  older.exec('PRAGMA user_version = 1');
+  older.close();
+
+  const { store } = diagnose(io);
+
+  assert.equal(store.state, BROKEN);
+  assert.match(store.says.join(' '), /written by an older version/u);
+  assert.match(store.says.join(' '), new RegExp(file.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'));
+  assert.equal(reportDiagnosis(io, diagnose(io)), 1);
+
+  // First on the page, ahead of every client. Somebody who has just updated
+  // runs this to find out why nothing works, and that sentence was at the
+  // bottom under twenty clients they were not asking about.
+  reportDiagnosis(io, diagnose(io));
+  const page = printed();
+  assert.ok(
+    page.indexOf('The memory store:') < page.indexOf('No client on this machine'),
+    'the store problem should be the first thing on the page',
+  );
+});
+
+test('a review left open is reported, and is not called a fault', (t) => {
+  const { io, home, printed } = machine(t);
+  const file = path.join(home, '.nosyparker', 'memory.sqlite');
+
+  const store = openStore({ file, now: () => '2026-08-18T09:00:00.000Z' });
+  beginReview(store, { owner: LOCAL_OWNER, reviewer: 'an agent that then stopped' });
+  store.close();
+
+  const result = diagnose(io);
+
+  assert.equal(result.store.state, SOUND);
+  assert.match(result.store.says.join(' '), /1 review is still open/u);
+  assert.match(result.store.says.join(' '), /an agent that then stopped/u);
+
+  // The honest part. This cannot tell an abandoned review from one in progress,
+  // so it says both and does not turn the exit code red for it.
+  assert.match(result.store.says.join(' '), /Nothing here can tell those apart/u);
+  assert.equal(reportDiagnosis(io, result), 0);
+  assert.match(printed(), /The memory store:/u);
+  assert.match(printed(), /undo-review/u);
+});
+
+test('a closed review is not an open one', (t) => {
+  const { io, home } = machine(t);
+  const file = path.join(home, '.nosyparker', 'memory.sqlite');
+
+  const store = openStore({ file, now: () => '2026-08-18T09:00:00.000Z' });
+  const started = beginReview(store, { owner: LOCAL_OWNER, reviewer: 'an agent' });
+  closeReview(store, { owner: LOCAL_OWNER, pass: /** @type {number} */ (started.pass_id) });
+  store.close();
+
+  const { store: checked } = diagnose(io);
+
+  assert.equal(checked.state, SOUND);
+  assert.match(checked.says.join(' '), /No review is open/u);
+});
+
+/**
+ * Store `count` memories and archive `archive` of them in one review.
+ *
+ * @param {string} file
+ * @param {number} count
+ * @param {number} archive
+ * @returns {import('../src/gate.js').GateResult}
+ */
+function reviewedStore(file, count, archive) {
+  let clock = Date.parse('2026-08-18T09:00:00.000Z');
+  const store = openStore({ file, now: () => new Date(clock).toISOString() });
+
+  try {
+    for (let n = 1; n <= count; n += 1) {
+      clock += 1000;
+      submit(store, { owner: LOCAL_OWNER, text: `A fact about me, number ${n}` });
+    }
+
+    clock += 1000;
+    const pass = /** @type {number} */ (
+      beginReview(store, { owner: LOCAL_OWNER, reviewer: 'an agent with a plausible reason' }).pass_id
+    );
+
+    for (const memory of listMemories(store, LOCAL_OWNER).slice(0, archive)) {
+      clock += 1000;
+      review(store, {
+        owner: LOCAL_OWNER,
+        pass,
+        id: memory.id,
+        outcome: 'overtaken',
+        reasoning: 'This reads as something that was true at the time and is not obviously current.',
+        derivedFrom: [memory.id],
+      });
+    }
+
+    clock += 1000;
+    return closeReview(store, { owner: LOCAL_OWNER, pass });
+  } finally {
+    store.close();
+  }
+}
+
+test('a review that took the whole store is said out loud, and is still not called a fault', (t) => {
+  const { io, home, printed } = machine(t);
+  const file = path.join(home, '.nosyparker', 'memory.sqlite');
+
+  // The review's own output first. This is the scenario that decided the
+  // reviewer's answer to "would you let this run unattended": forty memories
+  // out of forty, plausible reasons, one agent, and the pass closed cleanly.
+  const closed = reviewedStore(file, 40, 40);
+  assert.match(closed.explanation, /changed 40 memories/u);
+  assert.match(closed.explanation, /Nothing is being shown now/u);
+
+  const { store } = diagnose(io);
+  const said = store.says.join(' ');
+
+  // What this command used to say about all of that was "the memory store
+  // opens, and no review is open".
+  assert.match(said, /Review 1, by "an agent with a plausible reason"/u);
+  assert.match(said, /put away 40 memories/u);
+  assert.match(said, /Nothing is being shown now/u);
+  assert.match(said, /moved most of this store in one go/u);
+  assert.match(said, /undo-review 1/u);
+
+  // Reported, not judged. Somebody may have asked for exactly this, and a
+  // command that went red for it would be red for good afterwards — which is a
+  // command nobody reads.
+  assert.equal(store.state, SOUND);
+  assert.equal(reportDiagnosis(io, diagnose(io)), 0);
+  assert.match(printed(), /worth seeing rather than because anything is wrong/u);
+});
+
+test('an ordinary tidy-up is reported without the sentence about most of the store', (t) => {
+  const { io, home } = machine(t);
+  const file = path.join(home, '.nosyparker', 'memory.sqlite');
+
+  reviewedStore(file, 20, 2);
+  const said = diagnose(io).store.says.join(' ');
+
+  assert.match(said, /put away 2 memories/u);
+  assert.match(said, /18 memories are being shown now/u);
+  assert.match(said, /undo-review 1` puts it back/u);
+  assert.doesNotMatch(said, /most of this store/u);
+});
+
+test('a review that has been put back is not something to tell anybody about', (t) => {
+  const { io, home } = machine(t);
+  const file = path.join(home, '.nosyparker', 'memory.sqlite');
+
+  reviewedStore(file, 20, 20);
+
+  const store = openStore({ file, now: () => '2026-08-19T09:00:00.000Z' });
+  undoReview(store, { owner: LOCAL_OWNER, pass: 1 });
+  store.close();
+
+  const said = diagnose(io).store.says.join(' ');
+  assert.match(said, /No review has changed anything that is still standing/u);
+  assert.doesNotMatch(said, /Review 1/u);
+});
+
+test('when there are more reviews than it will show, it says how many it left out', (t) => {
+  const { io, home } = machine(t);
+  const file = path.join(home, '.nosyparker', 'memory.sqlite');
+
+  // Seven reviews, each archiving one memory. A report that quietly stopped at
+  // five would be the shape `listDecisions` refuses to have: a caller unable to
+  // tell a complete answer from a shortened one.
+  let clock = Date.parse('2026-08-18T09:00:00.000Z');
+  const store = openStore({ file, now: () => new Date(clock).toISOString() });
+  for (let n = 1; n <= 7; n += 1) {
+    clock += 1000;
+    const id = /** @type {number} */ (
+      submit(store, { owner: LOCAL_OWNER, text: `A fact about me, number ${n}` }).memory_id
+    );
+    clock += 1000;
+    const pass = /** @type {number} */ (
+      beginReview(store, { owner: LOCAL_OWNER, reviewer: `agent ${n}` }).pass_id
+    );
+    clock += 1000;
+    review(store, { owner: LOCAL_OWNER, pass, id, outcome: 'overtaken',
+      reasoning: 'the moment this named has gone by', derivedFrom: [id] });
+    clock += 1000;
+    closeReview(store, { owner: LOCAL_OWNER, pass });
+  }
+  store.close();
+
+  const said = diagnose(io).store.says.join(' ');
+  assert.match(said, /2 older reviews are not shown here/u);
+  assert.match(said, /log` has every one of them/u);
+
+  // Newest first, so the five it does show are the recent ones.
+  assert.match(said, /agent 7/u);
+  assert.doesNotMatch(said, /agent 1"/u);
 });

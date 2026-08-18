@@ -74,3 +74,24 @@ export function controlCharacterIn(text) {
 export function namedCodePoint(codePoint) {
   return `U+${codePoint.toString(16).toUpperCase().padStart(4, '0')}`;
 }
+
+/**
+ * Name a short enum-shaped value back to the caller, or say only its shape.
+ *
+ * `describe` in the tool adapter refuses to quote text at all, because text is
+ * the caller's content and can be anything, a secret included. That is right
+ * for a memory and wrong for an enum: told only that its `outcome` was "text",
+ * a caller cannot see that it sent `forgotten` where `could_not_tell` was
+ * wanted, which is a message that costs somebody a round trip to nowhere.
+ *
+ * So a value is named when it cannot plausibly be a secret: short, and letters
+ * with the separators an enum uses. No digits, which is what every credential
+ * shape this project knows about carries, and a length no key fits inside.
+ *
+ * @param {unknown} value
+ * @returns {string|null} the value in quotes, or null if it must not be quoted
+ */
+export function enumValue(value) {
+  if (typeof value !== 'string') return null;
+  return /^[a-z][a-z_-]{0,19}$/iu.test(value) ? `"${value}"` : null;
+}

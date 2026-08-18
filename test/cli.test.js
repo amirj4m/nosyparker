@@ -14,6 +14,9 @@ import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
 import { runWatched } from './helpers.js';
+import { beginReview, closeReview, review } from '../src/gate.js';
+import { LOCAL_OWNER, systemClock } from '../src/config.js';
+import { openStore } from '../src/store.js';
 
 const CLI = path.join(import.meta.dirname, '..', 'src', 'cli.js');
 
@@ -178,21 +181,33 @@ test('--replaces is checked before anything is stored', (t) => {
 /**
  * A runner bound to a store file of its own.
  *
+ * It carries that file on it, for the one test that has to set something up the
+ * terminal has no command for. Said in the type as well as in a comment: the
+ * property was there and the return type did not mention it, so every use of it
+ * was a type error nobody could act on.
+ *
  * @param {import('node:test').TestContext} t
- * @returns {(args: string[]) => {code: number|null, out: string, err: string}}
+ * @returns {((args: string[]) => {code: number|null, out: string, err: string}) & {file: string}}
  */
 function commandRunner(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-cli-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-  return (args) => {
+  const file = path.join(dir, 'memory.sqlite');
+
+  /** @param {string[]} args */
+  const run = (args) => {
     const result = spawnSync(process.execPath, [CLI, ...args], {
       encoding: 'utf8',
-      env: { ...process.env, NOSYPARKER_STORE: path.join(dir, 'memory.sqlite') },
+      env: { ...process.env, NOSYPARKER_STORE: file },
     });
 
     return { code: result.status, out: result.stdout, err: result.stderr };
   };
+
+  // The store this runner talks to, for the one test that has to set something
+  // up the terminal has no command for.
+  return Object.assign(run, { file });
 }
 
 test('a search too long to run is refused at the terminal, in a sentence', async (t) => {
@@ -274,4 +289,48 @@ test('a store this code cannot read is refused in a sentence, not a stack trace'
   // And it is a sentence rather than a stack trace under one.
   assert.equal(/^\s*at /mu.test(opened.stderr), false, opened.stderr);
   assert.equal(opened.stderr.includes('throw'), false);
+});
+
+test('a person can undo a whole review from the terminal, and the log tells them which one', (t) => {
+  const run = commandRunner(t);
+
+  run(['add', 'Next month I am going to Berlin']);
+  run(['add', 'I live in Tehran']);
+
+  // The review itself is an agent's work, so it is done through the gate the
+  // way an agent would; what is being tested here is the one part of it a
+  // person reaches from a terminal.
+  const store = openStore({ file: run.file, now: systemClock });
+  const started = beginReview(store, { owner: LOCAL_OWNER, reviewer: 'an agent' });
+  const pass = /** @type {number} */ (started.pass_id);
+  review(store, {
+    owner: LOCAL_OWNER,
+    pass,
+    id: 1,
+    outcome: 'overtaken',
+    reasoning: 'The month it named has gone by and nothing replaced it.',
+    derivedFrom: [1],
+  });
+  closeReview(store, { owner: LOCAL_OWNER, pass });
+  store.close();
+
+  assert.doesNotMatch(run(['list']).out, /going to Berlin/u);
+
+  // Everything a person needs to judge it and to reverse it, in the one place
+  // they already go to ask why something happened.
+  const log = run(['log']);
+  assert.match(log.out, /review: 1/u);
+  assert.match(log.out, /read: 1/u);
+  assert.match(log.out, /reviewer said: The month it named has gone by/u);
+
+  assert.match(run(['undo-review']).err, /Which review\?/u);
+  assert.equal(run(['undo-review']).code, 1);
+
+  const undone = run(['undo-review', '1']);
+  assert.equal(undone.code, 0);
+  assert.match(undone.out, /Review 1 is undone/u);
+  assert.match(run(['list']).out, /going to Berlin/u);
+
+  assert.match(run(['undo-review', '1']).out, /already undone/u);
+  assert.match(run(['undo-review', '1', 'extra']).err, /does not take extra/u);
 });

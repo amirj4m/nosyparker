@@ -10,7 +10,7 @@
  * client commands, and nothing in it can. Until now the only way to do that was
  * for somebody to decide to. This makes that decision cheap.
  *
- * It checks four things, and the first is the one that could not be checked at
+ * It checks five things, and the first is the one that could not be checked at
  * all before.
  *
  * **The interpreter still exists.** Every entry names an absolute path to the
@@ -32,6 +32,23 @@
  *
  * **The documents still match the program.** The checks a test already runs,
  * run again where a person can see them.
+ *
+ * **The store opens, and no review was left half done.** Phase 4's addition,
+ * and the reason this file reaches the store at all — it is on the entrances
+ * list now, and it reads and never writes. Two things can be wrong. A store
+ * written by an older version of this program is refused at the door with a
+ * sentence naming the file, and somebody who has just updated will run this
+ * command before anything else, so it has to be the thing that says so rather
+ * than a stack trace from `add`. And a review begun by an agent that then
+ * stopped stays open for good: nothing tidies it away, because nothing here
+ * decides on its own that a thing has been abandoned. So it is reported and
+ * left, and reported honestly — this cannot tell a review nobody will finish
+ * from one an agent is in the middle of, and it says so rather than picking.
+ *
+ * The store is only opened if the file is already there. Asking after somebody's
+ * memories must not be what creates them, which is the same reason `setup`,
+ * `uninstall` and this command are all answered before the store is opened at
+ * the terminal.
  *
  * What a later phase has to do with all this is in DECISIONS.md under "A new
  * entrance goes into `doctor` in the same commit" — the same rule the entrances
@@ -56,6 +73,9 @@ import { checkDocumentation } from './documentation.js';
 import { editRequest, readOrEmpty, resolveTarget } from './write.js';
 import { manifestRowFor } from './backup.js';
 import { CONFIG_CONFIRMED, CONNECTED, verifyClient } from './verify.js';
+import { defaultStorePath, LOCAL_OWNER, systemClock } from './config.js';
+import { openPasses, openStore } from './store.js';
+import { reviewSummaries } from './gate.js';
 
 /** Everything it looked at is as it should be. */
 export const SOUND = 'sound';
@@ -75,10 +95,16 @@ export const NOT_ASKABLE = 'not-askable';
  */
 
 /**
+ * @typedef {object} StoreCheck
+ * @property {string} state one of the three above
+ * @property {string[]} says one line each
+ */
+
+/**
  * Look at everything, change nothing.
  *
  * @param {import('./setup.js').Io} io
- * @returns {{findings: Finding[], documents: import('./documentation.js').Check[]}}
+ * @returns {{findings: Finding[], documents: import('./documentation.js').Check[], store: StoreCheck}}
  */
 export function diagnose(io) {
   /** @type {Finding[]} */
@@ -228,14 +254,169 @@ export function diagnose(io) {
   }
 
   const documents = checkDocumentation();
+  const store = checkStore(io);
 
   io.log.record('done', {
     checked: findings.length,
     broken: findings.filter((finding) => finding.state === BROKEN).length,
     documents: documents.filter((check) => !check.ok).length,
+    store: store.state,
   });
 
-  return { findings, documents };
+  return { findings, documents, store };
+}
+
+/**
+ * Open the memory store and ask it two questions.
+ *
+ * Read-only, like the rest of this command. It opens the store, reads, and
+ * closes it, and the one thing it writes anywhere is the line in our own action
+ * log saying it asked.
+ *
+ * @param {import('./setup.js').Io} io
+ * @returns {StoreCheck}
+ */
+function checkStore(io) {
+  const file = io.storePath ?? defaultStorePath();
+
+  if (!fs.existsSync(file)) {
+    // Not a fault. Nothing has ever been stored, which is the ordinary state of
+    // a machine that has just been set up, and creating the file to find that
+    // out would make asking the question change the answer.
+    io.log.record('store', { path: file, result: 'absent' });
+    return {
+      state: NOT_ASKABLE,
+      says: [`There is no memory store at ${file} yet. Nothing has been stored on this machine.`],
+    };
+  }
+
+  /** @type {import('./store.js').Store} */
+  let store;
+  try {
+    store = openStore({ file, now: systemClock });
+  } catch (error) {
+    // The upgrade case. A store written by Phase 3 does not open under Phase 4,
+    // and the sentence `openStore` throws names the file and says what to do,
+    // so it is passed on whole rather than summarised.
+    io.log.record('store', { path: file, result: BROKEN, reason: 'will-not-open' });
+    return {
+      state: BROKEN,
+      says: [error instanceof Error ? error.message : String(error)],
+    };
+  }
+
+  try {
+    const open = openPasses(store, LOCAL_OWNER);
+    const did = whatReviewsDid(store);
+
+    io.log.record('store', {
+      path: file,
+      result: SOUND,
+      openReviews: open.length,
+      reviewsReported: did.length,
+    });
+
+    /** @type {string[]} */
+    const says = [`The memory store at ${file} opens.`];
+
+    if (open.length === 0) says.push('No review is open.');
+    else {
+      says.push(`${open.length} ${open.length === 1 ? 'review is' : 'reviews are'} still open: `
+        + `${open.map((pass) => `${pass.id} (${pass.reviewer}, begun ${pass.began_at})`).join(', ')}.`);
+      // Said rather than decided. An open review is a review an agent may be
+      // in the middle of this second, and it is also what an agent that
+      // crashed leaves behind, and nothing on this machine can tell those
+      // apart. Reporting it as a fault would be this command claiming a
+      // judgement it has no way to make — and it is why an open review does
+      // not change the exit code.
+      says.push('That may be a review in progress, or one an agent began and never finished. '
+        + 'Nothing here can tell those apart, and nothing will close it on its own.');
+      says.push(`An agent closes one with \`review_end\`. To put back everything a review `
+        + `changed, run \`${invocation()} undo-review <number>\`.`);
+    }
+
+    for (const line of did) says.push(line);
+
+    return { state: SOUND, says };
+  } finally {
+    store.close();
+  }
+}
+
+/**
+ * How many reviews this says anything about before it starts counting instead.
+ *
+ * Five, and the number it stopped at is named in the report. `listDecisions`
+ * refuses to truncate at all, and is right to — a caller cannot tell a complete
+ * answer from a shortened one. This can, because it says so, which is the whole
+ * of the difference.
+ */
+const REVIEWS_SHOWN = 5;
+
+/**
+ * What the reviews on this machine actually did to somebody's memories.
+ *
+ * The reason this exists, in one sentence: a reviewer ran a single pass that
+ * archived forty memories out of forty — the whole store, with plausible
+ * reasons, from one agent — the pass closed cleanly, and this command then said
+ * "the memory store opens, and no review is open". Nothing wrong. Everything
+ * gone from `list`, the only trace in `why`, which a person has to think to go
+ * and read. Fully reversible if you notice, and unattended means nobody is
+ * noticing. So an invisible event becomes a visible one.
+ *
+ * Undone reviews are left out. Something that has been put back is not a thing
+ * to tell somebody about, and including them would push the reviews that still
+ * stand off the bottom of a list that has to stay short enough to read.
+ *
+ * The line about a review having taken most of the store is a report and not a
+ * rule. Why it is here rather than in the gate, why it does not change the exit
+ * code, and why that was settled the way it was: DECISIONS.md, "Saying it
+ * louder, and not acting on it". Nothing refuses on it, nothing caps on it, and the same review would
+ * have been written exactly the same way with this file deleted. It is a
+ * sentence in front of a person, and where the sentence starts appearing is a
+ * decision about telling rather than about memories, which is why the number
+ * lives here and not in the gate.
+ *
+ * @param {import('./store.js').Store} store
+ * @returns {string[]}
+ */
+function whatReviewsDid(store) {
+  const stood = reviewSummaries(store, LOCAL_OWNER)
+    .filter((row) => row.changed > 0 && row.pass.undone_at === null);
+
+  if (stood.length === 0) return ['No review has changed anything that is still standing.'];
+
+  /** @type {string[]} */
+  const says = [];
+
+  for (const { pass, changed, undecided, showing } of stood.slice(0, REVIEWS_SHOWN)) {
+    const most = changed > showing;
+
+    says.push(`Review ${pass.id}, by "${pass.reviewer}", ${pass.closed_at === null
+      ? `begun ${pass.began_at} and still open`
+      : `closed ${pass.closed_at}`}: it put away ${changed} `
+      + `${changed === 1 ? 'memory' : 'memories'}`
+      + `${undecided > 0 ? ` and left ${undecided} undecided` : ''}. `
+      + `${showing === 0 ? 'Nothing is being shown now' : `${showing} `
+        + `${showing === 1 ? 'memory is' : 'memories are'} being shown now`}.`);
+
+    if (most) {
+      says.push(`  That is more than is left on show, so review ${pass.id} moved most of this `
+        + 'store in one go. That may be exactly what somebody asked for. It is here because it '
+        + 'is the kind of thing worth seeing rather than because anything is wrong with it — '
+        + `\`${invocation()} undo-review ${pass.id}\` puts it all back.`);
+    } else {
+      says.push(`  \`${invocation()} undo-review ${pass.id}\` puts it back.`);
+    }
+  }
+
+  if (stood.length > REVIEWS_SHOWN) {
+    says.push(`${stood.length - REVIEWS_SHOWN} older `
+      + `${stood.length - REVIEWS_SHOWN === 1 ? 'review is' : 'reviews are'} not shown here. `
+      + `\`${invocation()} log\` has every one of them, oldest first, with the reasoning.`);
+  }
+
+  return says;
 }
 
 /** The file is not there at all. */
@@ -327,14 +508,25 @@ export function interpreterIn(text, client, name) {
 
 /**
  * @param {import('./setup.js').Io} io
- * @param {{findings: Finding[], documents: import('./documentation.js').Check[]}} result
+ * @param {ReturnType<typeof diagnose>} result
  * @returns {number} the exit code
  */
-export function reportDiagnosis(io, { findings, documents }) {
+export function reportDiagnosis(io, { findings, documents, store }) {
   const broken = findings.filter((finding) => finding.state === BROKEN);
   const unaskable = findings.filter((finding) => finding.state === NOT_ASKABLE);
   const sound = findings.filter((finding) => finding.state === SOUND);
   const wrongDocuments = documents.filter((check) => !check.ok);
+
+  // A store this code cannot open goes first, ahead of everything about
+  // clients. Somebody who has just updated runs this command to find out why
+  // nothing works, and the sentence that answers them was at the bottom of the
+  // page under twenty clients they were not asking about. It stays at the
+  // bottom when there is nothing wrong with it: that reader is reading down.
+  if (store.state === BROKEN) {
+    io.out('The memory store:\n\n');
+    for (const line of store.says) io.out(`  ${line}\n`);
+    io.out('\n');
+  }
 
   if (findings.length === 0) {
     io.out(`No client on this machine has an entry for nosyparker. Run \`${invocation()} setup\` to add one.\n\n`);
@@ -372,6 +564,12 @@ export function reportDiagnosis(io, { findings, documents }) {
   }
   if (wrongDocuments.length > 0) io.out('\n');
 
+  if (store.state !== BROKEN) {
+    io.out('The memory store:\n\n');
+    for (const line of store.says) io.out(`  ${line}\n`);
+    io.out('\n');
+  }
+
   if (broken.length > 0) {
     io.out(`Run \`${invocation()} setup\` to rewrite the broken entries.\n`);
     io.out('This command does not change anything itself.\n\n');
@@ -382,5 +580,13 @@ export function reportDiagnosis(io, { findings, documents }) {
   // rather than a page. A client that cannot be asked is not a failure: it is
   // the ordinary state of most of them, and exiting non-zero for it would make
   // the code mean "you have clients" rather than "something is wrong".
-  return broken.length + wrongDocuments.length === 0 ? 0 : 1;
+  //
+  // A store that will not open counts, because nothing works until it does. An
+  // open review does not, and that is the harder call: it is a real thing to
+  // act on, and it is also what an agent halfway through a review looks like
+  // from here. Making the exit code red for it would put this command in the
+  // position of calling somebody's work-in-progress a fault, and there is no
+  // way for it to tell. So it is said in the report and left out of the number.
+  const storeBroken = store.state === BROKEN ? 1 : 0;
+  return broken.length + wrongDocuments.length + storeBroken === 0 ? 0 : 1;
 }

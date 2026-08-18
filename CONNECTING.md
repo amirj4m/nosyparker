@@ -65,7 +65,7 @@ edit the path by hand.
 `setup` does all of this for you and prints the interpreter path it wrote.
 
 Restart Claude Code. `/mcp` lists the connected servers; nosyparker should be
-there with six tools.
+there with ten tools.
 
 ## Trying it
 
@@ -77,6 +77,17 @@ Ask for each of these in turn, in ordinary words:
 - *"Forget that, I have changed my mind."* → `forget`, with a reason
 - *"Why is that not remembered any more?"* → `why`
 - *"Actually, put that back."* → `restore`
+- *"Have a look through what you know about me and see if any of it has gone
+  out of date."* → `review_start`, then `review_finding` for anything it
+  concludes, then `review_end`
+
+The last one is worth trying on a store with something dated in it. Tell an
+agent *"next week I am giving a talk"*, come back a fortnight later, and ask it
+to review. It should work out from the sentence and the date that the week has
+gone, and say so. Ask it about something with no date in it — where you live,
+what you prefer — and it should leave that alone however old it is, or tell you
+it could not tell. Nothing in nosyparker decides any of that; you are watching
+the agent read.
 
 Then start a second agent — another Claude Code window, or the command line
 tool in a terminal — and ask it what it knows about you. It reads the same

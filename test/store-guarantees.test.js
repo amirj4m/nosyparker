@@ -73,11 +73,24 @@ test('a decision is handed named actions, not a way to run statements', (t) => {
   }
 
   // Only the changes a memory is allowed to undergo, and nothing else.
+  //
+  // Phase 4 added four. `leaveBehind` and `claimSupersedes` are changes to a
+  // memory, and belong to the same list for the same reason as the rest: they
+  // are named, they are few, and every one of them is written beside the row
+  // that explains it. The three pass actions are not changes to a memory at
+  // all — they open, close and undo a review — and they are here rather than
+  // anywhere else so that starting a review is as much a logged decision as
+  // anything a review goes on to do.
   assert.deepEqual(Object.keys(given).sort(), [
+    'abandonPass',
     'bringBack',
+    'claimSupersedes',
     'insertMemory',
+    'leaveBehind',
+    'openPass',
     'putAway',
     'retire',
+    'shutPass',
     'unlinkSupersedes',
   ]);
 

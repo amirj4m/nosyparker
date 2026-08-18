@@ -1,5 +1,5 @@
 /**
- * The six tools.
+ * The ten tools.
  *
  * Each one reads its arguments, calls one function in the gate or the store,
  * and turns what comes back into something a person can read. Nothing here
@@ -41,11 +41,27 @@
  * be acted on — when to reach for this rather than that, and what a refusal
  * means, so that an agent told no does not try the same thing in a different
  * shape.
+ *
+ * The four review tools are the same shape as the other six and are worth one
+ * more sentence, because their descriptions are carrying more than usual. They
+ * are the only place an agent is told what a review may and may not conclude,
+ * and the only place it is told that being unsure is an answer rather than a
+ * failure. An agent that reads `review_finding` and comes away thinking it has
+ * to pick a side has been told the wrong thing by this file.
  */
 
-import { forget, restore, screenQuery, submit } from './gate.js';
+import {
+  beginReview,
+  closeReview,
+  forget,
+  restore,
+  review,
+  screenQuery,
+  submit,
+  undoReview,
+} from './gate.js';
 import { listDecisions, listMemories, searchMemories } from './store.js';
-import { isBlank } from './text.js';
+import { enumValue, isBlank } from './text.js';
 
 /**
  * @typedef {import('./store.js').Store} Store
@@ -309,6 +325,240 @@ export const TOOLS = [
       return decisions.map(asEntry).join('\n\n');
     },
   },
+
+  {
+    name: 'review_start',
+    description: [
+      'Begin a review of what is stored, and get everything back with the date each',
+      'memory was stored on.',
+      '',
+      'Use it when the person asks you to tidy up what is remembered about them, or',
+      'when you notice while working that two memories disagree. It is not something',
+      'to run on a schedule and nothing here will ask you to.',
+      '',
+      'The dates are why this tool exists rather than `list`. Some statements name a',
+      'moment — "next month", "on Tuesday", "before the deadline", "until the end of',
+      'the year" — and the date it was stored on is what lets you work out whether',
+      'that moment has gone by. Nothing in this server does that for you and nothing',
+      'in it ever will: no code here compares a date to today or concludes anything',
+      'from one. It is your reading of the sentence, and the date is evidence you are',
+      'handed.',
+      '',
+      'A statement that names no moment does not go stale. "They live in Tehran" is',
+      'exactly as true after two years as the day it was stored, and age alone is',
+      'never a reason to touch anything.',
+      '',
+      'Every finding names the review this returns. Close it with `review_end` when',
+      'you have finished, and `review_undo` puts the whole thing back at once.',
+    ].join('\n'),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        reviewer: {
+          type: 'string',
+          description: 'Which agent you are, in a few words. It is kept with the review.',
+        },
+      },
+      required: ['reviewer'],
+      additionalProperties: false,
+    },
+    run(store, owner, args) {
+      only(args, ['reviewer']);
+
+      const started = beginReview(store, {
+        owner,
+        reviewer: readText(args, 'reviewer', 'which agent you are'),
+      });
+
+      if (started.verdict === 'refused') return started.explanation;
+
+      const memories = listMemories(store, owner);
+      if (memories.length === 0) {
+        return `${started.explanation} (review ${started.pass_id})\n\nNothing is stored yet, so there is nothing to review.`;
+      }
+
+      return [
+        `${started.explanation} (review ${started.pass_id})`,
+        '',
+        `${memories.length} ${memories.length === 1 ? 'memory' : 'memories'}, oldest first, `
+          + 'each with the date it was stored:',
+        '',
+        ...memories.map(asDatedLine),
+      ].join('\n');
+    },
+  },
+
+  {
+    name: 'review_finding',
+    description: [
+      'Record what you concluded about one memory, and why.',
+      '',
+      'Three outcomes and no fourth:',
+      '',
+      '`overtaken` — it is no longer current and there is nothing to put in its place.',
+      'A plan whose date has gone by, an arrangement that has ended. It stops being',
+      'shown, keeps your reasoning, and can be brought back.',
+      '',
+      '`superseded` — another memory that is already stored says the same thing more',
+      'recently. Give its id as `replaced_by`. The two are linked and the older one',
+      'stops being shown.',
+      '',
+      '`could_not_tell` — you read it and you are not sure. Nothing changes and your',
+      'reasoning is written down. This is a real answer, not a failure, and it is the',
+      'right one whenever you are guessing. Two memories that contradict each other',
+      'with nothing to say which came first is exactly this case. Do not pick one.',
+      '',
+      'What a review cannot do: it cannot forget anything and it cannot delete',
+      'anything. Forgetting is the person saying they do not want something shown,',
+      'and it is not a conclusion you may reach on their behalf. If you think',
+      'something should go, say `could_not_tell` and tell them.',
+      '',
+      '`reasoning` is required and is the point. Somebody reads it later to judge',
+      'whether you thought correctly, so write the actual argument — what the',
+      'statement says, what the date tells you, what you compared it against — not a',
+      'label like "stale". Never put age on its own in it: a memory being old is not',
+      'a reason for anything.',
+      '',
+      '`derived_from` is required and is checked. List the ids of every memory you',
+      'read to reach this, including the one being judged. A conclusion nothing was',
+      'read to reach is refused.',
+    ].join('\n'),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        review: {
+          type: 'integer',
+          description: 'The review this finding belongs to, from `review_start`.',
+        },
+        id: {
+          type: 'integer',
+          description: 'The memory you are judging.',
+        },
+        outcome: {
+          type: 'string',
+          enum: ['overtaken', 'superseded', 'could_not_tell'],
+          description: 'What you concluded.',
+        },
+        reasoning: {
+          type: 'string',
+          description: 'Why, in your own words, in enough detail to be judged later.',
+        },
+        derived_from: {
+          type: 'array',
+          items: { type: 'integer' },
+          description: 'Ids of every memory you read to reach this, the judged one included.',
+        },
+        replaced_by: {
+          type: 'integer',
+          description: 'For `superseded`: the id of the memory that replaces this one.',
+        },
+      },
+      required: ['review', 'id', 'outcome', 'reasoning', 'derived_from'],
+      additionalProperties: false,
+    },
+    run(store, owner, args) {
+      only(args, ['review', 'id', 'outcome', 'reasoning', 'derived_from', 'replaced_by']);
+
+      // `could_not_tell` at the door and `could-not-tell` inside. The schema
+      // reads better with underscores and the gate's vocabulary is hyphenated
+      // throughout; translating here is one line, and making either give way to
+      // the other would be a cosmetic change to something a test closes.
+      const concluded = readText(args, 'outcome', 'what you concluded');
+      if (concluded !== 'overtaken' && concluded !== 'superseded' && concluded !== 'could_not_tell') {
+        throw new Error(
+          '"outcome" has to be "overtaken", "superseded" or "could_not_tell", and this call '
+            + `gave ${enumValue(concluded) ?? describe(concluded)}. Nothing was done.`,
+        );
+      }
+
+      return outcome(
+        review(store, {
+          owner,
+          pass: readId(args, 'review'),
+          id: readId(args, 'id'),
+          outcome: concluded === 'could_not_tell' ? 'could-not-tell' : concluded,
+          reasoning: readText(args, 'reasoning', 'why you concluded it'),
+          derivedFrom: readIds(args, 'derived_from'),
+          replacedBy: args.replaced_by === undefined ? null : readId(args, 'replaced_by'),
+        }),
+      );
+    },
+  },
+
+  {
+    name: 'review_end',
+    description: [
+      'Close a review. It takes no more findings afterwards.',
+      '',
+      'Call it when you have finished walking the store, whether or not you changed',
+      'anything. A review left open can be added to by anything holding its number,',
+      'and the doctor command will keep telling the person it is there.',
+      '',
+      'It can still be undone after it is closed, which is usually when somebody',
+      'reads what it did and decides otherwise.',
+      '',
+      'Then tell the person what the review did, in the conversation, in your own',
+      'words. They cannot see this store while they are talking to you: what comes back',
+      'from this call is the whole account of it, and unless you pass it on the only',
+      'trace is in `why`, which they have to think to go and read. Say how many',
+      'memories it put away, how many are still being shown, and that all of it can be',
+      'put back — you can do that yourself with `review_undo`.',
+      '',
+      'If most of what they had is no longer being shown, lead with that. A review that',
+      'archives nearly everything may be exactly what they asked for, and it is still',
+      'the first thing they should hear rather than something they find out weeks later',
+      'when something they said is no longer known.',
+    ].join('\n'),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        review: {
+          type: 'integer',
+          description: 'The review to close, from `review_start`.',
+        },
+      },
+      required: ['review'],
+      additionalProperties: false,
+    },
+    run(store, owner, args) {
+      only(args, ['review']);
+      return closeReview(store, { owner, pass: readId(args, 'review') }).explanation;
+    },
+  },
+
+  {
+    name: 'review_undo',
+    description: [
+      'Put back everything one review changed, all at once.',
+      '',
+      'Reach for it the moment the person says a review got something wrong. They',
+      'should not have to undo an agent\'s work one memory at a time, and they should',
+      'not have to open a terminal to undo it at all.',
+      '',
+      'It puts back every memory the review moved, in one go. Anything that has',
+      'changed since — because the person did something to it themselves, or a later',
+      'review did — is left exactly alone and named in the answer, because undoing',
+      'this review must not undo somebody else\'s decision.',
+      '',
+      'A review can be undone once. `why` has the number of every review and',
+      'everything each one concluded, with the reasoning.',
+    ].join('\n'),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        review: {
+          type: 'integer',
+          description: 'The review to undo. `why` names it against every finding.',
+        },
+      },
+      required: ['review'],
+      additionalProperties: false,
+    },
+    run(store, owner, args) {
+      only(args, ['review']);
+      return undoReview(store, { owner, pass: readId(args, 'review') }).explanation;
+    },
+  },
 ];
 
 /**
@@ -337,6 +587,25 @@ function asLine(memory) {
 }
 
 /**
+ * The same line with the date it was stored on in front of the text.
+ *
+ * Only the review sees this. `list` and `recall` answer "what is known about
+ * this person", and a date on every line there is noise in front of the answer;
+ * the review is the one caller for which the date is half the evidence.
+ *
+ * The whole timestamp, not just the day. A reviewer working out whether "this
+ * afternoon" has passed needs the hour, and rounding it away here to make the
+ * lines shorter would be this file deciding how much of the evidence the agent
+ * is allowed.
+ *
+ * @param {Memory} memory
+ * @returns {string}
+ */
+function asDatedLine(memory) {
+  return `${memory.id}. [stored ${memory.created_at}] ${memory.text}`;
+}
+
+/**
  * One entry of the log, laid out so a person can read down it.
  *
  * @param {Decision} decision
@@ -345,11 +614,20 @@ function asLine(memory) {
 function asEntry(decision) {
   const lines = [`${decision.decided_at}  ${decision.verdict} (${decision.rule})`];
 
+  if (decision.pass_id !== null) lines.push(`  review: ${decision.pass_id}`);
   if (decision.memory_id !== null) lines.push(`  memory: ${decision.memory_id}`);
   if (decision.related_memory_id !== null) {
     lines.push(`  other memory: ${decision.related_memory_id}`);
   }
   if (decision.input_excerpt !== '') lines.push(`  text: ${decision.input_excerpt}`);
+
+  // The reviewer's own account, shown as its own line rather than folded into
+  // the explanation. They are two different sentences by two different authors
+  // and running them together would leave a person unable to tell which of them
+  // was the agent's thinking and which was this program's.
+  if (decision.derived_from !== null) lines.push(`  read: ${decision.derived_from}`);
+  if (decision.reasoning !== null) lines.push(`  reviewer said: ${decision.reasoning}`);
+
   lines.push(`  ${decision.explanation}`);
 
   return lines.join('\n');
@@ -428,6 +706,31 @@ function readId(args, name) {
     );
   }
   return value;
+}
+
+/**
+ * A list of ids, read as strictly as one id is.
+ *
+ * Every element goes through the same check a single id does, and one bad
+ * element refuses the whole list rather than being dropped. A derivation record
+ * with an entry quietly removed from it is worse than no record: it would say
+ * the review read four memories when it named five, and nothing downstream
+ * could tell.
+ *
+ * @param {Record<string, unknown>} args
+ * @param {string} name
+ * @returns {number[]}
+ */
+function readIds(args, name) {
+  const value = args[name];
+  if (!Array.isArray(value)) {
+    throw new Error(
+      `"${name}" has to be a list of memory ids, and this call gave ${describe(value)}. ` +
+        'Nothing was done.',
+    );
+  }
+
+  return value.map((_, index) => readId({ [name]: value[index] }, name));
 }
 
 /**
