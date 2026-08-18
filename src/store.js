@@ -173,8 +173,50 @@ export const TEXT_LIMIT = 10_000;
  * Exported so that the tests can check against it rather than against a copy
  * of the number, which would go red on the first bump for reasons that had
  * nothing to do with the change being made.
+ *
+ * Two at Phase 4. The CHECK on `state` learned a fourth word, `decisions` grew
+ * three columns and there is a new table, so a file written by Phase 3 is a
+ * file this code would fail against on the first review — with SQLite's own
+ * message about a constraint, naming nothing a person could act on. It is
+ * turned away at the door instead, in a sentence. There is still no migration
+ * and still nowhere to put one.
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
+
+/**
+ * A memory the review found is no longer current, with nothing to put in its
+ * place.
+ *
+ * The fourth state, and the one word in this file that needed the most care, so
+ * the reasoning is here rather than in a commit message.
+ *
+ * It is not `expired`. Nothing expires here. No code in this project looks at a
+ * date and concludes anything, and the day one does, the promise that nothing
+ * goes away on a timer stops being true. A memory reaches this state because an
+ * agent read it and judged it, and the judgement is written down beside it.
+ *
+ * It is not `forgotten`. That is the person saying they do not want something
+ * shown. This is nobody saying anything about wanting it; it is a statement
+ * whose moment has gone by — "next month I am going to Berlin", read a year
+ * later.
+ *
+ * It is not `superseded`, and this is the distinction the state exists for.
+ * `superseded` names the memory that replaced this one and cannot be written
+ * without it: {@link StoreActions.retire} takes a `supersededBy` and
+ * {@link supersededReason} puts it in the sentence. Nothing replaces an
+ * overtaken memory. The trip happened, or did not; either way there is no newer
+ * fact to point at.
+ *
+ * `overtaken`, then: overtaken by events. It says the world moved and this did
+ * not, which is what happened, and it says nothing at all about how old the row
+ * is. A memory with no moment in it — "I live in Tehran" — cannot be overtaken
+ * by the passing of time however long it sits here, because there is nothing in
+ * it for time to pass.
+ *
+ * It behaves like every other resting state: it leaves the active reads, it
+ * keeps its reason, and `restore` brings it back with no code of its own.
+ */
+export const OVERTAKEN = 'overtaken';
 
 /**
  * @typedef {object} Memory
@@ -183,7 +225,7 @@ export const SCHEMA_VERSION = 1;
  * @property {string} text
  * @property {string} text_normalised
  * @property {string} created_at
- * @property {'active'|'superseded'|'forgotten'} state
+ * @property {'active'|'superseded'|'forgotten'|'overtaken'} state
  * @property {string|null} state_reason
  * @property {string} state_at
  * @property {number|null} supersedes
@@ -201,6 +243,19 @@ export const SCHEMA_VERSION = 1;
  * @property {number|null} memory_id
  * @property {number|null} related_memory_id
  * @property {string} input_excerpt
+ * @property {number|null} pass_id the review pass this was part of, if any
+ * @property {string|null} reasoning the reviewer's own words, if this was a review
+ * @property {string|null} derived_from the memory ids it was read from, space separated
+ */
+
+/**
+ * @typedef {object} Pass
+ * @property {number} id
+ * @property {string} owner
+ * @property {string} reviewer
+ * @property {string} began_at
+ * @property {string|null} closed_at
+ * @property {string|null} undone_at
  */
 
 /**
@@ -252,11 +307,30 @@ CREATE TABLE IF NOT EXISTS memories (
   text_normalised TEXT  NOT NULL,
   created_at    TEXT    NOT NULL,
   state         TEXT    NOT NULL DEFAULT 'active'
-                CHECK (state IN ('active', 'superseded', 'forgotten')),
+                CHECK (state IN ('active', 'superseded', 'forgotten', 'overtaken')),
   state_reason  TEXT,
   state_at      TEXT    NOT NULL,
   supersedes    INTEGER REFERENCES memories(id),
   superseded_by INTEGER REFERENCES memories(id)
+);
+
+-- One review, from the moment an agent starts walking the store to the moment
+-- it stops. Everything it decided points back here, which is what makes a whole
+-- review undoable in one go rather than one memory at a time.
+--
+-- A pass is never deleted and is never reused. Closing it stops it taking new
+-- findings; undoing it reverses what it did and says so on the row. Both are
+-- timestamps rather than flags, because "when" is the question somebody asks
+-- about a review that went wrong.
+CREATE TABLE IF NOT EXISTS review_passes (
+  id        INTEGER PRIMARY KEY,
+  owner     TEXT    NOT NULL,
+  -- Free text from the caller, saying which agent this was. Screened like any
+  -- other free text before it gets here.
+  reviewer  TEXT    NOT NULL,
+  began_at  TEXT    NOT NULL,
+  closed_at TEXT,
+  undone_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS decisions (
@@ -268,7 +342,35 @@ CREATE TABLE IF NOT EXISTS decisions (
   explanation       TEXT    NOT NULL,
   memory_id         INTEGER REFERENCES memories(id),
   related_memory_id INTEGER REFERENCES memories(id),
-  input_excerpt     TEXT    NOT NULL
+  input_excerpt     TEXT    NOT NULL,
+  -- The three review columns, null on every decision that is not part of one.
+  --
+  -- They are here rather than in a review table of their own because a review
+  -- finding is a decision about a memory and this is the table of those. A
+  -- second log would mean the why tool showing a person half of what happened to their
+  -- memories, and the half it left out would be the half taken by an agent
+  -- walking the store on its own.
+  pass_id           INTEGER REFERENCES review_passes(id),
+  -- The reviewer's own account of why, in its words rather than ours.
+  -- The explanation column is this program's sentence about what it did; this is the
+  -- agent's sentence about what it thought, and the two are not the same thing
+  -- and must not be stored as though they were. It is what a person reads when
+  -- they want to judge whether the agent thought correctly.
+  reasoning         TEXT,
+  -- Which memories were read to reach it, as ids separated by spaces.
+  --
+  -- A field rather than a convention, and the difference matters: a convention
+  -- is a sentence in the reasoning that says "based on memory 12", which nothing
+  -- can check and anything can omit. This is checked — every id in it has to be
+  -- a memory of this owner — so a review cannot claim a conclusion it did not
+  -- read anything to reach, and text that arrived at a refused door cannot
+  -- reappear as a review's own finding with no trace of where it came from.
+  --
+  -- A list in a column, which is normally a mistake. It is one here on purpose:
+  -- nothing joins on it, nothing searches it, and the only reader is a person
+  -- being shown which memories an agent had in front of it. A join table would
+  -- buy a query nobody makes.
+  derived_from      TEXT
 );
 
 -- Trigram, not unicode61. unicode61 finds nothing in Chinese or Japanese
@@ -455,8 +557,13 @@ export const PURGED_REPLACEMENT_REASON =
  * @property {(row: {owner: string, text: string, at: string, supersedes: number|null}) => number} insertMemory
  * @property {(row: {owner: string, id: number, at: string, supersededBy: number}) => void} retire
  * @property {(row: {owner: string, id: number, at: string, reason: string, wasInState: string}) => void} putAway
+ * @property {(row: {owner: string, id: number, at: string, reason: string}) => void} leaveBehind
  * @property {(row: {owner: string, id: number, at: string, wasInState: string, wasSupersededBy: number|null}) => void} bringBack
  * @property {(row: {owner: string, id: number, noLongerSupersedes: number}) => void} unlinkSupersedes
+ * @property {(row: {owner: string, id: number, nowSupersedes: number}) => void} claimSupersedes
+ * @property {(row: {owner: string, reviewer: string, at: string}) => number} openPass
+ * @property {(row: {owner: string, pass: number, at: string}) => void} shutPass
+ * @property {(row: {owner: string, pass: number, at: string}) => void} abandonPass
  */
 
 /**
@@ -538,6 +645,24 @@ function actionsFor(db) {
       );
     },
 
+    leaveBehind({ owner, id, at, reason }) {
+      // Only an active memory can be found to be no longer current. One already
+      // put away is not on show to be wrong about, and one already superseded
+      // has something newer standing in its place — overwriting that pointer
+      // would lose the link between the pair.
+      //
+      // Guarded in the WHERE clause rather than checked first, for the reason
+      // `retire` gives: a check taken before the write is a check two agents
+      // can both pass.
+      change(
+        `UPDATE memories
+            SET state = 'overtaken', state_reason = ?, state_at = ?
+          WHERE id = ? AND owner = ? AND state = 'active'`,
+        [reason, at, id, owner],
+        `leave memory ${id} behind`,
+      );
+    },
+
     unlinkSupersedes({ owner, id, noLongerSupersedes }) {
       // Nothing to do if that memory has already stopped claiming it, so this
       // one does not insist on having changed a row.
@@ -546,6 +671,53 @@ function actionsFor(db) {
         [id, owner, noLongerSupersedes],
         `unlink memory ${id}`,
         false,
+      );
+    },
+
+    claimSupersedes({ owner, id, nowSupersedes }) {
+      // The other half of `retire`, for the case `submit` never has: two
+      // memories that are both already stored, and a reviewer that has worked
+      // out one replaces the other. In `submit` the newer memory is being
+      // written this instant and carries the pointer from birth, so there was
+      // never anything to set afterwards.
+      //
+      // It insists on having changed a row, and the NULL in the WHERE clause is
+      // why: a memory already claiming to supersede something else must not
+      // quietly start claiming to supersede this one instead. That would leave
+      // the memory it used to name retired, pointing at a memory that no longer
+      // points back, with nothing anywhere saying it had happened.
+      change(
+        'UPDATE memories SET supersedes = ? WHERE id = ? AND owner = ? AND supersedes IS NULL',
+        [nowSupersedes, id, owner],
+        `record that memory ${id} supersedes memory ${nowSupersedes}`,
+      );
+    },
+
+    openPass({ owner, reviewer, at }) {
+      if (!live) throw new Error('This decision is already written.');
+      const written = db
+        .prepare('INSERT INTO review_passes (owner, reviewer, began_at) VALUES (?, ?, ?)')
+        .run(owner, reviewer, at);
+      return Number(written.lastInsertRowid);
+    },
+
+    shutPass({ owner, pass, at }) {
+      // Open ones only. Closing a closed pass a second time would move the
+      // timestamp and lose the moment the review actually stopped.
+      change(
+        'UPDATE review_passes SET closed_at = ? WHERE id = ? AND owner = ? AND closed_at IS NULL',
+        [at, pass, owner],
+        `close review ${pass}`,
+      );
+    },
+
+    abandonPass({ owner, pass, at }) {
+      // Once, and only once. Undoing an undone pass would walk its findings
+      // again and put back states that something else has since set.
+      change(
+        'UPDATE review_passes SET undone_at = ? WHERE id = ? AND owner = ? AND undone_at IS NULL',
+        [at, pass, owner],
+        `undo review ${pass}`,
       );
     },
   };
@@ -567,6 +739,9 @@ function actionsFor(db) {
  * @property {string} input_excerpt already trimmed and, for secrets, already replaced
  * @property {number|null} [memory_id]
  * @property {number|null} [related_memory_id]
+ * @property {number|null} [pass_id] the review this was part of, if it was part of one
+ * @property {string|null} [reasoning] the reviewer's own words
+ * @property {string|null} [derived_from] ids read to reach it, space separated
  */
 
 /**
@@ -610,8 +785,9 @@ export function recordDecision(store, decide) {
     const written = db
       .prepare(
         `INSERT INTO decisions
-           (owner, decided_at, verdict, rule, explanation, memory_id, related_memory_id, input_excerpt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           (owner, decided_at, verdict, rule, explanation, memory_id, related_memory_id,
+            input_excerpt, pass_id, reasoning, derived_from)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         plan.owner,
@@ -622,6 +798,9 @@ export function recordDecision(store, decide) {
         memoryId,
         relatedId,
         plan.input_excerpt,
+        plan.pass_id ?? null,
+        plan.reasoning ?? null,
+        plan.derived_from ?? null,
       );
 
     db.exec('COMMIT');
@@ -932,4 +1111,98 @@ export function listDecisions(store, owner) {
     .db.prepare('SELECT * FROM decisions WHERE owner = ? ORDER BY id')
     .all(owner);
   return /** @type {Decision[]} */ (/** @type {unknown} */ (rows));
+}
+
+/**
+ * One review pass by id, whatever state it is in.
+ *
+ * @param {Store} store
+ * @param {string} owner
+ * @param {number} id
+ * @returns {Pass|null}
+ */
+export function getPass(store, owner, id) {
+  const row = handleOf(store)
+    .db.prepare('SELECT * FROM review_passes WHERE id = ? AND owner = ?')
+    .get(id, owner);
+  return row ? /** @type {Pass} */ (/** @type {unknown} */ (row)) : null;
+}
+
+/**
+ * Every review that was started and never closed.
+ *
+ * An agent that begins a review and stops — because it crashed, or was
+ * interrupted, or simply moved on — leaves one of these behind, and nothing
+ * else in the store would ever mention it again. `doctor` asks this so that a
+ * person can be told, because a review left open is the one piece of Phase 4
+ * state that goes wrong quietly.
+ *
+ * Undone passes are not open, however they ended. Undoing a pass that was never
+ * closed is a legitimate way to abandon it.
+ *
+ * @param {Store} store
+ * @param {string} owner
+ * @returns {Pass[]}
+ */
+export function openPasses(store, owner) {
+  const rows = handleOf(store)
+    .db.prepare(
+      `SELECT * FROM review_passes
+        WHERE owner = ? AND closed_at IS NULL AND undone_at IS NULL
+        ORDER BY id`,
+    )
+    .all(owner);
+  return /** @type {Pass[]} */ (/** @type {unknown} */ (rows));
+}
+
+/**
+ * Everything one review decided, newest first.
+ *
+ * Newest first because that is the order an undo has to walk them in. A review
+ * that superseded memory 4 with memory 9 and then found memory 9 overtaken has
+ * to have the second reversed before the first, or the first reversal finds
+ * memory 9 in a state it did not leave it in.
+ *
+ * @param {Store} store
+ * @param {string} owner
+ * @param {number} pass
+ * @returns {Decision[]}
+ */
+export function decisionsInPass(store, owner, pass) {
+  const rows = handleOf(store)
+    .db.prepare('SELECT * FROM decisions WHERE owner = ? AND pass_id = ? ORDER BY id DESC')
+    .all(owner, pass);
+  return /** @type {Decision[]} */ (/** @type {unknown} */ (rows));
+}
+
+/**
+ * Which of these ids are not memories of this owner.
+ *
+ * Asked of the database in one question, and asked of every row rather than the
+ * active ones: a review reads what has already been put away as readily as what
+ * is on show, and often that is the point of reading it.
+ *
+ * This is what makes `derived_from` a field rather than a sentence. The gate
+ * calls it inside the transaction that writes the finding, so a review cannot
+ * name a memory that does not exist as the thing it reasoned from.
+ *
+ * @param {Store} store
+ * @param {string} owner
+ * @param {number[]} ids
+ * @returns {number[]} the ones that are not there, in the order given
+ */
+export function unknownMemories(store, owner, ids) {
+  if (ids.length === 0) return [];
+
+  const placeholders = ids.map(() => '?').join(', ');
+  const rows = /** @type {{id: number}[]} */ (
+    /** @type {unknown} */ (
+      handleOf(store)
+        .db.prepare(`SELECT id FROM memories WHERE owner = ? AND id IN (${placeholders})`)
+        .all(owner, ...ids)
+    )
+  );
+
+  const found = new Set(rows.map((row) => Number(row.id)));
+  return ids.filter((id) => !found.has(id));
 }
