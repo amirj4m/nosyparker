@@ -53,7 +53,7 @@ import { configPathFor, fillTokens, invocation, loadClients } from './clients.js
 import { detect, NOT_INSTALLED } from './detect.js';
 import { hasEntry, insertEntry, stripComments, withoutBom, withoutTrailingCommas } from './edit.js';
 import { checkDocumentation } from './documentation.js';
-import { editRequest, readOrEmpty } from './write.js';
+import { editRequest, readOrEmpty, resolveTarget } from './write.js';
 import { manifestRowFor } from './backup.js';
 import { CONFIG_CONFIRMED, CONNECTED, verifyClient } from './verify.js';
 
@@ -140,11 +140,32 @@ export function diagnose(io) {
       continue;
     }
 
-    const named = interpreterIn(text, client, io.name);
+    // Where the entry actually lives now, against where it lived when we wrote
+    // it. A comparison of contents cannot see a change of path: replacing a
+    // symlink with a regular file leaves a file that does contain the entry,
+    // and everything else here would have said it was fine.
+    const row = manifestRowFor(found.configPath, io.backupDir);
+    const wasTarget = row?.target ?? null;
+    const isTarget = resolveTarget(found.configPath);
     let state = SOUND;
 
+    if (wasTarget !== null && wasTarget !== isTarget) {
+      state = BROKEN;
+      says.push(`This wrote into ${wasTarget}, which ${found.configPath} used to point at. It does not any more`
+        + `${isTarget === found.configPath ? ' — it is a plain file now' : `, it points at ${isTarget}`}.`);
+      says.push(`Whatever reads ${wasTarget} is no longer seeing this entry. Putting the link back and running `
+        + `\`${invocation()} setup\` restores both.`);
+    }
+
+    const named = interpreterIn(text, client, io.name);
+
     if (named === null) {
-      says.push(`Its entry is there. This cannot read the interpreter back out of a ${client.format} file, so that part is unchecked.`);
+      // Two different reasons, and blaming the format for both was wrong: for
+      // JSON the format read perfectly well and it is the entry that has no
+      // interpreter in it, which is a thing worth saying out loud.
+      says.push(readable(text, client) && (client.format === 'json' || client.format === 'jsonc')
+        ? 'Its entry is there and has no interpreter in it that this can read, so the check that matters most here could not be made.'
+        : `Its entry is there. This cannot read an interpreter back out of ${client.format.toUpperCase()}, so that part is unchecked.`);
     } else if (!fs.existsSync(named)) {
       state = BROKEN;
       says.push(`Its entry names ${named}, which is not there any more — so nothing can start the server from this client.`);
@@ -167,6 +188,14 @@ export function diagnose(io) {
     } else {
       says.push(`${client.name} writes this file with its own command, so this checks that the entry is there and points somewhere real, and not how it is laid out.`);
     }
+
+    io.log.record('check', {
+      client: client.id,
+      path: found.configPath,
+      target: isTarget === found.configPath ? undefined : isTarget,
+      result: state,
+      interpreter: named ?? undefined,
+    });
 
     const verified = found.command === null && client.verify.method !== 'file-reread'
       ? null
@@ -194,13 +223,6 @@ export function diagnose(io) {
       if (state === SOUND) state = NOT_ASKABLE;
       says.push(`${client.name}'s own command is not on this machine, so its entry could not be checked with it.`);
     }
-
-    io.log.record('check', {
-      client: client.id,
-      path: found.configPath,
-      result: state,
-      interpreter: named ?? undefined,
-    });
 
     findings.push({ client: client.id, name: client.name, state, says });
   }
@@ -237,8 +259,14 @@ function readConfig(file) {
   if (!fs.existsSync(file)) return { text: '', gone: MISSING };
   try {
     return { text: fs.readFileSync(file, 'utf8'), gone: null };
-  } catch {
-    return { text: '', gone: UNREADABLE };
+  } catch (error) {
+    // Not every failure to read is a permissions problem, and saying it is
+    // sends somebody to look at permissions that are fine. A config replaced by
+    // a directory is the one that actually happens.
+    const code = /** @type {NodeJS.ErrnoException} */ (error).code;
+    if (code === 'EISDIR') return { text: '', gone: 'there is a directory there now, not a file' };
+    if (code === 'EACCES' || code === 'EPERM') return { text: '', gone: UNREADABLE };
+    return { text: '', gone: `it could not be read (${code ?? 'no reason given'})` };
   }
 }
 

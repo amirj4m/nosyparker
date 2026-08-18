@@ -359,3 +359,78 @@ test('a client written by its own command is still checked for a missing interpr
   assert.equal(codex?.state, BROKEN);
   assert.match(codex?.says.join(' ') ?? '', /is not there any more/u);
 });
+
+test('a config that has stopped being a link is seen, which contents cannot show', (t) => {
+  // The second half of the symlink defect, and the shape both blind spots
+  // share: doctor compares contents against a record, and something that
+  // changes the *path* leaves contents that look perfect. The file it reads
+  // does contain the entry — it is just no longer the file the person's
+  // dotfiles repository is looking at.
+  const { io, home } = machine(t, { files: ['.cursor/', 'dotfiles/'] });
+  const real = path.join(home, 'dotfiles', 'cursor.json');
+  const link = path.join(home, '.cursor', 'mcp.json');
+
+  fs.writeFileSync(real, '{"mcpServers": {}}\n');
+  fs.symlinkSync(real, link);
+
+  install({ ...io, out: () => {} });
+  // Cursor cannot be asked anything, so the most it ever reaches is
+  // not-askable. What matters is that it is not broken.
+  assert.notEqual(diagnose(io).findings.find((f) => f.client === 'cursor')?.state, BROKEN);
+
+  // Something replaces the link with a plain copy — an older version of this
+  // did exactly that.
+  const content = fs.readFileSync(link, 'utf8');
+  fs.rmSync(link);
+  fs.writeFileSync(link, content);
+
+  const cursor = diagnose(io).findings.find((finding) => finding.client === 'cursor');
+
+  assert.equal(cursor?.state, BROKEN);
+  assert.match(cursor?.says.join(' ') ?? '', /used to point at/u);
+  assert.match(cursor?.says.join(' ') ?? '', /it is a plain file now/u);
+  assert.match(cursor?.says.join(' ') ?? '', new RegExp(real.replaceAll('/', '\\/'), 'u'));
+});
+
+test('a directory where the config should be is not called a permissions problem', (t) => {
+  // Every read failure was mapped to "check who is allowed to read that file",
+  // which sends somebody to look at permissions that are fine.
+  const { io, home } = machine(t, { files: ['.gemini/'] });
+  const settings = path.join(home, '.gemini', 'settings.json');
+
+  install({ ...io, out: () => {} });
+  fs.rmSync(settings);
+  fs.mkdirSync(settings);
+
+  const gemini = diagnose(io).findings.find((finding) => finding.client === 'gemini-cli');
+
+  assert.equal(gemini?.state, BROKEN);
+  assert.match(gemini?.says.join(' ') ?? '', /there is a directory there now, not a file/u);
+  assert.doesNotMatch(gemini?.says.join(' ') ?? '', /who is allowed to read/u);
+});
+
+test('an entry with no interpreter in it says that, rather than blaming the format', (t) => {
+  // The format read perfectly well. It is the entry that has nothing this can
+  // check, and that is the check that matters most here.
+  const { io, home } = machine(t, { files: ['.gemini/'] });
+  const settings = path.join(home, '.gemini', 'settings.json');
+
+  install({ ...io, out: () => {} });
+  fs.writeFileSync(settings, JSON.stringify({ mcpServers: { nosyparker: { args: ['/srv/mcp-server.js'] } } }, null, 2));
+
+  const gemini = diagnose(io).findings.find((finding) => finding.client === 'gemini-cli');
+
+  assert.match(gemini?.says.join(' ') ?? '', /has no interpreter in it that this can read/u);
+  assert.doesNotMatch(gemini?.says.join(' ') ?? '', /back out of json/u);
+});
+
+test('a format with no parser here says so in its own name, in capitals', (t) => {
+  const { io, home } = machine(t, { files: ['.codex/'] });
+  fs.writeFileSync(path.join(home, '.codex', 'config.toml'),
+    '[mcp_servers.nosyparker]\nargs = ["/srv/mcp-server.js"]\n');
+
+  install({ ...io, out: () => {} });
+  const codex = diagnose(io).findings.find((finding) => finding.client === 'codex-cli');
+
+  assert.match(codex?.says.join(' ') ?? '', /cannot read an interpreter back out of TOML/u);
+});
