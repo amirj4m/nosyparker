@@ -156,7 +156,7 @@ import {
   TEXT_LIMIT,
   unknownMemories,
 } from './store.js';
-import { controlCharacterIn, isBlank, namedCodePoint } from './text.js';
+import { controlCharacterIn, enumValue, isBlank, namedCodePoint } from './text.js';
 
 /**
  * Rule 2, which both entry points that take free text apply.
@@ -492,9 +492,9 @@ export function forget(store, { owner, id, reason }) {
       // They are {@link screenFreeText} rather than four blocks here. This
       // project's recurring defect is one door screening text and another not,
       // and the review added two more doors with the same three checks to make.
-      const bad = screenFreeText(owner, reason, {
+      const bad = screenFreeText(store, owner, reason, {
         what: 'reason',
-        tooLong:
+        shouldBe:
           'A reason is a sentence somebody reads later to understand why a memory was put ' +
           'away, not a document.',
         empty:
@@ -663,19 +663,29 @@ function restoreExplanation(id, replacedBy, replacementWasPurged) {
  * last time this project let a door do its own screening, a NUL walked past a
  * check that lived in an adapter.
  *
- * The repetition rule is deliberately not among them, exactly as it is not
- * applied to a reason for forgetting. That one is a judgement about whether
- * something is a fact or a file, and neither of these is offered as a fact.
+ * The repetition rule is among them, and was not. A reason and a reasoning are
+ * both written to the decision log, and that log is never shortened — so a
+ * pasted server log offered as a reason sat in it for good, having walked past
+ * the one rule in this file whose whole job is to say "that is a document, not
+ * something to keep". Both doors had the gap and both are closed here, because
+ * both are the same judgement: a memory refused as a file does not become a
+ * fact by arriving in a different field.
  *
+ * It is the same rule and so it is the same name. `file-not-fact` is already
+ * reached two ways, by length and by repetition; this is the second of those,
+ * applied at two more doors.
+ *
+ * @param {Store} store
  * @param {string} owner
  * @param {string} text
  * @param {object} words
  * @param {string} words.what what this text is, for the sentence
- * @param {string} words.tooLong what a person should do about it being long
+ * @param {string} words.shouldBe what this text is for, said in a sentence. It closes
+ *   both the too-long refusal and the too-repetitive one, which want the same sentence.
  * @param {string} words.empty the whole sentence for an empty one
  * @returns {import('./store.js').DecisionPlan|null}
  */
-function screenFreeText(owner, text, words) {
+function screenFreeText(store, owner, text, words) {
   if (text.length > TEXT_LIMIT) {
     return {
       owner,
@@ -683,7 +693,7 @@ function screenFreeText(owner, text, words) {
       rule: 'file-not-fact',
       explanation:
         `Nothing was changed. That ${words.what} is ${text.length.toLocaleString('en')} ` +
-        `characters and the limit is ${TEXT_LIMIT.toLocaleString('en')}. ${words.tooLong}`,
+        `characters and the limit is ${TEXT_LIMIT.toLocaleString('en')}. ${words.shouldBe}`,
       input_excerpt: '[not recorded: longer than this store takes]',
     };
   }
@@ -709,6 +719,23 @@ function screenFreeText(owner, text, words) {
       rule: 'empty',
       explanation: words.empty,
       input_excerpt: '',
+    };
+  }
+
+  // Last of the five, for the reason length is first: this is the only one that
+  // costs anything, and by here the text is bounded, is not a secret, and is
+  // not empty.
+  if (repetitionOf(store, text) > REPETITION_LIMIT) {
+    return {
+      owner,
+      verdict: 'refused',
+      rule: 'file-not-fact',
+      explanation:
+        `Nothing was changed, because that ${words.what} reads as a file rather than as ` +
+        'something written for a person to read: the same few characters over and over, the ' +
+        `way a log or an export or a dump looks. It would sit in the record for good, and the ` +
+        `record is never shortened. ${words.shouldBe}`,
+      input_excerpt: excerpt(text),
     };
   }
 
@@ -776,9 +803,9 @@ export function beginReview(store, { owner, reviewer }) {
       const badOwner = refuseCredentialOwner(owner);
       if (badOwner) return badOwner;
 
-      const bad = screenFreeText(owner, reviewer, {
+      const bad = screenFreeText(store, owner, reviewer, {
         what: 'name',
-        tooLong: 'A reviewer is a name, not a document.',
+        shouldBe: 'A reviewer is a name, not a document.',
         empty:
           'No review was started, because nothing said which agent was doing it. A review ' +
           'that changes memories has to be attributable to something. Say what you are.',
@@ -854,9 +881,12 @@ export function review(store, { owner, pass, id, outcome, reasoning, derivedFrom
     // Not a judgement about a memory, so not a rule and not a row: it is a
     // caller that has not read the schema, and the shape of a call is the
     // adapter's business exactly as a non-numeric id is.
+    // Named when it is safe to name and not otherwise. This used to
+    // interpolate whatever arrived, which for a field an agent fills in from a
+    // variable is an unbounded echo of the caller's text back at it.
     throw new TypeError(
-      `A review outcome is "overtaken", "superseded" or "could-not-tell", and this call ` +
-        `gave "${outcome}". Nothing was done.`,
+      'A review outcome is "overtaken", "superseded" or "could-not-tell", and this call ' +
+        `gave ${enumValue(outcome) ?? 'something else'}. Nothing was done.`,
     );
   }
 
@@ -865,9 +895,9 @@ export function review(store, { owner, pass, id, outcome, reasoning, derivedFrom
       const badOwner = refuseCredentialOwner(owner);
       if (badOwner) return badOwner;
 
-      const bad = screenFreeText(owner, reasoning, {
+      const bad = screenFreeText(store, owner, reasoning, {
         what: 'reasoning',
-        tooLong:
+        shouldBe:
           'Reasoning is the sentence somebody reads later to judge whether you thought ' +
           'correctly, not a document.',
         empty:

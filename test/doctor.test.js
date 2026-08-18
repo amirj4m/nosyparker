@@ -460,7 +460,7 @@ test('asking after the store does not create it', (t) => {
 });
 
 test('a store this version cannot open is reported, in the sentence the store gives', (t) => {
-  const { io, home } = machine(t);
+  const { io, home, printed } = machine(t);
   const file = path.join(home, '.nosyparker', 'memory.sqlite');
   fs.mkdirSync(path.dirname(file), { recursive: true });
 
@@ -479,6 +479,16 @@ test('a store this version cannot open is reported, in the sentence the store gi
   assert.match(store.says.join(' '), /written by an older version/u);
   assert.match(store.says.join(' '), new RegExp(file.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'));
   assert.equal(reportDiagnosis(io, diagnose(io)), 1);
+
+  // First on the page, ahead of every client. Somebody who has just updated
+  // runs this to find out why nothing works, and that sentence was at the
+  // bottom under twenty clients they were not asking about.
+  reportDiagnosis(io, diagnose(io));
+  const page = printed();
+  assert.ok(
+    page.indexOf('The memory store:') < page.indexOf('No client on this machine'),
+    'the store problem should be the first thing on the page',
+  );
 });
 
 test('a review left open is reported, and is not called a fault', (t) => {

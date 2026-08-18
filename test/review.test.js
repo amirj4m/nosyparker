@@ -902,3 +902,60 @@ test('a refusal names the review it was about, when there is one to name', (t) =
   assert.equal(judge(store, 404, id, { outcome: 'overtaken' }).rule, 'review-not-open');
   assert.deepEqual(decisionsInPass(store, OWNER, 404), []);
 });
+
+test('a pasted log is refused as a reason and as a reasoning, and not only as a memory', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const id = store1(store, 'I live in Tehran');
+  const pass = begin(store);
+
+  // Well under the length limit, and exactly the shape the repetition rule
+  // exists to catch. The decision log is never shortened, so anything accepted
+  // here sits in it for good — which is why the gap mattered: the rule whose
+  // whole job is to say "that is a document" was applied at one door and not at
+  // the two that write to the same log.
+  const log = '2026-08-18T09:14:22Z INFO worker-7 ready, waiting for work\n'.repeat(100);
+  assert.ok(log.length < 10_000);
+
+  const asReason = forget(store, { owner: OWNER, id, reason: log });
+  assert.equal(asReason.rule, 'file-not-fact');
+  assert.match(asReason.explanation, /reads as a file/u);
+  assert.equal(getMemory(store, OWNER, id)?.state, 'active');
+
+  const asReasoning = judge(store, pass, id, { outcome: 'overtaken', reasoning: log });
+  assert.equal(asReasoning.rule, 'file-not-fact');
+  assert.equal(getMemory(store, OWNER, id)?.state, 'active');
+
+  const asName = beginReview(store, { owner: OWNER, reviewer: log });
+  assert.equal(asName.rule, 'file-not-fact');
+
+  // Ordinary writing of any reasonable length still goes through all three.
+  const real = 'It says "next week" and was stored more than a month before this review; the '
+    + 'all-hands it names has happened, and nothing stored since says how it went, so there is '
+    + 'nothing to put in its place.';
+  assert.equal(judge(store, pass, id, { outcome: 'could-not-tell', reasoning: real }).rule, 'undecided');
+});
+
+test('an outcome the review does not have is named back when it is safe to name', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const id = store1(store, 'Something');
+  const pass = begin(store);
+
+  assert.throws(
+    // @ts-expect-error the point of the test
+    () => review(store, { owner: OWNER, pass, id, outcome: 'forgotten', reasoning: 'x', derivedFrom: [id] }),
+    /gave "forgotten"/u,
+  );
+
+  // And not named when it is not enum-shaped. `describe` refuses to quote text
+  // at all, which is right for a memory and unhelpful for an enum; this is the
+  // line between the two.
+  assert.throws(
+    // @ts-expect-error the point of the test
+    () => review(store, { owner: OWNER, pass, id, outcome: 'ghp_0123456789abcdefghijklmnopqrstuvwxyzA', reasoning: 'x', derivedFrom: [id] }),
+    /gave something else/u,
+  );
+});

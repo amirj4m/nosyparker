@@ -61,7 +61,7 @@ import {
   undoReview,
 } from './gate.js';
 import { listDecisions, listMemories, searchMemories } from './store.js';
-import { isBlank } from './text.js';
+import { enumValue, isBlank } from './text.js';
 
 /**
  * @typedef {import('./store.js').Store} Store
@@ -467,7 +467,7 @@ export const TOOLS = [
       if (concluded !== 'overtaken' && concluded !== 'superseded' && concluded !== 'could_not_tell') {
         throw new Error(
           '"outcome" has to be "overtaken", "superseded" or "could_not_tell", and this call '
-            + 'gave something else. Nothing was done.',
+            + `gave ${enumValue(concluded) ?? describe(concluded)}. Nothing was done.`,
         );
       }
 

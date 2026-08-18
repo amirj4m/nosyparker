@@ -515,6 +515,17 @@ export function reportDiagnosis(io, { findings, documents, store }) {
   const sound = findings.filter((finding) => finding.state === SOUND);
   const wrongDocuments = documents.filter((check) => !check.ok);
 
+  // A store this code cannot open goes first, ahead of everything about
+  // clients. Somebody who has just updated runs this command to find out why
+  // nothing works, and the sentence that answers them was at the bottom of the
+  // page under twenty clients they were not asking about. It stays at the
+  // bottom when there is nothing wrong with it: that reader is reading down.
+  if (store.state === BROKEN) {
+    io.out('The memory store:\n\n');
+    for (const line of store.says) io.out(`  ${line}\n`);
+    io.out('\n');
+  }
+
   if (findings.length === 0) {
     io.out(`No client on this machine has an entry for nosyparker. Run \`${invocation()} setup\` to add one.\n\n`);
   } else {
@@ -551,9 +562,11 @@ export function reportDiagnosis(io, { findings, documents, store }) {
   }
   if (wrongDocuments.length > 0) io.out('\n');
 
-  io.out('The memory store:\n\n');
-  for (const line of store.says) io.out(`  ${line}\n`);
-  io.out('\n');
+  if (store.state !== BROKEN) {
+    io.out('The memory store:\n\n');
+    for (const line of store.says) io.out(`  ${line}\n`);
+    io.out('\n');
+  }
 
   if (broken.length > 0) {
     io.out(`Run \`${invocation()} setup\` to rewrite the broken entries.\n`);
