@@ -32,7 +32,6 @@
  */
 
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -242,20 +241,6 @@ export function serverCommand() {
  */
 export function invocation() {
   return `node ${fileURLToPath(new URL('./cli.js', import.meta.url))}`;
-}
-
-/**
- * The default environment: this machine.
- *
- * @returns {{home: string, platform: string, appData: string|undefined, cwd: string}}
- */
-export function localEnvironment() {
-  return {
-    home: os.homedir(),
-    platform: process.platform,
-    appData: process.env.APPDATA,
-    cwd: process.cwd(),
-  };
 }
 
 /**
