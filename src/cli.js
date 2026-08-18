@@ -14,8 +14,10 @@
  * which is after the line below it.
  */
 
+import { requireSupportedNode } from './node-version.js';
 import { silenceSqliteExperimentalWarning } from './warnings.js';
 
+requireSupportedNode();
 silenceSqliteExperimentalWarning();
 
 await import('./cli-main.js');

@@ -16,8 +16,10 @@
  * person debugging a connection concludes the server is the problem.
  */
 
+import { requireSupportedNode } from './node-version.js';
 import { silenceSqliteExperimentalWarning } from './warnings.js';
 
+requireSupportedNode();
 silenceSqliteExperimentalWarning();
 
 await import('./mcp-main.js');

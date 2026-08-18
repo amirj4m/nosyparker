@@ -15,6 +15,7 @@
 
 import { pathToFileURL } from 'node:url';
 
+import { requireSupportedNode } from '../src/node-version.js';
 import { silenceSqliteExperimentalWarning } from '../src/warnings.js';
 
 // Started by a person, or not at all.
@@ -25,6 +26,7 @@ if (!startedDirectly) {
   throw new Error('purge.mjs is run by hand from a terminal. It is not something to import.');
 }
 
+requireSupportedNode();
 silenceSqliteExperimentalWarning();
 
 await import('./purge-main.mjs');
