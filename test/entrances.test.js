@@ -47,6 +47,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const ENTRANCES = [
   'src/cli-main.js',
   'src/cli.js',
+  'src/doctor.js',
   'src/gate.js',
   'src/mcp-main.js',
   'src/mcp-server.js',
@@ -61,12 +62,24 @@ const ENTRANCES = [
  * Naming them separately is not redundant with the list above. The list says
  * what does reach the store; this says what must not, so that a module deleted
  * from the codebase cannot quietly satisfy the first assertion by not existing.
+ *
+ * `doctor.js` was on this list and moved to the other one in Phase 4, which is
+ * the first time anything has crossed. It reads the store: whether the file
+ * opens under this version at all, and whether a review was left open. Both are
+ * things a person runs that command to find out, and neither can be answered
+ * without looking. It writes nothing to the store, and it does not open the
+ * file if it is not already there — asking after somebody's memories must not
+ * be what creates them.
+ *
+ * The rest stay where they are, and the action log is still the one most likely
+ * to be mistaken for a caller. Review activity is recorded in the decision log
+ * inside `store.js`, where every other decision about a memory goes, and not in
+ * the action log, which is about paths on disk.
  */
 const PHASE_3 = [
   'src/backup.js',
   'src/clients.js',
   'src/detect.js',
-  'src/doctor.js',
   'src/documentation.js',
   'src/edit.js',
   'src/log.js',
@@ -88,7 +101,7 @@ test('every way into the store is one of these, and there are no others', () => 
   assert.deepEqual(reaching.sort(), [...ENTRANCES].sort());
 });
 
-test('nothing Phase 3 added can reach the store, and all of it is still here', () => {
+test('nothing that writes to another program\'s files can reach the store, and all of it is still here', () => {
   const graph = importGraph();
   const reaching = reachers(graph, ['src/store.js', 'src/gate.js']);
 

@@ -19,6 +19,10 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { BROKEN, diagnose, interpreterIn, NOT_ASKABLE, reportDiagnosis, SOUND } from '../src/doctor.js';
+import { DatabaseSync } from 'node:sqlite';
+import { beginReview, closeReview } from '../src/gate.js';
+import { LOCAL_OWNER } from '../src/config.js';
+import { openStore } from '../src/store.js';
 import { clientById } from '../src/clients.js';
 import { defaultLogPath, openLog } from '../src/log.js';
 import { defaultIo, install } from '../src/setup.js';
@@ -74,6 +78,10 @@ function machine(t, { files = [], pathDirs = [], run } = {}) {
       },
     },
     backupDir: path.join(home, '.nosyparker', 'backups'),
+    // Inside the temporary home like everything else. Without this the store
+    // check would look at the real one in the real home directory, which no
+    // test in this project may touch.
+    storePath: path.join(home, '.nosyparker', 'memory.sqlite'),
     now: '2026-08-18T10:00:00.000Z',
     command: interpreter,
     serverPath: '/srv/mcp-server.js',
@@ -128,7 +136,7 @@ test('a config this did install into, with the entry gone, is broken', (t) => {
   assert.equal(gemini?.state, BROKEN);
   assert.match(gemini?.says.join(' ') ?? '', /its entry is no longer in it/u);
   assert.match(gemini?.says.join(' ') ?? '', /setup` to put it back/u);
-  assert.equal(reportDiagnosis(io, { findings, documents: [] }), 1);
+  assert.equal(reportDiagnosis(io, { findings, documents: [], store: { state: SOUND, says: [] } }), 1);
 });
 
 test('each way of losing a config gets the answer that fits it', (t) => {
@@ -433,4 +441,79 @@ test('a format with no parser here says so in its own name, in capitals', (t) =>
   const codex = diagnose(io).findings.find((finding) => finding.client === 'codex-cli');
 
   assert.match(codex?.says.join(' ') ?? '', /cannot read an interpreter back out of TOML/u);
+});
+
+// ---------------------------------------------------------------------------
+// The memory store, which this command reads and never writes.
+// ---------------------------------------------------------------------------
+
+test('asking after the store does not create it', (t) => {
+  const { io, home } = machine(t);
+  const file = path.join(home, '.nosyparker', 'memory.sqlite');
+
+  const { store } = diagnose(io);
+
+  assert.equal(fs.existsSync(file), false, 'diagnose created a memory store');
+  assert.equal(store.state, NOT_ASKABLE);
+  assert.match(store.says.join(' '), /no memory store at/u);
+  assert.equal(reportDiagnosis(io, diagnose(io)), 0, 'no store yet is not a fault');
+});
+
+test('a store this version cannot open is reported, in the sentence the store gives', (t) => {
+  const { io, home } = machine(t);
+  const file = path.join(home, '.nosyparker', 'memory.sqlite');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+
+  // A file from before Phase 4: it has a memories table, so it is not a new
+  // store, and it says it was written at schema version 1. This is what
+  // somebody who has just updated has on disk, and this command is the first
+  // one they will run.
+  const older = new DatabaseSync(file);
+  older.exec('CREATE TABLE memories (id INTEGER PRIMARY KEY)');
+  older.exec('PRAGMA user_version = 1');
+  older.close();
+
+  const { store } = diagnose(io);
+
+  assert.equal(store.state, BROKEN);
+  assert.match(store.says.join(' '), /written by an older version/u);
+  assert.match(store.says.join(' '), new RegExp(file.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'));
+  assert.equal(reportDiagnosis(io, diagnose(io)), 1);
+});
+
+test('a review left open is reported, and is not called a fault', (t) => {
+  const { io, home, printed } = machine(t);
+  const file = path.join(home, '.nosyparker', 'memory.sqlite');
+
+  const store = openStore({ file, now: () => '2026-08-18T09:00:00.000Z' });
+  beginReview(store, { owner: LOCAL_OWNER, reviewer: 'an agent that then stopped' });
+  store.close();
+
+  const result = diagnose(io);
+
+  assert.equal(result.store.state, SOUND);
+  assert.match(result.store.says.join(' '), /1 review is still open/u);
+  assert.match(result.store.says.join(' '), /an agent that then stopped/u);
+
+  // The honest part. This cannot tell an abandoned review from one in progress,
+  // so it says both and does not turn the exit code red for it.
+  assert.match(result.store.says.join(' '), /Nothing here can tell those apart/u);
+  assert.equal(reportDiagnosis(io, result), 0);
+  assert.match(printed(), /The memory store:/u);
+  assert.match(printed(), /undo-review/u);
+});
+
+test('a closed review is not an open one', (t) => {
+  const { io, home } = machine(t);
+  const file = path.join(home, '.nosyparker', 'memory.sqlite');
+
+  const store = openStore({ file, now: () => '2026-08-18T09:00:00.000Z' });
+  const started = beginReview(store, { owner: LOCAL_OWNER, reviewer: 'an agent' });
+  closeReview(store, { owner: LOCAL_OWNER, pass: /** @type {number} */ (started.pass_id) });
+  store.close();
+
+  const { store: checked } = diagnose(io);
+
+  assert.equal(checked.state, SOUND);
+  assert.match(checked.says.join(' '), /no review is open/u);
 });

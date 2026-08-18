@@ -18,7 +18,7 @@
  */
 
 import { defaultStorePath, LOCAL_OWNER, systemClock } from './config.js';
-import { forget, restore, screenQuery, submit } from './gate.js';
+import { forget, restore, screenQuery, submit, undoReview } from './gate.js';
 import { invocation } from './clients.js';
 import { diagnose, reportDiagnosis } from './doctor.js';
 import { defaultIo, install, ioWithLog, printConfig, report, reportRemoval, uninstall } from './setup.js';
@@ -78,6 +78,9 @@ function main(argv) {
         break;
       case 'restore':
         runRestore(store, rest);
+        break;
+      case 'undo-review':
+        runUndoReview(store, rest);
         break;
       default:
         fail(`There is no command called "${command}".`);
@@ -219,6 +222,12 @@ function runLog(store, args) {
 
   for (const decision of decisions) {
     process.stdout.write(`${decision.decided_at}  ${decision.verdict} (${decision.rule})\n`);
+    // The review number first, because it is the thing somebody reading this
+    // log is looking for: it is what `undo-review` takes, and the only way to
+    // put a whole review back rather than a memory at a time.
+    if (decision.pass_id !== null) {
+      process.stdout.write(`  review: ${decision.pass_id}\n`);
+    }
     if (decision.memory_id !== null) {
       process.stdout.write(`  memory: ${decision.memory_id}\n`);
     }
@@ -228,8 +237,33 @@ function runLog(store, args) {
     if (decision.input_excerpt !== '') {
       process.stdout.write(`  text: ${decision.input_excerpt}\n`);
     }
+    if (decision.derived_from !== null) {
+      process.stdout.write(`  read: ${decision.derived_from}\n`);
+    }
+    // Kept apart from the explanation below it on purpose. One is the agent's
+    // account of what it thought and the other is this program's account of
+    // what it did, and running them together would leave a person unable to
+    // tell whose sentence they were reading — which is the whole of what they
+    // are here to judge.
+    if (decision.reasoning !== null) {
+      process.stdout.write(`  reviewer said: ${decision.reasoning}\n`);
+    }
     process.stdout.write(`  ${decision.explanation}\n\n`);
   }
+}
+
+/**
+ * @param {import('./store.js').Store} store
+ * @param {string[]} args
+ */
+function runUndoReview(store, args) {
+  const [rawId, ...extra] = args;
+  if (rawId === undefined) {
+    fail(`Which review? ${invocation()} undo-review <number>. The numbers are in \`log\`.`);
+  }
+  refuseExtra('undo-review', extra);
+
+  printOutcome(undoReview(store, { owner: LOCAL_OWNER, pass: toId(rawId) }));
 }
 
 /**
@@ -282,7 +316,7 @@ function formatMemory(memory) {
 /**
  * Refuse what a command was not asked for.
  *
- * `list`, `log` and `restore` take a fixed number of arguments, and until now
+ * `list`, `log`, `restore` and `undo-review` take a fixed number of arguments, and until now
  * they read the ones they wanted and dropped the rest on the floor. So
  * `list --all` printed the active memories and exited 0, and the person
  * reading it had every reason to believe they had been shown the forgotten
