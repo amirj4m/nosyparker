@@ -798,3 +798,43 @@ test('nothing that can reach a memory has a clock of its own', () => {
 
   assert.deepEqual(offenders, []);
 });
+
+test('a review row records its reasoning once, and not twice under two names', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const id = store1(store, 'Next month I am going to Berlin');
+  const pass = begin(store);
+  const said = 'It says "next month" and that month has gone by. Nothing replaced it.';
+
+  judge(store, pass, id, { outcome: 'overtaken', reasoning: said, derivedFrom: [id] });
+
+  const [finding] = decisionsInPass(store, OWNER, pass);
+
+  // Found by running it: the reasoning was written to `reasoning` in full and
+  // to `input_excerpt` cut to 160 characters, so `why` printed the same
+  // sentence twice — once under a label that means "the memory text" on every
+  // other row in the log.
+  assert.equal(finding.reasoning, said);
+  assert.equal(finding.input_excerpt, '');
+});
+
+test('a refusal names the review it was about, when there is one to name', (t) => {
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const id = store1(store, 'Something');
+  const pass = begin(store);
+  closeReview(store, { owner: OWNER, pass });
+
+  const late = judge(store, pass, id, { outcome: 'overtaken' });
+  assert.equal(late.rule, 'review-not-open');
+
+  const [refusal] = decisionsInPass(store, OWNER, pass);
+  assert.equal(refusal.rule, 'review-not-open');
+
+  // And a review that was never started has nothing for the column to point
+  // at, which is a foreign key rather than a matter of taste.
+  assert.equal(judge(store, 404, id, { outcome: 'overtaken' }).rule, 'review-not-open');
+  assert.deepEqual(decisionsInPass(store, OWNER, 404), []);
+});

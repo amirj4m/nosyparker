@@ -771,19 +771,17 @@ function withPass(written) {
 }
 
 /**
- * Read a pass and say whether it will take a finding.
+ * Say whether a pass will take a finding.
  *
- * Read inside the transaction that writes the finding, like every other rule
- * here, so a review closed by one agent cannot take a finding from another that
- * read it a moment earlier.
+ * The pass is read by the caller and inside the transaction that writes the
+ * result, like every other rule here, so a review closed by one agent cannot
+ * take a finding from another that read it a moment earlier.
  *
- * @param {Store} store
- * @param {string} owner
- * @param {number} pass
+ * @param {import('./store.js').Pass|null} found
+ * @param {number} pass the id, for the sentence, since there may be no row
  * @returns {string|null} what is wrong with it, or null if it is open
  */
-function whyNotOpen(store, owner, pass) {
-  const found = getPass(store, owner, pass);
+function whyNotOpen(found, pass) {
   if (found === null) return `There is no review ${pass} belonging to you`;
   if (found.undone_at !== null) return `Review ${pass} was undone on ${found.undone_at}`;
   if (found.closed_at !== null) return `Review ${pass} was closed on ${found.closed_at}`;
@@ -836,14 +834,21 @@ export function review(store, { owner, pass, id, outcome, reasoning, derivedFrom
       });
       if (bad) return bad;
 
-      const shut = whyNotOpen(store, owner, pass);
+      // Read here rather than through `whyNotOpen` alone, because every row
+      // below this one carries `pass_id` and that column is a foreign key: a
+      // finding naming a review that was never started has nothing to point at.
+      const found = getPass(store, owner, pass);
+      const shut = whyNotOpen(found, pass);
       if (shut !== null) {
         return {
           owner,
           verdict: 'refused',
           rule: 'review-not-open',
-          explanation: `${shut}, so nothing was changed. Start one with beginReview.`,
+          explanation:
+            `${shut}, so nothing was changed. A finding has to name a review that is open; ` +
+            'start a new one.',
           input_excerpt: excerpt(reasoning),
+          pass_id: found === null ? null : found.id,
         };
       }
 
@@ -861,8 +866,8 @@ export function review(store, { owner, pass, id, outcome, reasoning, derivedFrom
             'Nothing was changed, because the finding does not say which memories it was ' +
             'reached from. Name them, including the one being judged. A conclusion nothing ' +
             'was read to reach is not a review finding.',
-          input_excerpt: excerpt(reasoning),
-          pass_id: pass,
+          input_excerpt: '',
+          pass_id: found.id,
           reasoning,
         };
       }
@@ -878,8 +883,8 @@ export function review(store, { owner, pass, id, outcome, reasoning, derivedFrom
             `${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not ` +
             `${missing.length === 1 ? 'a memory' : 'memories'} of yours, so the finding ` +
             'names something it cannot have read. Check the ids.',
-          input_excerpt: excerpt(reasoning),
-          pass_id: pass,
+          input_excerpt: '',
+          pass_id: found.id,
           reasoning,
         };
       }
@@ -896,8 +901,8 @@ export function review(store, { owner, pass, id, outcome, reasoning, derivedFrom
           explanation:
             `Nothing was changed, because memory ${id} is not one of your active memories. ` +
             'It may have been forgotten, replaced or already reviewed. Read the list again.',
-          input_excerpt: excerpt(reasoning),
-          pass_id: pass,
+          input_excerpt: '',
+          pass_id: found.id,
           reasoning,
           derived_from: derived.join(' '),
         };
@@ -906,8 +911,14 @@ export function review(store, { owner, pass, id, outcome, reasoning, derivedFrom
       /** @type {Omit<import('./store.js').DecisionPlan, 'verdict'|'rule'|'explanation'>} */
       const common = {
         owner,
-        input_excerpt: excerpt(reasoning),
-        pass_id: pass,
+        // Empty, and not an oversight. `input_excerpt` is the cut-down copy of
+        // what a caller offered, kept because a refusal otherwise records
+        // nothing about what was refused. A review's offering is its reasoning,
+        // and that is stored whole in its own column — so an excerpt here would
+        // be the same sentence twice on every row, once truncated, under a
+        // label that means "the memory text" everywhere else in the log.
+        input_excerpt: '',
+        pass_id: found.id,
         reasoning,
         derived_from: derived.join(' '),
       };
@@ -950,8 +961,8 @@ export function review(store, { owner, pass, id, outcome, reasoning, derivedFrom
               ? `Nothing was changed. Memory ${id} cannot replace itself.`
               : `Nothing was changed, because memory ${replacedBy} is not one of your active ` +
                 'memories, so it cannot be the thing that replaces this one. Check the id.',
-          input_excerpt: excerpt(reasoning),
-          pass_id: pass,
+          input_excerpt: '',
+          pass_id: found.id,
           reasoning,
           derived_from: derived.join(' '),
           memory_id: id,
@@ -1001,7 +1012,8 @@ export function closeReview(store, { owner, pass }) {
       const badOwner = refuseCredentialOwner(owner);
       if (badOwner) return badOwner;
 
-      const shut = whyNotOpen(store, owner, pass);
+      const found = getPass(store, owner, pass);
+      const shut = whyNotOpen(found, pass);
       if (shut !== null) {
         return {
           owner,
@@ -1009,6 +1021,7 @@ export function closeReview(store, { owner, pass }) {
           rule: 'review-not-open',
           explanation: `${shut}, so there was nothing to close.`,
           input_excerpt: '',
+          pass_id: found === null ? null : found.id,
         };
       }
 
@@ -1079,6 +1092,7 @@ export function undoReview(store, { owner, pass }) {
                 'changed. Undoing it twice would put back states that something else has ' +
                 'set since.',
           input_excerpt: '',
+          pass_id: found === null ? null : found.id,
         };
       }
 

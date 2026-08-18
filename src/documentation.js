@@ -150,6 +150,38 @@ export function checkDocumentation(root = repositoryRoot()) {
       ];
     })()),
 
+    check('no sentence the gate says out loud names one of its own functions', (() => {
+      // Found by running it. A review offered to a closed pass answered "Start
+      // one with beginReview", and `beginReview` is a function inside this
+      // program. Nobody has it. The agent reading that sentence has
+      // `review_start`; the person at the terminal has neither.
+      //
+      // This is the same defect as Phase 3's "run `nosyparker setup`", which
+      // named a command nobody has, and it has the same shape: a sentence
+      // written by somebody looking at the code, read by somebody who is not.
+      // That one got a check and this is its other half.
+      //
+      // Some exports are also tool names — `forget`, `restore`, `submit` — and
+      // naming those is right and is what the explanations do. The tell is the
+      // capital letter: no tool and no terminal command has one.
+      const gate = read('src/gate.js').replaceAll(/\/\*[\s\S]*?\*\//gu, '');
+      const internal = [...gate.matchAll(/^export function ([a-z]+[A-Z]\w*)/gmu)]
+        .map((match) => match[1]);
+
+      // What the program says out loud is every string literal in it. Matching
+      // the `explanation:` fields alone would miss the ones built by a helper,
+      // and `restoreExplanation` and `undoExplanation` are both helpers.
+      const spoken = [...gate.matchAll(/'([^'\\\n]*)'|`([^`\\]*)`/gu)]
+        .map((match) => match[1] ?? match[2] ?? '')
+        .join('\n');
+
+      return [
+        ...(internal.length === 0 ? ['no exported function names could be read out of the gate'] : []),
+        ...internal.filter((name) => spoken.includes(name))
+          .map((name) => `the gate says "${name}", which is a function and not something a caller has`),
+      ];
+    })()),
+
     check('the README names every client that can confirm the server started',
       clients.filter((client) => client.verify.tier === 'A' && !readme.includes(client.name))
         .map((client) => `the README does not name ${client.id}`)),
