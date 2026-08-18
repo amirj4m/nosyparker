@@ -19,6 +19,7 @@
 
 import { defaultStorePath, LOCAL_OWNER, systemClock } from './config.js';
 import { forget, restore, screenQuery, submit } from './gate.js';
+import { diagnose, reportDiagnosis } from './doctor.js';
 import { defaultIo, install, ioWithLog, printConfig, report, reportRemoval, uninstall } from './setup.js';
 import { listDecisions, listMemories, openStore, searchMemories } from './store.js';
 
@@ -32,11 +33,12 @@ function main(argv) {
 
   if (!command) fail('No command was given.');
 
-  // Wiring this machine's agents up to the store, and unwiring them, are the
-  // two commands that have nothing to do with the store. They are answered
-  // before it is opened, so that setting nosyparker up does not create a
-  // memory file as a side effect of being asked where the config files are.
-  if (command === 'setup' || command === 'uninstall') {
+  // Wiring this machine's agents up to the store, unwiring them, and asking
+  // whether the wiring still holds are the three commands that have nothing to
+  // do with the store. They are answered before it is opened, so that setting
+  // nosyparker up does not create a memory file as a side effect of being asked
+  // where the config files are.
+  if (command === 'setup' || command === 'uninstall' || command === 'doctor') {
     runSetup(command, rest);
     return;
   }
@@ -85,7 +87,7 @@ function main(argv) {
 }
 
 /**
- * `setup`, `setup --print-config [client]`, and `uninstall`.
+ * `setup`, `setup --print-config [client]`, `uninstall`, and `doctor`.
  *
  * @param {string} command
  * @param {string[]} args
@@ -107,7 +109,8 @@ function runSetup(command, args) {
 
   if (args.length > 0) fail(`"${command}" does not take ${args[0]}.`);
 
-  if (command === 'setup') report(io, install(io));
+  if (command === 'doctor') process.exit(reportDiagnosis(io, diagnose(io)));
+  else if (command === 'setup') report(io, install(io));
   else reportRemoval(io, uninstall(io));
 }
 

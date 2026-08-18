@@ -157,6 +157,29 @@ own machine.
 
 ---
 
+## Checking later that it still works
+
+```
+node src/cli.js doctor
+```
+
+Nothing here needs running on a schedule, and this is not a repair tool — it
+looks and tells you, and if something is wrong the answer is to run `setup`
+again.
+
+It is worth running after you change your Node version, which is the one way an
+install breaks silently. Every entry names the full path to the interpreter that
+wrote it, and a version manager moves that path when you switch versions; the
+client then cannot start the server and mostly will not say so. `doctor` reads
+the path out of each entry and tells you if it is no longer there.
+
+It also checks that each entry is still exactly what `setup` would write, asks
+the clients that can answer whether they are using the server, and says plainly
+which clients cannot be asked at all. It exits 0 when it found nothing wrong and
+1 when it did, so it can go in a script.
+
+---
+
 ## When setup declines to write
 
 Three cases, and none of them is a failure of your setup:

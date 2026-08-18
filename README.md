@@ -21,6 +21,10 @@ one, the others know. Six things an agent can do:
 - **why** — the record of every offer ever made and what became of it,
   including the ones that were refused and why.
 
+There is also `node src/cli.js doctor`, which checks that what `setup` wrote is
+still there and still points at something that exists, and tells you what it
+cannot check. It changes nothing.
+
 Offers can be refused. Anything shaped like a password, a key or a card number
 is not stored, and is not written into the record either; so is empty text, and
 so is something you have already said word for word. Files are refused too: if

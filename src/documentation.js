@@ -1,0 +1,165 @@
+/**
+ * The documents, checked against the program.
+ *
+ * These checks were written as a test, for a reason worth repeating: a commit
+ * message once claimed the comparison was made "by a script" when the script
+ * was a line of shell nobody saved. They live here now rather than in the test
+ * because `doctor` runs them too, and a person running a command should see the
+ * same answer the suite gets rather than a second implementation of it.
+ *
+ * Two rules, both learned from how the throwaway version got things wrong three
+ * times in one sitting. Every expectation is derived from the table or the code
+ * and none is restated here; and every check is about a fact — a name, a
+ * command, a version string — rather than about how a sentence is phrased. All
+ * three of its false alarms were prose-shape matches against documents that
+ * were correct.
+ */
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { loadClients } from './clients.js';
+import { OLDEST_SUPPORTED } from './node-version.js';
+
+/**
+ * @typedef {object} Check
+ * @property {string} what one line, in the present tense, saying what holds
+ * @property {boolean} ok
+ * @property {string[]} wrong every way it does not hold, empty when it does
+ */
+
+/** @returns {string} */
+function repositoryRoot() {
+  return fileURLToPath(new URL('..', import.meta.url));
+}
+
+/**
+ * @param {string} [root]
+ * @returns {Check[]}
+ */
+export function checkDocumentation(root = repositoryRoot()) {
+  /** @type {(name: string) => string} */
+  const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
+
+  const clients = loadClients().clients;
+  const clientsMd = read('CLIENTS.md');
+  const readme = read('README.md');
+  const connecting = read('CONNECTING.md');
+  const decisions = read('DECISIONS.md');
+
+  const short = (/** @type {any} */ client) => client.name.replace(' (formerly Windsurf)', '');
+
+  /**
+   * @param {any} client
+   * @returns {string}
+   */
+  const paragraphFor = (client) =>
+    clientsMd.split('\n\n').find((block) => block.includes(`**${short(client)}`)) ?? '';
+
+  /**
+   * @param {any} client
+   * @returns {string}
+   */
+  const writeToken = (client) => (client.write.argv.includes('--add-mcp')
+    ? '--add-mcp'
+    : client.write.argv.slice(0, 3).join(' '));
+
+  const sections = clientsMd.split(/^## /mu);
+  const confirmed = sections.find((section) => section.startsWith('Confirmed')) ?? '';
+  const unconfirmed = sections.find((section) => section.startsWith('Written, but unconfirmed')) ?? '';
+
+  const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
+    'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen',
+    'eighteen', 'nineteen', 'twenty', 'twenty-one', 'twenty-two', 'twenty-three'];
+  const version = `Node ${OLDEST_SUPPORTED.major}.${OLDEST_SUPPORTED.minor}`;
+  const heading = 'What Phase 3 refuses to write';
+
+  return [
+    check('CLIENTS.md introduces every client in the table', clients
+      .filter((client) => !clientsMd.includes(short(client)))
+      .map((client) => `${client.id} is never named`)),
+
+    check('CLIENTS.md puts each client in the group its own verification reaches',
+      clients.flatMap((client) => {
+        const answers = ['A', 'B+'].includes(client.verify.tier);
+        const where = answers ? confirmed : unconfirmed;
+        const other = answers ? unconfirmed : confirmed;
+        const wrong = [];
+        if (!where.includes(short(client))) wrong.push(`${client.id} is tier ${client.verify.tier} and is in the wrong group`);
+        if (other.includes(short(client))) wrong.push(`${client.id} is in both groups`);
+        return wrong;
+      })),
+
+    check('CLIENTS.md names the mechanism that touches the reader\'s files',
+      clients.flatMap((client) => {
+        const paragraph = paragraphFor(client);
+        if (client.write.method === 'cli') {
+          return paragraph.includes(writeToken(client))
+            ? [] : [`${client.id} is written by \`${writeToken(client)}\` and CLIENTS.md does not say so`];
+        }
+        return /Wired through/u.test(paragraph)
+          ? [`${client.id} is written by file and CLIENTS.md says it is wired through a command`] : [];
+      })),
+
+    check('the README says how many clients there are, and is right',
+      words.flatMap((word, n) => {
+        if (n === clients.length) {
+          return readme.includes(`${word} clients`) ? [] : [`the README does not say ${word}`];
+        }
+        return readme.includes(`${word} clients`) ? [`the README still says ${word} clients`] : [];
+      })),
+
+    check('the README names every client that can confirm the server started',
+      clients.filter((client) => client.verify.tier === 'A' && !readme.includes(client.name))
+        .map((client) => `the README does not name ${client.id}`)),
+
+    check('the README is four sections, counting the one without a heading',
+      readme.split('\n## ').length - 1 === 3
+        ? [] : [`it has ${readme.split('\n## ').length - 1} headings and should have three`]),
+
+    check(`every document agrees that ${version} is needed`, [
+      ...(readme.includes(version) ? [] : ['the README does not say it']),
+      ...(connecting.includes(version) ? [] : ['CONNECTING.md does not say it']),
+      ...(JSON.parse(read('package.json')).engines.node
+        === `>=${OLDEST_SUPPORTED.major}.${OLDEST_SUPPORTED.minor}.0`
+        ? [] : ['package.json engines disagrees']),
+    ]),
+
+    check('an instruction a blocker gives is one the documents give too', (() => {
+      const gemini = clients.find((client) => client.id === 'gemini-cli');
+      const says = (gemini?.blockers ?? []).map((/** @type {any} */ b) => b.says).join(' ');
+      return [
+        ...(/\/permissions trust/u.test(says) ? [] : ['the table has lost the Gemini instruction']),
+        ...(clientsMd.includes('/permissions trust') ? [] : ['CLIENTS.md has lost it']),
+      ];
+    })()),
+
+    check('no document claims a check the table does not make', (() => {
+      const copilot = clients.find((client) => client.id === 'copilot-cli');
+      return [
+        ...(copilot?.verify.method === 'file-reread' ? [] : ['copilot is asking a command again']),
+        ...(copilot?.verify.argv === null ? [] : ['copilot has an argv again']),
+        ...(clientsMd.includes('copilot mcp list') ? [] : ['CLIENTS.md does not name the command']),
+        ...(clientsMd.includes('we do not use it') ? [] : ['CLIENTS.md does not say it is unused']),
+      ];
+    })()),
+
+    check('what the installer refuses is written down where the code points', [
+      ...(decisions.includes(heading) ? [] : ['DECISIONS.md has lost the section']),
+      // Comments wrap, so the title is not contiguous in the source; collapsing
+      // whitespace makes this about the pointer rather than the line break.
+      ...(read('src/write.js').replaceAll(/\s*\n\s*\*\s*/gu, ' ').includes(heading)
+        ? [] : ['the code no longer points at it']),
+    ]),
+  ];
+}
+
+/**
+ * @param {string} what
+ * @param {string[]} wrong
+ * @returns {Check}
+ */
+function check(what, wrong) {
+  return { what, ok: wrong.length === 0, wrong };
+}
