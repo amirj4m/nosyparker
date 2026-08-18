@@ -187,6 +187,15 @@ export function checkDocumentation(root = repositoryRoot()) {
       ];
     })()),
 
+    check('the README says what is in the folder it keeps things in', (() => {
+      // Nothing held this: the log was a user-visible file in somebody's home
+      // directory that no document mentioned at all, and "Removing it" said the
+      // memories were "all in one file" when the folder had three things in it.
+      const named = ['memory.sqlite', 'actions.log', 'backups/'];
+      return named.filter((thing) => !readme.includes(thing))
+        .map((thing) => `the README does not mention ${thing}`);
+    })()),
+
     check('the README says where to go if doctor did not resolve it', [
       ...(readme.includes('/issues') ? [] : ['the README does not point anywhere']),
       // A personal address in a public repository gets scraped, and the owner

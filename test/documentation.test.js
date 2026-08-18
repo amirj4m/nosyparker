@@ -32,13 +32,13 @@ test('every document agrees with the program', () => {
   }
 });
 
-test('there are twelve of them, and each says what it is checking', () => {
+test('there are thirteen of them, and each says what it is checking', () => {
   // Counted so that a check cannot be quietly dropped, and each one's sentence
   // is what `doctor` prints, so an empty one would be a blank line in front of
   // somebody trying to work out what is wrong.
   const checks = checkDocumentation();
 
-  assert.equal(checks.length, 12);
+  assert.equal(checks.length, 13);
   for (const check of checks) assert.ok(check.what.length > 10, `a check with no sentence: ${check.what}`);
 });
 
@@ -73,6 +73,7 @@ test('a document that stops being true is noticed', (t) => {
     ['DECISIONS.md', 'What Phase 3 refuses to write', 'What the installer will not do'],
     ['README.md', '```\nnode src/cli.js doctor\n```', '`node src/cli.js doctor`'],
     ['README.md', '/issues', '/discussions'],
+    ['README.md', 'actions.log', 'actions-log'],
   ];
 
   // And the one that is about the program rather than a document: a usage
@@ -100,7 +101,11 @@ test('a document that stops being true is noticed', (t) => {
     const original = fs.readFileSync(target, 'utf8');
     assert.ok(original.includes(from), `${file} no longer contains "${from}"`);
 
-    fs.writeFileSync(target, original.replace(from, to));
+    // Every occurrence, not the first: the claim is that the document says this
+    // at all, and leaving a second copy behind tests nothing. `actions.log`
+    // appears twice in the README and the first version of this passed because
+    // of it.
+    fs.writeFileSync(target, original.replaceAll(from, to));
     assert.ok(failing() > 0, `changing "${from}" in ${file} was not noticed`);
     fs.writeFileSync(target, original);
   }

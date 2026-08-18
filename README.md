@@ -25,6 +25,13 @@ There is also `node src/cli.js doctor`, which checks that what `setup` wrote is
 still there and still points at something that exists, and tells you what it
 cannot check. It changes nothing.
 
+And it keeps a log — `~/.nosyparker/actions.log` — of every file it has touched
+on your machine: which config, when, what was written, backed up or removed.
+Never the contents of anything, so no key of yours is ever in it. It is
+append-only and it does not rotate: nothing trims it by age or size, on purpose,
+because the entry you want a month from now is the one a tidy-up would have
+taken. It is a few hundred bytes per run.
+
 Offers can be refused. Anything shaped like a password, a key or a card number
 is not stored, and is not written into the record either; so is empty text, and
 so is something you have already said word for word. Files are refused too: if
@@ -119,11 +126,15 @@ Takes its entry out of every client that has one and touches nothing else in
 those files. It works even if a config has changed since you installed, and
 running it twice is not an error.
 
-That removes the wiring, not the memories. Those are all in one file:
+That removes the wiring, not the memories. Everything nosyparker keeps is in
+one folder:
 
 ```
-~/.nosyparker/memory.sqlite
+~/.nosyparker/memory.sqlite   your memories
+~/.nosyparker/actions.log     what it did to which file, and when
+~/.nosyparker/backups/        a copy of each config as it was before it was edited
 ```
 
-Delete that file and everything nosyparker knows about you is gone. If you set
-`NOSYPARKER_STORE`, the file is wherever you pointed it instead.
+Delete the folder and all of it is gone. Delete `memory.sqlite` alone and the
+memories are gone. If you set `NOSYPARKER_STORE`, the memories live wherever you
+pointed it instead and the other two stay here.
