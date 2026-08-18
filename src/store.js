@@ -1158,6 +1158,25 @@ export function openPasses(store, owner) {
 }
 
 /**
+ * Every review this owner has ever run, newest first.
+ *
+ * All of them, like the decision log and for the same reason: the caller is
+ * reporting to a person, and a list that quietly stopped at the last few would
+ * hide exactly the review somebody is looking for. Whoever shows them decides
+ * how many to show and says what it left out.
+ *
+ * @param {Store} store
+ * @param {string} owner
+ * @returns {Pass[]}
+ */
+export function listPasses(store, owner) {
+  const rows = handleOf(store)
+    .db.prepare('SELECT * FROM review_passes WHERE owner = ? ORDER BY id DESC')
+    .all(owner);
+  return /** @type {Pass[]} */ (/** @type {unknown} */ (rows));
+}
+
+/**
  * Everything one review decided, newest first.
  *
  * Newest first because that is the order an undo has to walk them in. A review

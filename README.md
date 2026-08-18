@@ -63,8 +63,12 @@ Anything you have changed yourself since is left exactly alone.
 
 There is also `node src/cli.js doctor`, which checks that what `setup` wrote is
 still there and still points at something that exists, tells you what it cannot
-check, and says whether your memory store opens and whether a review was left
-open. It changes nothing.
+check, and says whether your memory store opens, whether a review was left open,
+and what the recent reviews actually did — how many memories each put away, how
+many are left on show, and the command to put any of them back. A review that
+moved most of your store gets a sentence saying so. That is a report and not a
+complaint: nothing here refuses a review, caps one, or treats a large one as a
+fault. It changes nothing.
 
 And it keeps a log — `~/.nosyparker/actions.log` — of every file it has touched
 on your machine: which config, when, what was written, backed up or removed.

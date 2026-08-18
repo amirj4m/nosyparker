@@ -75,6 +75,7 @@ import { manifestRowFor } from './backup.js';
 import { CONFIG_CONFIRMED, CONNECTED, verifyClient } from './verify.js';
 import { defaultStorePath, LOCAL_OWNER, systemClock } from './config.js';
 import { openPasses, openStore } from './store.js';
+import { reviewSummaries } from './gate.js';
 
 /** Everything it looked at is as it should be. */
 export const SOUND = 'sound';
@@ -306,33 +307,114 @@ function checkStore(io) {
 
   try {
     const open = openPasses(store, LOCAL_OWNER);
-    io.log.record('store', { path: file, result: SOUND, openReviews: open.length });
+    const did = whatReviewsDid(store);
 
-    if (open.length === 0) {
-      return { state: SOUND, says: [`The memory store at ${file} opens, and no review is open.`] };
+    io.log.record('store', {
+      path: file,
+      result: SOUND,
+      openReviews: open.length,
+      reviewsReported: did.length,
+    });
+
+    /** @type {string[]} */
+    const says = [`The memory store at ${file} opens.`];
+
+    if (open.length === 0) says.push('No review is open.');
+    else {
+      says.push(`${open.length} ${open.length === 1 ? 'review is' : 'reviews are'} still open: `
+        + `${open.map((pass) => `${pass.id} (${pass.reviewer}, begun ${pass.began_at})`).join(', ')}.`);
+      // Said rather than decided. An open review is a review an agent may be
+      // in the middle of this second, and it is also what an agent that
+      // crashed leaves behind, and nothing on this machine can tell those
+      // apart. Reporting it as a fault would be this command claiming a
+      // judgement it has no way to make — and it is why an open review does
+      // not change the exit code.
+      says.push('That may be a review in progress, or one an agent began and never finished. '
+        + 'Nothing here can tell those apart, and nothing will close it on its own.');
+      says.push(`An agent closes one with \`review_end\`. To put back everything a review `
+        + `changed, run \`${invocation()} undo-review <number>\`.`);
     }
 
-    return {
-      state: SOUND,
-      says: [
-        `The memory store at ${file} opens.`,
-        `${open.length} ${open.length === 1 ? 'review is' : 'reviews are'} still open: `
-          + `${open.map((pass) => `${pass.id} (${pass.reviewer}, begun ${pass.began_at})`).join(', ')}.`,
-        // Said rather than decided. An open review is a review an agent may be
-        // in the middle of this second, and it is also what an agent that
-        // crashed leaves behind, and nothing on this machine can tell those
-        // apart. Reporting it as a fault would be this command claiming a
-        // judgement it has no way to make — and it is why an open review does
-        // not change the exit code.
-        'That may be a review in progress, or one an agent began and never finished. Nothing '
-          + 'here can tell those apart, and nothing will close it on its own.',
-        `An agent closes one with \`review_end\`. To put back everything a review changed, run `
-          + `\`${invocation()} undo-review <number>\`.`,
-      ],
-    };
+    for (const line of did) says.push(line);
+
+    return { state: SOUND, says };
   } finally {
     store.close();
   }
+}
+
+/**
+ * How many reviews this says anything about before it starts counting instead.
+ *
+ * Five, and the number it stopped at is named in the report. `listDecisions`
+ * refuses to truncate at all, and is right to — a caller cannot tell a complete
+ * answer from a shortened one. This can, because it says so, which is the whole
+ * of the difference.
+ */
+const REVIEWS_SHOWN = 5;
+
+/**
+ * What the reviews on this machine actually did to somebody's memories.
+ *
+ * The reason this exists, in one sentence: a reviewer ran a single pass that
+ * archived forty memories out of forty — the whole store, with plausible
+ * reasons, from one agent — the pass closed cleanly, and this command then said
+ * "the memory store opens, and no review is open". Nothing wrong. Everything
+ * gone from `list`, the only trace in `why`, which a person has to think to go
+ * and read. Fully reversible if you notice, and unattended means nobody is
+ * noticing. So an invisible event becomes a visible one.
+ *
+ * Undone reviews are left out. Something that has been put back is not a thing
+ * to tell somebody about, and including them would push the reviews that still
+ * stand off the bottom of a list that has to stay short enough to read.
+ *
+ * The line about a review having taken most of the store is a report and not a
+ * rule. Nothing refuses on it, nothing caps on it, and the same review would
+ * have been written exactly the same way with this file deleted. It is a
+ * sentence in front of a person, and where the sentence starts appearing is a
+ * decision about telling rather than about memories, which is why the number
+ * lives here and not in the gate.
+ *
+ * @param {import('./store.js').Store} store
+ * @returns {string[]}
+ */
+function whatReviewsDid(store) {
+  const stood = reviewSummaries(store, LOCAL_OWNER)
+    .filter((row) => row.changed > 0 && row.pass.undone_at === null);
+
+  if (stood.length === 0) return ['No review has changed anything that is still standing.'];
+
+  /** @type {string[]} */
+  const says = [];
+
+  for (const { pass, changed, undecided, showing } of stood.slice(0, REVIEWS_SHOWN)) {
+    const most = changed > showing;
+
+    says.push(`Review ${pass.id}, by "${pass.reviewer}", ${pass.closed_at === null
+      ? `begun ${pass.began_at} and still open`
+      : `closed ${pass.closed_at}`}: it put away ${changed} `
+      + `${changed === 1 ? 'memory' : 'memories'}`
+      + `${undecided > 0 ? ` and left ${undecided} undecided` : ''}. `
+      + `${showing === 0 ? 'Nothing is being shown now' : `${showing} `
+        + `${showing === 1 ? 'memory is' : 'memories are'} being shown now`}.`);
+
+    if (most) {
+      says.push(`  That is more than is left on show, so review ${pass.id} moved most of this `
+        + 'store in one go. That may be exactly what somebody asked for. It is here because it '
+        + 'is the kind of thing worth seeing rather than because anything is wrong with it — '
+        + `\`${invocation()} undo-review ${pass.id}\` puts it all back.`);
+    } else {
+      says.push(`  \`${invocation()} undo-review ${pass.id}\` puts it back.`);
+    }
+  }
+
+  if (stood.length > REVIEWS_SHOWN) {
+    says.push(`${stood.length - REVIEWS_SHOWN} older `
+      + `${stood.length - REVIEWS_SHOWN === 1 ? 'review is' : 'reviews are'} not shown here. `
+      + `\`${invocation()} log\` has every one of them, oldest first, with the reasoning.`);
+  }
+
+  return says;
 }
 
 /** The file is not there at all. */

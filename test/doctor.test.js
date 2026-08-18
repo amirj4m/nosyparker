@@ -20,9 +20,9 @@ import test from 'node:test';
 
 import { BROKEN, diagnose, interpreterIn, NOT_ASKABLE, reportDiagnosis, SOUND } from '../src/doctor.js';
 import { DatabaseSync } from 'node:sqlite';
-import { beginReview, closeReview } from '../src/gate.js';
+import { beginReview, closeReview, review, submit, undoReview } from '../src/gate.js';
 import { LOCAL_OWNER } from '../src/config.js';
-import { openStore } from '../src/store.js';
+import { listMemories, openStore } from '../src/store.js';
 import { clientById } from '../src/clients.js';
 import { defaultLogPath, openLog } from '../src/log.js';
 import { defaultIo, install } from '../src/setup.js';
@@ -515,5 +515,140 @@ test('a closed review is not an open one', (t) => {
   const { store: checked } = diagnose(io);
 
   assert.equal(checked.state, SOUND);
-  assert.match(checked.says.join(' '), /no review is open/u);
+  assert.match(checked.says.join(' '), /No review is open/u);
+});
+
+/**
+ * Store `count` memories and archive `archive` of them in one review.
+ *
+ * @param {string} file
+ * @param {number} count
+ * @param {number} archive
+ * @returns {import('../src/gate.js').GateResult}
+ */
+function reviewedStore(file, count, archive) {
+  let clock = Date.parse('2026-08-18T09:00:00.000Z');
+  const store = openStore({ file, now: () => new Date(clock).toISOString() });
+
+  try {
+    for (let n = 1; n <= count; n += 1) {
+      clock += 1000;
+      submit(store, { owner: LOCAL_OWNER, text: `A fact about me, number ${n}` });
+    }
+
+    clock += 1000;
+    const pass = /** @type {number} */ (
+      beginReview(store, { owner: LOCAL_OWNER, reviewer: 'an agent with a plausible reason' }).pass_id
+    );
+
+    for (const memory of listMemories(store, LOCAL_OWNER).slice(0, archive)) {
+      clock += 1000;
+      review(store, {
+        owner: LOCAL_OWNER,
+        pass,
+        id: memory.id,
+        outcome: 'overtaken',
+        reasoning: 'This reads as something that was true at the time and is not obviously current.',
+        derivedFrom: [memory.id],
+      });
+    }
+
+    clock += 1000;
+    return closeReview(store, { owner: LOCAL_OWNER, pass });
+  } finally {
+    store.close();
+  }
+}
+
+test('a review that took the whole store is said out loud, and is still not called a fault', (t) => {
+  const { io, home, printed } = machine(t);
+  const file = path.join(home, '.nosyparker', 'memory.sqlite');
+
+  // The review's own output first. This is the scenario that decided the
+  // reviewer's answer to "would you let this run unattended": forty memories
+  // out of forty, plausible reasons, one agent, and the pass closed cleanly.
+  const closed = reviewedStore(file, 40, 40);
+  assert.match(closed.explanation, /changed 40 memories/u);
+  assert.match(closed.explanation, /Nothing is being shown now/u);
+
+  const { store } = diagnose(io);
+  const said = store.says.join(' ');
+
+  // What this command used to say about all of that was "the memory store
+  // opens, and no review is open".
+  assert.match(said, /Review 1, by "an agent with a plausible reason"/u);
+  assert.match(said, /put away 40 memories/u);
+  assert.match(said, /Nothing is being shown now/u);
+  assert.match(said, /moved most of this store in one go/u);
+  assert.match(said, /undo-review 1/u);
+
+  // Reported, not judged. Somebody may have asked for exactly this, and a
+  // command that went red for it would be red for good afterwards — which is a
+  // command nobody reads.
+  assert.equal(store.state, SOUND);
+  assert.equal(reportDiagnosis(io, diagnose(io)), 0);
+  assert.match(printed(), /worth seeing rather than because anything is wrong/u);
+});
+
+test('an ordinary tidy-up is reported without the sentence about most of the store', (t) => {
+  const { io, home } = machine(t);
+  const file = path.join(home, '.nosyparker', 'memory.sqlite');
+
+  reviewedStore(file, 20, 2);
+  const said = diagnose(io).store.says.join(' ');
+
+  assert.match(said, /put away 2 memories/u);
+  assert.match(said, /18 memories are being shown now/u);
+  assert.match(said, /undo-review 1` puts it back/u);
+  assert.doesNotMatch(said, /most of this store/u);
+});
+
+test('a review that has been put back is not something to tell anybody about', (t) => {
+  const { io, home } = machine(t);
+  const file = path.join(home, '.nosyparker', 'memory.sqlite');
+
+  reviewedStore(file, 20, 20);
+
+  const store = openStore({ file, now: () => '2026-08-19T09:00:00.000Z' });
+  undoReview(store, { owner: LOCAL_OWNER, pass: 1 });
+  store.close();
+
+  const said = diagnose(io).store.says.join(' ');
+  assert.match(said, /No review has changed anything that is still standing/u);
+  assert.doesNotMatch(said, /Review 1/u);
+});
+
+test('when there are more reviews than it will show, it says how many it left out', (t) => {
+  const { io, home } = machine(t);
+  const file = path.join(home, '.nosyparker', 'memory.sqlite');
+
+  // Seven reviews, each archiving one memory. A report that quietly stopped at
+  // five would be the shape `listDecisions` refuses to have: a caller unable to
+  // tell a complete answer from a shortened one.
+  let clock = Date.parse('2026-08-18T09:00:00.000Z');
+  const store = openStore({ file, now: () => new Date(clock).toISOString() });
+  for (let n = 1; n <= 7; n += 1) {
+    clock += 1000;
+    const id = /** @type {number} */ (
+      submit(store, { owner: LOCAL_OWNER, text: `A fact about me, number ${n}` }).memory_id
+    );
+    clock += 1000;
+    const pass = /** @type {number} */ (
+      beginReview(store, { owner: LOCAL_OWNER, reviewer: `agent ${n}` }).pass_id
+    );
+    clock += 1000;
+    review(store, { owner: LOCAL_OWNER, pass, id, outcome: 'overtaken',
+      reasoning: 'the moment this named has gone by', derivedFrom: [id] });
+    clock += 1000;
+    closeReview(store, { owner: LOCAL_OWNER, pass });
+  }
+  store.close();
+
+  const said = diagnose(io).store.says.join(' ');
+  assert.match(said, /2 older reviews are not shown here/u);
+  assert.match(said, /log` has every one of them/u);
+
+  // Newest first, so the five it does show are the recent ones.
+  assert.match(said, /agent 7/u);
+  assert.doesNotMatch(said, /agent 1"/u);
 });

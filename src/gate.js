@@ -147,6 +147,8 @@ import {
   findDuplicate,
   getMemory,
   getPass,
+  listMemories,
+  listPasses,
   PURGED_REPLACEMENT_REASON,
   recordDecision,
   REPETITION_LIMIT,
@@ -714,6 +716,47 @@ function screenFreeText(owner, text, words) {
 }
 
 /**
+ * The two rules that move a memory, as one set.
+ *
+ * Written out three times before this — in `closeReview` to count, in
+ * `undoReview` to walk, and in the summary to report — which is three places to
+ * forget when a fifth outcome arrives.
+ */
+const MOVED_A_MEMORY = new Set(['overtaken', 'replaces']);
+
+/**
+ * What each review did, newest first, for somebody being shown a report.
+ *
+ * This is here rather than in `store.js` because it counts rules, and the rule
+ * names are this file's vocabulary. A query in the storage layer that knew the
+ * words `overtaken` and `replaces` would be the gate's vocabulary written down
+ * a second time, in a place the closure test does not read.
+ *
+ * `showing` is the number of memories on show right now, not a share and not a
+ * verdict. Two exact numbers, so that the report can say "it changed forty and
+ * none are being shown" without anything here deciding that forty is a lot.
+ * Where a number becomes something worth saying out loud is a question for
+ * whoever is doing the telling; it is not a rule and it is not in the gate.
+ *
+ * @param {Store} store
+ * @param {string} owner
+ * @returns {{pass: import('./store.js').Pass, changed: number, undecided: number, showing: number}[]}
+ */
+export function reviewSummaries(store, owner) {
+  const showing = listMemories(store, owner).length;
+
+  return listPasses(store, owner).map((pass) => {
+    const rows = decisionsInPass(store, owner, pass.id);
+    return {
+      pass,
+      changed: rows.filter((row) => MOVED_A_MEMORY.has(row.rule)).length,
+      undecided: rows.filter((row) => row.rule === 'undecided').length,
+      showing,
+    };
+  });
+}
+
+/**
  * Start a review, and say which agent is doing it.
  *
  * Nothing is reviewed here. This opens a pass and hands back its id; every
@@ -1033,10 +1076,14 @@ export function closeReview(store, { owner, pass }) {
       actions.shutPass({ owner, pass, at });
 
       const findings = decisionsInPass(store, owner, pass);
-      const changed = findings.filter(
-        (row) => row.rule === 'overtaken' || row.rule === 'replaces',
-      ).length;
+      const changed = findings.filter((row) => MOVED_A_MEMORY.has(row.rule)).length;
       const undecided = findings.filter((row) => row.rule === 'undecided').length;
+
+      // How much is left, said plainly, because a review that emptied a store
+      // and one that tidied two things away say the same sentence otherwise.
+      // Two counts and no share: whether this number is alarming is not a
+      // judgement this door makes, and there is no threshold here to trip.
+      const showing = listMemories(store, owner).length;
 
       return {
         owner,
@@ -1045,6 +1092,8 @@ export function closeReview(store, { owner, pass }) {
         explanation:
           `Review ${pass} is closed and will take no more findings. It changed ${changed} ` +
           `${changed === 1 ? 'memory' : 'memories'} and left ${undecided} undecided. ` +
+          `${showing === 0 ? 'Nothing is being shown now' : `${showing} ` +
+            `${showing === 1 ? 'memory is' : 'memories are'} being shown now`}. ` +
           'Undoing it puts back everything it changed.',
         input_excerpt: '',
         pass_id: pass,
