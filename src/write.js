@@ -524,8 +524,9 @@ export function editRequest(client, options) {
  * @param {string} text
  */
 export function writePreservingMode(file, text) {
-  const mode = existingMode(file);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const target = resolveTarget(file);
+  const mode = existingMode(target);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
 
   // A name no other process can be holding at the same time. The first version
   // of this built `.nosyparker.<basename>.tmp` from the filename alone, so every
@@ -539,8 +540,8 @@ export function writePreservingMode(file, text) {
   // truncating whatever is there. The pid and the random suffix are what make
   // that failure never happen in practice.
   const temporary = path.join(
-    path.dirname(file),
-    `.nosyparker.${path.basename(file)}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`,
+    path.dirname(target),
+    `.nosyparker.${path.basename(target)}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`,
   );
 
   let handle;
@@ -557,12 +558,67 @@ export function writePreservingMode(file, text) {
   fs.closeSync(handle);
 
   try {
-    fs.renameSync(temporary, file);
+    fs.renameSync(temporary, target);
   } catch (error) {
     // The rename is the only step that cannot half-happen. If it fails, the
     // original is untouched and the only thing left to do is not litter.
     fs.rmSync(temporary, { force: true });
     throw error;
+  }
+}
+
+/**
+ * Where a path really leads, following any links to the end.
+ *
+ * A rename replaces the name, not what the name points at. So writing to
+ * `~/.cursor/mcp.json` when that is a link into somebody's dotfiles repository
+ * replaced the link with a regular file: their repository was silently
+ * disconnected from their live config, the entry went somewhere the repository
+ * never saw, and uninstall could not put the link back because by then there
+ * was no link. That is the rule this whole phase is built on — never change
+ * what we did not add — broken on the arrangement most likely to be used by
+ * exactly the people who install an MCP server by hand.
+ *
+ * Four cases, and the choice for each:
+ *
+ * **A chain of links** is followed to the end, because that is where the
+ * content is and what every editor does.
+ *
+ * **A link whose target does not exist** resolves to the target anyway, so the
+ * file is created there and the link starts working. Writing through the link
+ * would do the same; replacing the link would not.
+ *
+ * **A link pointing outside the home directory** is followed. The person made
+ * that link deliberately and refusing it would break the case this fixes; the
+ * resolved path is recorded and logged, so nothing about it is quiet.
+ *
+ * **A loop** is refused rather than followed for ever, and the write fails with
+ * a sentence instead of hanging.
+ *
+ * @param {string} file
+ * @returns {string}
+ */
+export function resolveTarget(file) {
+  const seen = new Set();
+  let current = file;
+
+  for (;;) {
+    let entry;
+    try {
+      entry = fs.lstatSync(current);
+    } catch {
+      return current; // nothing there, so this is where it goes
+    }
+
+    if (!entry.isSymbolicLink()) return current;
+
+    if (seen.has(current)) {
+      throw new Error(`${file} is a loop of links and there is nothing at the end of it.`);
+    }
+    seen.add(current);
+
+    const next = fs.readlinkSync(current);
+    current = path.isAbsolute(next) ? next : path.resolve(path.dirname(current), next);
   }
 }
 
@@ -577,8 +633,11 @@ export function writePreservingMode(file, text) {
  * @param {string} file the config file whose directory to sweep
  */
 export function clearAbandonedTemporaries(file) {
-  const dir = path.dirname(file);
-  const ours = new RegExp(`^\\.nosyparker\\.${escapeForFilename(path.basename(file))}\\.\\d+\\.[0-9a-f]+\\.tmp$`, 'u');
+  // Where the writing happens, which is not the same place when the config is
+  // a link into somebody's dotfiles.
+  const target = resolveTarget(file);
+  const dir = path.dirname(target);
+  const ours = new RegExp(`^\\.nosyparker\\.${escapeForFilename(path.basename(target))}\\.\\d+\\.[0-9a-f]+\\.tmp$`, 'u');
 
   let names;
   try {

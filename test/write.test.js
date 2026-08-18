@@ -23,6 +23,7 @@ import {
   NOT_WRITTEN,
   REMOVED,
   removeFromClient,
+  resolveTarget,
   UNCHANGED,
   WRITTEN,
   writeToClient,
@@ -693,4 +694,91 @@ test('every format the table uses can be edited, except the one written for us',
 
   assert.deepEqual(cannot.map((client) => client.id), ['codex-cli']);
   assert.equal(cannot[0].write.method, 'cli');
+});
+
+test('a config that is a link into somebody\'s dotfiles keeps being a link', (t) => {
+  // The arrangement most likely to be used by exactly the people who install an
+  // MCP server by hand, and it was being destroyed. A rename replaces the name,
+  // not what the name points at — so `~/.cursor/mcp.json` stopped being a link,
+  // the entry went somewhere the dotfiles repository never saw, and uninstall
+  // could not put the link back because by then there was no link.
+  const space = workspace(t);
+  const real = space.config('dotfiles-cursor.json');
+  const link = space.config('mcp.json');
+  const before = '{\n  "mcpServers": {\n    "theirs": {"command": "x"}\n  }\n}\n';
+
+  fs.writeFileSync(real, before);
+  fs.symlinkSync(real, link);
+
+  const written = writeToClient(clientById('cursor'), options({ configPath: link, backupDir: space.backupDir }));
+  assert.equal(written.outcome, WRITTEN);
+
+  assert.equal(fs.lstatSync(link).isSymbolicLink(), true, 'the link is still a link');
+  assert.equal(fs.realpathSync(link), fs.realpathSync(real), 'and still points where it did');
+  assert.match(fs.readFileSync(real, 'utf8'), /nosyparker/u, 'the real file got the entry');
+
+  const removed = removeFromClient(clientById('cursor'), options({ configPath: link, backupDir: space.backupDir }));
+  assert.equal(removed.outcome, REMOVED);
+  assert.equal(fs.lstatSync(link).isSymbolicLink(), true);
+  assert.equal(fs.readFileSync(real, 'utf8'), before, 'and it all comes back');
+});
+
+test('a link pointing at nothing is made to work rather than replaced', (t) => {
+  const space = workspace(t);
+  const missing = space.config('not-there-yet.json');
+  const link = space.config('mcp.json');
+  fs.symlinkSync(missing, link);
+
+  const written = writeToClient(clientById('cursor'), options({ configPath: link, backupDir: space.backupDir }));
+
+  assert.equal(written.outcome, WRITTEN);
+  assert.equal(fs.lstatSync(link).isSymbolicLink(), true, 'still a link');
+  assert.match(fs.readFileSync(missing, 'utf8'), /nosyparker/u, 'and now it points at something');
+});
+
+test('a chain of links is followed to the end', (t) => {
+  const space = workspace(t);
+  const real = space.config('real.json');
+  const middle = space.config('middle.json');
+  const link = space.config('mcp.json');
+
+  fs.writeFileSync(real, '{"mcpServers": {}}\n');
+  fs.symlinkSync(real, middle);
+  fs.symlinkSync(middle, link);
+
+  assert.equal(resolveTarget(link), real);
+
+  writeToClient(clientById('cursor'), options({ configPath: link, backupDir: space.backupDir }));
+
+  assert.match(fs.readFileSync(real, 'utf8'), /nosyparker/u);
+  assert.equal(fs.lstatSync(middle).isSymbolicLink(), true);
+  assert.equal(fs.lstatSync(link).isSymbolicLink(), true);
+});
+
+test('a loop of links is refused rather than followed for ever', (t) => {
+  const space = workspace(t);
+  const one = space.config('one.json');
+  const two = space.config('two.json');
+  fs.symlinkSync(two, one);
+  fs.symlinkSync(one, two);
+
+  const written = writeToClient(clientById('cursor'), options({ configPath: one, backupDir: space.backupDir }));
+
+  assert.equal(written.outcome, FAILED);
+  assert.match(/** @type {string} */ (written.error), /loop of links/u);
+});
+
+test('a link somebody made is not deleted as though we had created it', (t) => {
+  // `existsSync` follows links, so a link pointing at nothing answered "this
+  // path was never here" — and a path recorded as never having been there is
+  // one uninstall deletes.
+  const space = workspace(t);
+  const missing = space.config('not-there-yet.json');
+  const link = space.config('mcp.json');
+  fs.symlinkSync(missing, link);
+
+  writeToClient(clientById('cursor'), options({ configPath: link, backupDir: space.backupDir }));
+  removeFromClient(clientById('cursor'), options({ configPath: link, backupDir: space.backupDir }));
+
+  assert.equal(fs.lstatSync(link).isSymbolicLink(), true, 'their link survived the uninstall');
 });

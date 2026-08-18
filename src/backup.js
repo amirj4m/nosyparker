@@ -46,6 +46,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { resolveTarget } from './write.js';
+
 /** Where the copies live. Ours, under our own directory, not beside theirs. */
 export const BACKUP_DIR_NAME = path.join('.nosyparker', 'backups');
 
@@ -92,10 +94,23 @@ export function recordFirstTouch({ file, clientId, backupDir, now, weEdit, rootK
     return { made: false, backupPath: already.backup, existed: already.existed };
   }
 
-  const existed = fs.existsSync(file);
+  // Two different questions, and conflating them cost a symlink. `existsSync`
+  // follows links, so a link pointing at nothing answers "no" — and a path
+  // recorded as never having been there is a path uninstall will delete,
+  // including the link somebody made.
+  const present = pathExists(file);
+  const hasContent = fs.existsSync(file);
+
+  const existed = present;
   const name = backupNameFor(file, clientId, manifest);
-  const copy = existed && weEdit;
+  const copy = hasContent && weEdit;
   const backupPath = copy ? path.join(backupDir, name) : null;
+
+  // Where the writing will actually land. Recorded because doctor compares
+  // content against this record, and something that changes the *path* is
+  // invisible to a comparison of contents — which is exactly how a replaced
+  // symlink went unnoticed.
+  const target = resolveTarget(file);
 
   // Which directories are about to come into existence because of us. Recorded
   // before anything is written, because afterwards there is no way to tell a
@@ -121,6 +136,7 @@ export function recordFirstTouch({ file, clientId, backupDir, now, weEdit, rootK
     client: clientId,
     created,
     rootKeyExisted,
+    target: target === file ? undefined : target,
     // Written down rather than inferred, so that a person reading the manifest
     // can tell a file we chose not to copy from one there was nothing to copy
     // of. The two look identical from a null.
@@ -133,6 +149,7 @@ export function recordFirstTouch({ file, clientId, backupDir, now, weEdit, rootK
   log?.record('backup', {
     client: clientId,
     path: file,
+    target: target === file ? undefined : target,
     copied: backupPath !== null,
     to: backupPath ?? undefined,
     existed,
@@ -147,7 +164,7 @@ export function recordFirstTouch({ file, clientId, backupDir, now, weEdit, rootK
  *
  * @param {string} file
  * @param {string} backupDir
- * @returns {{existed: boolean, created: string[], rootKeyExisted: boolean}|null}
+ * @returns {{existed: boolean, created: string[], rootKeyExisted: boolean, target: string|null}|null}
  */
 export function manifestRowFor(file, backupDir) {
   const row = Object.values(readManifest(path.join(backupDir, MANIFEST_NAME)))
@@ -159,7 +176,26 @@ export function manifestRowFor(file, backupDir) {
     // Absent in a manifest written before this was recorded. Treated as "it was
     // already there", which is the answer that changes nothing.
     rootKeyExisted: row.rootKeyExisted ?? true,
+    target: row.target ?? null,
   };
+}
+
+/**
+ * Is there anything at this path at all, link or file.
+ *
+ * `existsSync` follows links and so answers no for one pointing at nothing,
+ * which is the wrong answer to "did we create this path".
+ *
+ * @param {string} file
+ * @returns {boolean}
+ */
+function pathExists(file) {
+  try {
+    fs.lstatSync(file);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -185,7 +221,7 @@ function missingAncestors(file) {
 
 /**
  * @param {string} manifestPath
- * @returns {Record<string, {path: string, backup: string|null, existed: boolean, takenAt: string, client: string, created?: string[], whyNoBackup?: string, rootKeyExisted?: boolean}>}
+ * @returns {Record<string, {path: string, backup: string|null, existed: boolean, takenAt: string, client: string, created?: string[], whyNoBackup?: string, rootKeyExisted?: boolean, target?: string}>}
  */
 export function readManifest(manifestPath) {
   try {
