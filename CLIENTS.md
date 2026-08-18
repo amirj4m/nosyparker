@@ -31,9 +31,12 @@ list. New sessions pick it up; a session already open needs `/mcp` to reconnect.
 deliberately, because `gemini mcp add` reports success and writes nothing, which
 we found by watching it do exactly that. Afterwards `gemini mcp list` starts the
 server and says `Connected`, which is real confirmation. One thing to know: Gemini
-suppresses servers in folders it does not trust, **including ones configured for
-your whole account**. If it says nothing is configured, trust the folder and look
-again.
+disables every MCP server in a folder it does not trust, **including ones
+configured for your whole account**, and it does not announce this — it opens
+normally and mentions it in passing. If setup reports Gemini as blocked, start
+`gemini` in that folder and run `/permissions trust`. Writing the folder into
+`~/.gemini/trustedFolders.json` by hand does the same thing; setup prints the
+exact line.
 
 **opencode.** An open-source terminal agent. Its `opencode mcp list` genuinely
 connects and reports success or failure with the reason, so confirmation here is
@@ -77,14 +80,20 @@ also has a per-server on/off switch in its own interface; if the entry is there
 but nothing happens, check it has not been switched off.
 
 **Devin Desktop**, formerly Windsurf. Renamed, but the old configuration folder
-name survives. It keeps **two** separate MCP configuration files, and setup
-writes the one its own command-line tool writes. Its other, older surface belongs
-to Cascade, which is switched off by default in current versions. Close it before
-running setup: it rewrites its configuration from memory and will overwrite
-changes made while it is open.
+name survives. It keeps **two** separate MCP configuration files, and setup uses
+its own `devin-desktop --add-mcp`, which writes `~/.config/Devin/User/mcp.json`.
+The other one, `~/.codeium/windsurf/mcp_config.json`, is the file every published
+document describes; it belongs to Cascade, which is switched off by default in
+current versions. Close Devin before running setup: it rewrites its
+configuration from memory and will overwrite changes made while it is open.
 
-**Kiro.** Amazon's agentic editor. Like Devin, built on VS Code and carrying two
-configuration files; setup writes the one its own tool writes.
+**Kiro.** Amazon's agentic editor, and the second VS Code fork here to carry two
+MCP configuration files. Setup uses its own `kiro --add-mcp`, which writes the
+file Kiro inherited from VS Code, `~/.config/Kiro/User/mcp.json`. Kiro's own
+agent also reads `~/.kiro/settings/mcp.json`, and whether it reads the inherited
+one was never established — so if the server does not appear in Kiro, that is
+the file to add it to by hand. `nosyparker setup --print-config kiro` prints
+both.
 
 **Claude Desktop.** Anthropic's desktop app. Officially macOS and Windows; the
 Linux build is a community one and uses the same layout. Close it before running
@@ -121,6 +130,14 @@ installation. They follow shapes we have verified elsewhere and there is no
 reason to think they are wrong, but nobody has watched them work. Continue in
 particular does not always notice a changed file — reload it if nothing happens.
 
+Copilot is worth one more sentence, because it is the one case where we
+deliberately ignore a check a vendor documents. Its `copilot mcp list` is
+described as reporting whether a server is running, and we do not use it: nobody
+here has ever seen what it prints, and the pattern we wrote from guesswork
+reported success against a configuration file containing nothing at all. It is
+listed here as unconfirmed rather than confirmed by a check we cannot vouch
+for.
+
 ---
 
 ## Not applicable — nothing to install into
@@ -137,6 +154,27 @@ by us trying harder:
 If you use one of these, nosyparker is not the right shape for it today. It would
 have to be a hosted server with a public address rather than a program on your
 own machine.
+
+---
+
+## When setup declines to write
+
+Three cases, and none of them is a failure of your setup:
+
+- **The application is running.** Claude Desktop and Devin rewrite their
+  configuration from whatever they are holding in memory, so an entry added
+  while they are open is lost the next time they save. Setup writes nothing and
+  names the application to quit.
+- **The file is read-only.** An atomic write could replace it anyway without
+  the permissions changing afterwards, which would leave you no way to tell.
+  Setup treats read-only as you meaning it, and stops.
+- **The file cannot be parsed.** A configuration file with a syntax error in it
+  is left exactly alone. Editing around a broken file is how a whole
+  configuration gets lost at the next launch.
+
+A file that begins with a byte order mark — anything saved by Notepad, and some
+things saved by older editors — is not in that list. It is read correctly, and
+the mark is still there afterwards.
 
 ---
 

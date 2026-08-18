@@ -14,6 +14,11 @@ your own paths, and naming a client prints that client's own shape.
 node /absolute/path/to/nosyparker/src/mcp-server.js
 ```
 
+Node 22.5 or newer. On anything older the server stops immediately and says so
+rather than failing halfway through starting — which matters here, because a
+client starting it would otherwise show you nothing but a connection that did
+not happen.
+
 It speaks MCP over stdin and stdout, so run on its own it will sit there
 saying nothing. That is what working looks like. An agent starts it for you;
 the command is here because it is what you put in the config below.

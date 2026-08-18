@@ -27,6 +27,11 @@
  * an application that rewrote the file underneath us between our write and our
  * read — Devin and Claude Desktop both do that while they are running.
  *
+ * What this refuses to write, and the three things it deliberately does not
+ * refuse, are listed together in DECISIONS.md under "What Phase 3 refuses to
+ * write, and why" — each one is there because something was found, and the list
+ * is more use in one place than spread across the checks that enforce it.
+ *
  * One boundary on that guarantee, stated because it is real and small rather
  * than left to be discovered. Every byte outside the container our entry goes
  * into is untouched, across the whole round trip. The container's own interior

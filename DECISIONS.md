@@ -281,3 +281,68 @@ destructive surface this project has never had. Rule 2 of the whole project —
 nothing is deleted, nothing expires — needs its analogue stated for it: nothing
 overwrites a config the person did not ask us to change, and every write is
 reversible or backed up first.
+
+## What Phase 3 refuses to write, and why
+
+*Pointed at from `writeToClient` in `src/write.js`.*
+
+The section above asked Phase 3 to write down what the installer refuses before
+writing what it accepts, on the grounds that config files are a class of
+untrusted input no existing rule covered. This is that list, after the fact
+rather than before it — every entry here was added because something was found,
+and saying so is more useful than pretending it was foreseen.
+
+**A file that does not parse.** Left exactly as it is. Not tidiness: Claude
+Desktop's own loader falls back to an empty object on a read it cannot parse and
+then writes that over the file, so editing around a syntax error is not a
+cosmetic risk, it is how somebody's whole configuration disappears at their next
+launch.
+
+**A file that is not an object, or whose root key is not an object.** There is
+nowhere to put an entry, and inventing somewhere is guessing.
+
+**A file whose application is running,** for the two clients measured rewriting
+their configuration from memory. An entry written then reads back correctly,
+reports success, and is gone at the application's next save. That is a green
+tick with a shelf life.
+
+**A file somebody set read-only.** An atomic write does not need permission on
+the file — it renames a new one over the top — and because the mode is carried
+onto the replacement, the person who set it could not tell afterwards. Standard
+behaviour, wrong answer: a change the owner of a file cannot see is the one this
+phase must not make.
+
+**A YAML block written on one line.** `extensions: {}` cannot be extended by
+inserting lines, and a malformed Goose config silently loses every extension the
+user has, not only ours.
+
+Three things it deliberately does **not** refuse, each because refusing was
+found to be wrong about a real file:
+
+- **A trailing comma**, in the two clients whose format allows them. Zed's own
+  shipped settings have one after the last key of every block, and refusing
+  meant no Zed user with default settings could be installed to.
+- **A byte order mark.** Notepad and older editors write one; `JSON.parse`
+  refuses it and every other program the person owns does not. Telling somebody
+  their working file is corrupt is worse than the failure it guards against.
+- **Comments and formatting anywhere.** Every edit is a splice rather than a
+  parse and reserialise, so nothing that is not our entry is read as data or
+  written back.
+
+The other three things that section asked for were answered where they belong
+rather than here. Every new entrance reaches the store through the gate — the
+installer reaches the store not at all, which is stronger and is asserted by the
+inventory test it also asked for, verified by mutation three ways. And the rule
+about writing to files this project does not own became: one copy of a file
+before the first time we edit it, never replaced; a copy only where we do the
+editing, because a client's own command writing its own file is not ours to
+insure against; and an uninstall that removes what we added, including the
+container and the directories, and nothing else.
+
+One boundary on that last promise, because it is real. Every byte outside the
+container our entry goes into survives an install-and-uninstall unchanged. The
+container's own interior whitespace does not: a `{}` opens onto two lines when
+an entry goes in and stays open when it comes out. Closing it again would mean
+having recorded the whitespace inside it, and the cheap alternative — collapsing
+any empty object we find — is guessing at somebody's formatting rather than
+restoring it.
