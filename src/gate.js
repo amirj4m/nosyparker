@@ -111,7 +111,9 @@
  * something. A memory carries `created_at` and a review is shown it; whether a
  * statement that named a moment has had that moment go by is a reading of the
  * statement, which is why the agent does it and this does not. A memory with no
- * moment in it is never stale, however old the row.
+ * moment in it is never stale, however old the row. The whole of the reasoning,
+ * and the project this rule exists because of: DECISIONS.md, "Time as evidence,
+ * never as a rule".
  *
  * **Every finding says what it was derived from**, and that is a field, checked
  * against the store inside the transaction that writes it. Not a convention: a

@@ -110,6 +110,46 @@ export function checkDocumentation(root = repositoryRoot()) {
         return readme.includes(`${word} clients`) ? [`the README still says ${word} clients`] : [];
       })),
 
+    check('the README lists every tool an agent has, and says how many there are', (() => {
+      // The rule this closes is the owner's, written down after Phase 2: any
+      // phase that adds or removes a capability updates the README in the same
+      // phase. Phase 4 added four tools and the README said six, which is the
+      // one sentence in it a person reads to find out what this thing does.
+      //
+      // `src/tools.js` is read as text rather than imported, because that file
+      // reaches the store and this one may not — the entrances test says so.
+      // The same technique as the gate's vocabulary check, for the same reason:
+      // a name that exists but is unreachable is still a name.
+      const tools = [...read('src/tools.js').matchAll(/^ {4}name: '([^']+)',$/gmu)]
+        .map((match) => match[1]);
+
+      return [
+        ...(tools.length === 0 ? ['no tool names could be read out of src/tools.js'] : []),
+        ...tools.filter((tool) => !readme.includes(`**${tool}**`))
+          .map((tool) => `the README does not list ${tool}`),
+        // Lowercased, because the number opens a sentence and is capitalised
+        // there. A check that missed for that reason would be a check nobody
+        // could satisfy without rewriting the sentence around it.
+        ...words.flatMap((word, n) => {
+          const said = readme.toLowerCase().includes(`${word} things an agent can do`);
+          if (n === tools.length) {
+            return said ? [] : [`the README does not say ${word} things an agent can do`];
+          }
+          return said ? [`the README still says ${word} things an agent can do`] : [];
+        }),
+        // CONNECTING.md tells somebody what they should see in their client's
+        // own list once it is connected, which is the one number in that
+        // document a person checks against their screen. It said six.
+        ...words.flatMap((word, n) => {
+          const said = connecting.includes(`${word} tools`);
+          if (n === tools.length) {
+            return said ? [] : [`CONNECTING.md does not say ${word} tools`];
+          }
+          return said ? [`CONNECTING.md still says ${word} tools`] : [];
+        }),
+      ];
+    })()),
+
     check('the README names every client that can confirm the server started',
       clients.filter((client) => client.verify.tier === 'A' && !readme.includes(client.name))
         .map((client) => `the README does not name ${client.id}`)),

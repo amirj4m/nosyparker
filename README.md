@@ -9,7 +9,7 @@ behind your back. It does turn some things away, and it says so at the time.
 ## What it can do
 
 Every agent on your machine reads and writes the same file, so what you tell
-one, the others know. Six things an agent can do:
+one, the others know. Ten things an agent can do:
 
 - **remember** a fact about you, replacing an older one if you have changed
   your mind.
@@ -20,10 +20,51 @@ one, the others know. Six things an agent can do:
 - **restore** something that was forgotten or replaced, so it is shown again.
 - **why** — the record of every offer ever made and what became of it,
   including the ones that were refused and why.
+- **review_start** — begin reading back through everything stored, with the
+  date each thing was stored on.
+- **review_finding** — record what it concluded about one memory, and why.
+- **review_end** — finish, after which that review takes nothing more.
+- **review_undo** — put back everything one review changed, all at once.
+
+### Reviewing
+
+The last four are for tidying up. Things you said a year ago can stop being
+true — "next week I am presenting at the all-hands" was worth remembering the
+day you said it and means nothing now — and an agent can read back through what
+is stored and say so.
+
+The important part is what it cannot do.
+
+**Nothing here ever decides anything from a date.** No code in this project
+looks at when something was stored and concludes it should go. That is not an
+oversight and it is not something a later version will add: it is the point.
+Every memory carries the date it was stored, an agent doing a review is shown
+that date, and the agent works out — by reading the sentence — whether the
+moment the sentence named has gone by. "Next month" means something different
+depending on when it was written. "I live in Tehran" names no moment at all,
+and is exactly as true after ten years as it was the day you said it. Age alone
+is never a reason for anything.
+
+**A review cannot forget anything, and it cannot delete anything.** Forgetting
+is you saying you do not want something shown. An agent may not reach that
+conclusion for you. All it can do is mark something overtaken — no longer
+current, with nothing to put in its place — or link it to a newer memory that
+replaced it. Both are reversible.
+
+**"I could not tell" is a real answer.** If two memories disagree and nothing
+says which came first, the agent is meant to say so and change nothing. Its
+reasoning is written down either way, so you can read afterwards what it thought
+and decide whether it thought well. `why` shows you that, alongside which
+memories it read to reach each conclusion.
+
+If a review got something wrong, `node src/cli.js undo-review <number>` puts
+the whole thing back. The number is in `why` and in `node src/cli.js log`.
+Anything you have changed yourself since is left exactly alone.
 
 There is also `node src/cli.js doctor`, which checks that what `setup` wrote is
-still there and still points at something that exists, and tells you what it
-cannot check. It changes nothing.
+still there and still points at something that exists, tells you what it cannot
+check, and says whether your memory store opens and whether a review was left
+open. It changes nothing.
 
 And it keeps a log — `~/.nosyparker/actions.log` — of every file it has touched
 on your machine: which config, when, what was written, backed up or removed.

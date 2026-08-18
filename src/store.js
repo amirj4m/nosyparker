@@ -194,6 +194,8 @@ export const SCHEMA_VERSION = 2;
  * date and concludes anything, and the day one does, the promise that nothing
  * goes away on a timer stops being true. A memory reaches this state because an
  * agent read it and judged it, and the judgement is written down beside it.
+ * Why that line is drawn where it is, and what happened the last time it was
+ * not: DECISIONS.md, "Time as evidence, never as a rule".
  *
  * It is not `forgotten`. That is the person saying they do not want something
  * shown. This is nobody saying anything about wanting it; it is a statement

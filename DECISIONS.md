@@ -5,11 +5,12 @@ rather than scrolled past. Each section is pointed at from the place it
 explains, and a check enforces that rather than this sentence asking you to
 believe it.
 
-One section is marked **[record]** instead. That is a retrospective — what a
-phase learned, written for the next one — and it explains no particular line, so
-nothing points at it. A section that is neither pointed at nor marked is one of
-the two things having quietly become the other, which is what happened to that
-one before it was marked.
+Two sections are marked **[record]** instead. Those are retrospectives — what a
+phase learned, written for the next one — and they explain no particular line,
+so nothing points at them. A section that is neither pointed at nor marked is
+one of the two things having quietly become the other, which is what happened to
+the first of them before it was marked. This paragraph said "one" while there
+were two, which is the same defect one level up and was found by counting.
 
 Nothing here is instructions. If this file and the code disagree, the code is
 what runs and this file is out of date.
@@ -423,3 +424,57 @@ a check — it is a sentence that happens to run.
 The mutation tests in `test/documentation.test.js` and the three mutations
 behind `test/entrances.test.js` exist because of this, and are the pattern to
 copy rather than the exception.
+
+## Time as evidence, never as a rule
+
+The owner's previous memory project deleted things. Not by accident and not
+through a bug: it had a rule that anything older than a number of days went
+away. No reading, no content, age alone as sufficient cause. It worked exactly
+as designed and it destroyed the thing it existed to hold.
+
+So Phase 4 had a problem. Some memories really do stop being true — "next week
+I am presenting at the all-hands" is worth keeping the day it is said and is
+noise a year later — and nothing was able to notice. The obvious fix is a
+timer, and the obvious fix is the thing that already failed.
+
+The distinction that resolves it is between a statement whose *content* names a
+moment and a row that is merely *old*.
+
+- "Next month I am going to Berlin", stored in January, names a moment. Whether
+  that moment has gone by is a question about the sentence, and the date it was
+  stored on is what lets somebody answer it.
+- "I live in Tehran" names no moment. It is exactly as true after ten years as
+  the day it was written. Nothing about its age can ever be a reason to touch
+  it, and no amount of time passing makes it stale.
+
+Reading the sentence is what tells the two apart, and reading is not something
+this program does. So the design is:
+
+**The timestamp is data shown to the agent. No code here reads it and concludes
+anything.**
+
+Every memory has carried `created_at` since Phase 1. `review_start` shows it on
+every line, which is the only reason that tool exists rather than `list`. The
+agent reads the sentence, looks at the date, and decides. The store records
+what it decided and why, and can put it all back.
+
+The line is worth stating as an absolute because a softened version of it is
+worthless. Not "we only use dates carefully". Not "the threshold is
+configurable". **No comparison of a stored timestamp against the current time,
+anywhere, for any purpose, ever.** The moment such a line exists, the sentence
+at the top of the README — nothing in it expires — stops being true, and every
+argument for widening it slightly will sound as reasonable as the first one did.
+
+Held by a test rather than by this paragraph. `review.test.js` asserts that no
+module which can reach a memory names `Date.now`, `new Date`, `Date.parse` or
+`getTime`; the list of modules is the entrances list, and anything joining that
+one joins this. Writing a timestamp down is fine and this project does it
+constantly — every memory, every decision, every line of the action log — which
+is why the check is scoped to where reading one would be a decision about a
+memory rather than banned outright. The loose version of the rule would have
+flagged `log.js` and `setup.js`, which are correct.
+
+The state a review can reach is `overtaken`, and its name is part of this. Not
+`expired`, which describes a timer. Not `forgotten`, which is the person saying
+they do not want something shown. Overtaken by events: the world moved and this
+did not, which says nothing whatever about how old the row is.
