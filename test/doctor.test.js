@@ -98,17 +98,74 @@ test('an interpreter that has gone away is found, which nothing could do before'
   assert.match(gemini?.says.join(' ') ?? '', /Run setup again to rewrite it/u);
 });
 
-test('an entry somebody has taken out is not reported as broken', (t) => {
-  // Never having installed into a client, or having removed it on purpose, is
-  // not a fault. Only an entry that is there and wrong is.
+test('a client this never installed into is not reported at all', (t) => {
+  // The half that was right: a client with no entry and no record of us having
+  // put one there is somebody who has not run setup for it, or who took it out
+  // on purpose. Neither is a fault.
   const { io, home } = machine(t, { files: ['.gemini/'] });
-
-  install({ ...io, out: () => {} });
   fs.writeFileSync(path.join(home, '.gemini', 'settings.json'), '{"mcpServers": {}}\n');
 
   const { findings } = diagnose(io);
 
   assert.equal(findings.find((finding) => finding.client === 'gemini-cli'), undefined);
+});
+
+test('a config this did install into, with the entry gone, is broken', (t) => {
+  // The half that was wrong, and it is the most likely reason anybody runs this
+  // command. Four ways of destroying a config all produced "Nothing is broken"
+  // and an exit code of zero, with the client vanishing from the report. The
+  // manifest is what tells this case from the one above, and it was already
+  // being read in this function for something else.
+  const { io, home } = machine(t, { files: ['.gemini/'] });
+  const settings = path.join(home, '.gemini', 'settings.json');
+
+  install({ ...io, out: () => {} });
+  fs.writeFileSync(settings, '{"mcpServers": {}}\n');
+
+  const { findings } = diagnose(io);
+  const gemini = findings.find((finding) => finding.client === 'gemini-cli');
+
+  assert.equal(gemini?.state, BROKEN);
+  assert.match(gemini?.says.join(' ') ?? '', /its entry is no longer in it/u);
+  assert.match(gemini?.says.join(' ') ?? '', /setup` to put it back/u);
+  assert.equal(reportDiagnosis(io, { findings, documents: [] }), 1);
+});
+
+test('each way of losing a config gets the answer that fits it', (t) => {
+  // Four different situations. Two of them are put right by running setup and
+  // two are not, and saying so wrongly is worse than saying nothing: setup
+  // refuses to touch a file it cannot parse, on purpose.
+  /** @type {[string, (file: string) => void, RegExp, RegExp][]} */
+  const cases = [
+    ['the entry removed', (file) => fs.writeFileSync(file, '{"mcpServers": {}}\n'),
+      /its entry is no longer in it/u, /setup` to put it back/u],
+    ['the file deleted', (file) => fs.rmSync(file),
+      /it is not there any more/u, /setup` to put it back/u],
+    ['the file unreadable', (file) => fs.chmodSync(file, 0o000),
+      /it cannot be read/u, /Check who is allowed to read that file/u],
+    ['the file replaced with rubbish', (file) => fs.writeFileSync(file, 'not json at all'),
+      /cannot be read as JSON any more/u, /Setup will not touch a file it cannot parse/u],
+  ];
+
+  for (const [label, damage, why, what] of cases) {
+    const { io, home } = machine(t, { files: ['.gemini/'] });
+    const settings = path.join(home, '.gemini', 'settings.json');
+
+    install({ ...io, out: () => {} });
+    damage(settings);
+
+    const gemini = diagnose(io).findings.find((finding) => finding.client === 'gemini-cli');
+
+    assert.equal(gemini?.state, BROKEN, label);
+    assert.match(gemini?.says.join(' ') ?? '', why, label);
+    assert.match(gemini?.says.join(' ') ?? '', what, label);
+
+    try {
+      fs.chmodSync(settings, 0o644);
+    } catch {
+      // already gone, which is one of the cases
+    }
+  }
 });
 
 test('an entry edited since we wrote it is reported, and setup is what fixes it', (t) => {

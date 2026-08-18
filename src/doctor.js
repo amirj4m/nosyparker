@@ -91,14 +91,52 @@ export function diagnose(io) {
     if (found.state === NOT_INSTALLED || found.configPath === null) continue;
 
     const request = editRequest(client, io);
-    const text = readOrEmpty(found.configPath);
+    const { text, gone } = readConfig(found.configPath);
     /** @type {string[]} */
     const says = [];
 
-    if (!hasEntry(text, request)) {
-      // Not installed into is not broken. Somebody may simply never have run
-      // setup for this client, or may have taken it out on purpose.
-      io.log.record('check', { client: client.id, path: found.configPath, result: 'absent' });
+    if (gone !== null || !hasEntry(text, request)) {
+      // Not installed into is not broken: somebody may never have run setup for
+      // this client, or may have taken it out on purpose. But a client the
+      // manifest says we *did* install into, with no entry in it now, is the
+      // single most likely reason anybody runs this command — and it was being
+      // reported as nothing at all. Four ways of destroying a config produced
+      // "Nothing is broken" and an exit code of zero.
+      //
+      // The manifest is what tells the two apart, and it was already being read
+      // three lines further down for something else.
+      const row = manifestRowFor(found.configPath, io.backupDir);
+
+      if (row === null) {
+        io.log.record('check', { client: client.id, path: found.configPath, result: 'absent' });
+        continue;
+      }
+
+      const unparseable = gone === null && !readable(text, client);
+      const why = gone ?? (unparseable
+        ? `its contents cannot be read as ${client.format.toUpperCase()} any more`
+        : 'its entry is no longer in it');
+
+      io.log.record('check', { client: client.id, path: found.configPath, result: BROKEN, reason: why });
+      findings.push({
+        client: client.id,
+        name: client.name,
+        state: BROKEN,
+        says: [
+          `This installed into ${found.configPath}, and ${why}.`,
+          // Three different situations and three different things to do. Saying
+          // "run setup" for the unreadable one would be advice that cannot
+          // work, and saying it for the unparseable one would be worse: setup
+          // refuses to touch a file it cannot parse, on purpose, because
+          // editing around a syntax error is how a whole config disappears at
+          // the next launch.
+          gone === UNREADABLE
+            ? 'Nothing here can read it, so nothing can say whether the entry is still there. Check who is allowed to read that file.'
+            : unparseable
+              ? `Setup will not touch a file it cannot parse, so that has to be put right first — then \`${invocation()} setup\` will add the entry back.`
+              : `Run \`${invocation()} setup\` to put it back.`,
+        ],
+      });
       continue;
     }
 
@@ -124,7 +162,7 @@ export function diagnose(io) {
     if (client.write.method === 'file') {
       if (state !== BROKEN && insertEntry(text, request) !== text) {
         state = BROKEN;
-        says.push('Its entry is not the one setup would write now. Something has edited it, or it was written by an older version. Run setup again.');
+        says.push(`Its entry is not the one setup would write now. Run \`${invocation()} setup\` to bring it up to date.`);
       }
     } else {
       says.push(`${client.name} writes this file with its own command, so this checks that the entry is there and points somewhere real, and not how it is laid out.`);
@@ -178,6 +216,53 @@ export function diagnose(io) {
   return { findings, documents };
 }
 
+/** The file is not there at all. */
+const MISSING = 'it is not there any more';
+
+/** It is there and this cannot read it. */
+const UNREADABLE = 'it cannot be read';
+
+/**
+ * The config, and what stopped us if anything did.
+ *
+ * `readOrEmpty` gives an empty string for a file that is missing, one that is
+ * unreadable and one that is genuinely empty, and those need different things
+ * said about them: a deleted config is put back by running setup, and a config
+ * nobody is allowed to read is not.
+ *
+ * @param {string} file
+ * @returns {{text: string, gone: string|null}}
+ */
+function readConfig(file) {
+  if (!fs.existsSync(file)) return { text: '', gone: MISSING };
+  try {
+    return { text: fs.readFileSync(file, 'utf8'), gone: null };
+  } catch {
+    return { text: '', gone: UNREADABLE };
+  }
+}
+
+/**
+ * Does this still parse as the format its client uses.
+ *
+ * Only JSON and JSONC can be answered here, which is the honest limit: for the
+ * other three the entry simply is not found, and "its entry is no longer in it"
+ * is true either way.
+ *
+ * @param {string} text
+ * @param {any} client
+ * @returns {boolean}
+ */
+function readable(text, client) {
+  if (client.format !== 'json' && client.format !== 'jsonc') return true;
+  try {
+    JSON.parse(withoutBom(withoutTrailingCommas(stripComments(text))));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The interpreter an entry actually names, or null if it cannot be read back.
  *
@@ -224,9 +309,14 @@ export function reportDiagnosis(io, { findings, documents }) {
   const wrongDocuments = documents.filter((check) => !check.ok);
 
   if (findings.length === 0) {
-    io.out('No client on this machine has an entry for nosyparker. Run setup to add one.\n\n');
+    io.out(`No client on this machine has an entry for nosyparker. Run \`${invocation()} setup\` to add one.\n\n`);
   } else {
-    io.out(`${findings.length} ${findings.length === 1 ? 'client has' : 'clients have'} an entry. `
+    // What this counts is clients this has installed into, not clients with an
+    // entry — because one whose entry has since gone is exactly the case worth
+    // counting, and calling it a client that "has an entry" would be the same
+    // sentence being wrong in a quieter way.
+    io.out(`${findings.length} ${findings.length === 1 ? 'client' : 'clients'} on this machine `
+      + `${findings.length === 1 ? 'has' : 'have'} been set up. `
       + `${broken.length === 0 ? 'Nothing is broken.' : `${broken.length} of them ${broken.length === 1 ? 'is' : 'are'} broken.`}\n\n`);
   }
 
