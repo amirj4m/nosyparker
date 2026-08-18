@@ -325,7 +325,7 @@ test('every call writes exactly one decision row, refusals included', (t) => {
   }
 });
 
-test('the gate has twelve rule names and no more', () => {
+test('the gate has twenty rule names and no more', () => {
   // Twelve outcomes, so twelve names. Nine were written down in the
   // specification; `restored` is the tenth, because a restore that works has
   // to say which rule answered it and none of the other nine is that rule.
@@ -342,6 +342,14 @@ test('the gate has twelve rule names and no more', () => {
   //
   // Loosening this to a count, or to a subset that new names slip past, is how
   // the check stops being one.
+  //
+  // Phase 4 opened it by eight, for the review, and the eight are the second
+  // group below. Two things it did not open it for are worth saying, because
+  // both were on the table and both would have been easy: marking one stored
+  // memory as replaced by another is the judgement `replaces` already names,
+  // reached at a different door, and every way the replacement id can be
+  // unusable is the one `replaces-unknown` already names. Reusing those two is
+  // the same move `file-not-fact` and `empty` made before them.
   const VOCABULARY = [
     'credential',
     'control-character',
@@ -355,11 +363,21 @@ test('the gate has twelve rule names and no more', () => {
     'forget-unknown',
     'restore-unknown',
     'restored',
+
+    // The review.
+    'review-began',
+    'review-closed',
+    'review-undone',
+    'review-not-open',
+    'review-unknown',
+    'derived-from',
+    'overtaken',
+    'undecided',
   ];
 
   // Read out of the file rather than collected from a run, because a run can
   // only show that a name is reachable. The half that matters here is the
-  // other half: that there is no eleventh name anywhere in the gate. Two
+  // other half: that there is no twenty-first name anywhere in the gate. Two
   // reviews read past `restored` because nothing was checking for that.
   const source = fs.readFileSync(new URL('../src/gate.js', import.meta.url), 'utf8');
   const named = [...source.matchAll(/\brule: '([^']*)'/gu)].map((match) => match[1]);
