@@ -44,16 +44,29 @@ wrong, you should be able to see what was taken out.
 ## Installing it
 
 nosyparker is still not released — there is no package to fetch — but from a
-copy of this folder, with Node 22 or newer and nothing else, one command wires
+copy of this folder, with Node 22.5 or newer and nothing else, one command wires
 up every agent on your machine:
 
 ```
 node src/cli.js setup
 ```
 
-It looks for fifteen clients, writes its entry into the ones it finds, and then
+It looks for twenty clients, writes its entry into the ones it finds, and then
 sorts them into three groups: the ones that answered us, the ones you should
 check yourself, and the ones that did not work, with the reason.
+
+That middle group is most of them, and it is worth knowing why. Three of these
+applications can be asked whether they started the server and will say so —
+Claude Code, Gemini CLI and opencode. Two more, Codex and Goose, will show you
+their own parsed configuration with our entry in it, which is worth having and
+is not the same thing. The rest offer no way to be asked at all: a limitation of
+those applications rather than of this one, and nothing here can work around it.
+
+So for those, one check is left and only you can do it. Open the client and ask
+the agent something it could only know from your shared memory. If it knows, it
+is working. Ten seconds, once per client.
+
+[CLIENTS.md](CLIENTS.md) lists all twenty and says which group each is in.
 
 It never removes anything it did not add. Where it edits a config file itself,
 it puts a copy of that file in `~/.nosyparker/backups/` first, and that copy is
@@ -76,20 +89,6 @@ prints the exact thing to paste, and naming a client it does know
 
 [CONNECTING.md](CONNECTING.md) has the by-hand version and what to say to
 check it works.
-
-## What can be confirmed, and what cannot
-
-Two of these applications can be asked whether they started the server, and
-will say so: **Claude Code** and **Gemini CLI**. Two more — **Codex** and
-**Goose** — will show you their own parsed configuration with our entry in it,
-which is worth having and is not the same thing.
-
-The rest offer no way to be asked at all. That is a limitation of those
-applications rather than of this one, and nothing here can work around it.
-
-So for those, one check is left and only you can do it. Open the client and ask
-the agent something it could only know from your shared memory. If it knows, it
-is working. That takes about ten seconds and it is worth doing once per client.
 
 ## Removing it
 

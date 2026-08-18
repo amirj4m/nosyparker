@@ -70,9 +70,11 @@ If you work in a custom VS Code profile, that profile has its own separate file
 and setup writes the default one. Several settings can quietly stop a server
 loading — an administrator policy can too, and that is invisible from outside.
 
-**Cursor.** Wired through `cursor --add-mcp`. Cursor has a per-server on/off
-switch in its own interface; if the entry is there but nothing happens, check it
-has not been switched off.
+**Cursor.** Setup writes its configuration file directly. Cursor does have a
+`--add-mcp` flag, and it is one of the vendor commands we caught reporting
+success and writing nothing at all — it exits cleanly and creates no file. Cursor
+also has a per-server on/off switch in its own interface; if the entry is there
+but nothing happens, check it has not been switched off.
 
 **Devin Desktop**, formerly Windsurf. Renamed, but the old configuration folder
 name survives. It keeps **two** separate MCP configuration files, and setup
