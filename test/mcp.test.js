@@ -897,3 +897,50 @@ function ordinary(length) {
   }
   return text.slice(0, length);
 }
+
+test('review_end tells the agent to pass the outcome on, because nobody else can', async (t) => {
+  const agent = await connect(t, freshStoreFile(t));
+  const { tools } = await agent.listTools();
+  const end = tools.find((tool) => tool.name === 'review_end')?.description ?? '';
+
+  // The gap this closes is not a safety one. Everything about a review is
+  // recorded, bounded and reversible; what a reviewer could not answer yes to
+  // was whether it should run unattended, and the reason was that a pass which
+  // archived a whole store left no trace anybody would see. `doctor` says more
+  // now, but `doctor` is pulled — it reaches whoever is already looking.
+  //
+  // The agent that just ran the review is the only party that can reach the
+  // person who is not looking, in the conversation where they asked for it, and
+  // this description is the whole of the influence available over whether it
+  // does. So the claims are tested the way every other description claim here
+  // is: against the live server, over the protocol.
+  // Whitespace-tolerant, because the descriptions are wrapped by hand and a
+  // claim moving across a line break is not a claim disappearing.
+  for (const claim of [
+    /tell the person what the review did/u,
+    /cannot see this store while they are\s+talking to you/u,
+    /how many\s+memories it put away/u,
+    /how many are still being shown/u,
+    /can be\s+put back/u,
+    /review_undo/u,
+    /lead with that/u,
+  ]) {
+    assert.match(end.replace(/\n/gu, ' '), new RegExp(claim.source.replace(/\\s\+/gu, ' '), 'u'));
+  }
+
+  // And the sentence it has to pass on is one this call actually hands it,
+  // rather than something the description asks it to work out.
+  await say(agent, 'remember', { text: 'Next week I am presenting at the all-hands' });
+  await say(agent, 'remember', { text: 'I live in Tehran' });
+  await say(agent, 'review_start', { reviewer: 'a test agent' });
+  await say(agent, 'review_finding', {
+    review: 1, id: 1, outcome: 'overtaken',
+    reasoning: 'The week it named has gone by and nothing replaced it.',
+    derived_from: [1],
+  });
+
+  const closed = await say(agent, 'review_end', { review: 1 });
+  assert.match(closed, /changed 1 memory/u);
+  assert.match(closed, /1 memory is being shown now/u);
+  assert.match(closed, /Undoing it puts back everything it changed/u);
+});
