@@ -134,11 +134,14 @@ test('Copilot CLI is carried on documentation alone, and says so in every field'
   assert.equal(copilot.tier, 3);
 
   // Its own documentation puts `copilot mcp list` in the same class as
-  // `claude mcp list` — a health check. We carry it one step below that,
-  // because every vendor command that turned out to lie was caught by running
-  // it, and nobody has run this one.
-  assert.equal(copilot.verify.tier, 'B+');
-  assert.match(copilot.verify.cannotProve, /nobody has run it/u);
+  // `claude mcp list` — a health check. This row asked it until a review showed
+  // what that was worth: with no observed output to write a pattern against,
+  // the pattern written from guesswork reported success for a config file
+  // holding nothing and for a line saying the server had failed to start. It
+  // asks nothing now.
+  assert.equal(copilot.verify.tier, 'C');
+  assert.equal(copilot.verify.method, 'file-reread');
+  assert.equal(copilot.verify.argv, null);
 
   // Written by file, because the path and the entry shape are documented and
   // the arguments its add command takes are not. Writing the file invents
@@ -297,7 +300,7 @@ test('the verification tiers are the ones the research earned, not one green tic
     'gemini-cli': 'A',
     'codex-cli': 'B+',
     goose: 'B+',
-    'copilot-cli': 'B+',
+    'copilot-cli': 'C',
     opencode: 'A',
     kiro: 'B',
     lmstudio: 'C',

@@ -15,7 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { clientById } from '../src/clients.js';
+import { clientById, loadClients } from '../src/clients.js';
 import { editRequest } from '../src/write.js';
 import {
   CONFIG_CONFIRMED,
@@ -173,22 +173,94 @@ test('Goose echoing its parsed config is config-confirmed, not connected', () =>
   assert.match(/** @type {string} */ (checked.cannotProve), /no liveness check/u);
 });
 
-test('Copilot claims only what its row claims, not what the default sentence would', () => {
-  // Codex and Goose both report the enable flag, so the shared sentence for
-  // this tier says "enabled". Copilot's output has never been seen by anybody
-  // here, so its row supplies its own words and claims only that the server was
-  // listed. The difference is one word and it is the difference between
-  // reporting evidence and reporting an assumption.
+test('no client claims success for a line that says it failed', () => {
+  // The finding that contradicted the point of the phase, kept as a corpus so
+  // it cannot come back. Copilot's row matched its own name appearing anywhere,
+  // so a config file containing nothing at all and a command printing
+  // `failed to start server nosyparker` both produced `confirmed` — the
+  // strongest group in the report, from the row with the weakest evidence in
+  // the table.
+  //
+  // Two more rows had the same shape and were not spotted by the review: Claude
+  // Code read `Not Connected` as connected, and opencode read `disconnected` as
+  // connected, because the word is inside the longer one.
+  //
+  // The rule these enforce is one-directional. Failing to recognise a real
+  // success costs a client being reported as unconfirmed, which is a client
+  // somebody checks by hand. Recognising a failure as a success costs somebody
+  // their trust in every other line of the report.
+  const hostile = [
+    'nosyparker: not configured',
+    'nosyparker  (disabled)',
+    'Error: failed to start server nosyparker: ENOENT',
+    'Successfully added MCP server "nosyparker".',
+    '\u2717 nosyparker: node x (stdio) - Disconnected',
+    'nosyparker disconnected',
+    'nosyparker: Not Connected',
+    '\u2718 nosyparker - Failed to connect',
+    'nosyparker  status: unknown',
+    'nosyparker',
+  ];
+
+  for (const client of loadClients().clients) {
+    if (client.verify.method !== 'cli-lines') continue;
+
+    for (const line of hostile) {
+      const checked = verifyClient(client, options(client, {
+        run: () => ({ status: 0, stdout: line, stderr: '' }),
+      }));
+
+      assert.notEqual(checked.status, CONNECTED, `${client.id} read "${line}" as connected`);
+      assert.notEqual(checked.status, CONFIG_CONFIRMED, `${client.id} read "${line}" as confirmed`);
+    }
+  }
+});
+
+test('and every client still recognises the output it was actually measured printing', () => {
+  // The other half. A check that says no to everything is not a check either,
+  // and these are the lines these clients really printed on a real machine.
+  const real = {
+    'claude-code': 'nosyparker: node /srv/mcp-server.js - \u2714 Connected',
+    'gemini-cli': '\u2713 nosyparker: node /srv/mcp-server.js (stdio) - Connected',
+    opencode: '\u25cf  \u2713 nosyparker connected',
+    goose: 'extensions:\n  nosyparker:\n    enabled: true',
+  };
+
+  for (const [id, line] of Object.entries(real)) {
+    const client = clientById(id);
+    const checked = verifyClient(client, options(client, {
+      run: () => ({ status: 0, stdout: line, stderr: '' }),
+    }));
+
+    assert.ok(
+      checked.status === CONNECTED || checked.status === CONFIG_CONFIRMED,
+      `${id} no longer recognises its own output: ${checked.status}`,
+    );
+  }
+});
+
+test('Copilot asks nothing, because nobody has ever seen what it answers', () => {
+  // It has a documented list command and deliberately does not use it. A
+  // pattern written against output nobody has observed is not a check: this one
+  // reported `confirmed` for a config containing `{}` and for a line saying the
+  // server had failed to start.
+  const copilot = clientById('copilot-cli');
+
+  assert.equal(copilot.verify.method, 'file-reread');
+  assert.equal(copilot.verify.argv, null);
+  assert.equal(copilot.verify.tier, 'C');
+  assert.match(copilot.traps.join(' '), /deliberately not used/u);
+});
+
+test('Copilot on an empty config reports a failure, which is what it is', (t) => {
+  const configPath = path.join(directory(t), 'mcp-config.json');
+  fs.writeFileSync(configPath, '{}');
+
   const client = clientById('copilot-cli');
+  const checked = verifyClient(client, options(client, { configPath }));
 
-  const checked = verifyClient(client, options(client, {
-    run: saying('nosyparker  local  node /srv/mcp-server.js\n'),
-  }));
-
-  assert.equal(checked.status, CONFIG_CONFIRMED);
-  assert.match(checked.says, /listed the server/u);
-  assert.doesNotMatch(checked.says, /enabled/u);
-  assert.match(/** @type {string} */ (checked.cannotProve), /nobody has run it/u);
+  assert.equal(checked.status, VERIFY_FAILED);
+  assert.match(checked.says, /The entry is not in/u);
 });
 
 test('a client written by its own command and read back from the file says written', (t) => {
