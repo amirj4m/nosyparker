@@ -1,6 +1,35 @@
 # Phase 3 research: MCP client landscape, discovery, and this machine
 
-Research date: 2026-08-17. No product code, no branch, no commit.
+Research date: 2026-08-17.
+
+> **Frozen on 2026-08-18, at the close of Phase 3. This is a dated record of
+> what was measured and when, not a living document.**
+>
+> It is kept because it is the evidence behind every `lastVerified` date in
+> `src/clients.json`, and because its negatives — the things that could not be
+> established — are the most expensive kind of knowledge to reacquire. It is not
+> maintained. **`CLIENTS.md` is the living document**, and where the two
+> disagree, `CLIENTS.md` and the table are right.
+>
+> Three things in here are known to be out of date, named so that nobody has to
+> discover them again:
+>
+> 1. **It covers eleven clients; the table carries twenty.** opencode, Kiro, LM
+>    Studio, Roo Code and the Amazon Q CLI were installed and measured after
+>    this file was last written, and no addendum was added for them. Their
+>    findings are in the table and in the commits that added them.
+> 2. **Section 5 places Cursor in Tier B, "write through the app's own CLI".
+>    That is wrong.** `cursor --add-mcp` was run on 2026-08-17: it exits 0 and
+>    creates no file. This file only ever recorded that the flag exists, read
+>    out of `--help`; running it came later. Cursor is written by file.
+> 3. **Its recommendation in E.4 draws the line at fourteen clients and is
+>    internally contradictory about Copilot CLI.** The owner settled that: it is
+>    in, on documentation only, and the line moved to twenty.
+>
+> Everything else in it held up, including all four of the traps in section D
+> that Phase 3 was built around.
+
+No product code, no branch, no commit.
 
 Sections 1–7 are read-only inspection: nothing on the machine was modified. Addendum A involved installing Zed at the owner's request and writing a temporary test config, since removed — see A.0 and A.6 for exactly what changed and what was restored.
 
