@@ -32,9 +32,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
 
-const ROOT = fileURLToPath(new URL('..', import.meta.url));
+// The walk itself is in a module of its own, because the date guard in
+// `review.test.js` derives its list from the same graph. It used to keep a
+// second list by hand and the two had already drifted.
+import { importGraph, reachers, ROOT } from './import-graph.js';
 
 /**
  * Every module that can reach the store, however many hops it takes.
@@ -138,85 +140,3 @@ test('a type annotation mentioning the store is not a way into it', () => {
   );
   assert.equal(graph.get('src/setup.js')?.includes('src/store.js'), false);
 });
-
-/**
- * Which files import which, as repository-relative paths.
- *
- * @returns {Map<string, string[]>}
- */
-function importGraph() {
-  /** @type {Map<string, string[]>} */
-  const graph = new Map();
-
-  for (const file of sourceFiles()) {
-    const source = withoutBlockComments(fs.readFileSync(path.join(ROOT, file), 'utf8'));
-    /** @type {string[]} */
-    const edges = [];
-
-    for (const pattern of [
-      /\bfrom\s+['"]([^'"]+)['"]/gu,
-      /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/gu,
-      /\bimport\s+['"]([^'"]+)['"]/gu,
-    ]) {
-      for (const match of source.matchAll(pattern)) {
-        const specifier = match[1];
-        if (!specifier.startsWith('.')) continue;
-        edges.push(path.relative(ROOT, path.resolve(ROOT, path.dirname(file), specifier)));
-      }
-    }
-
-    graph.set(file, edges);
-  }
-
-  return graph;
-}
-
-/**
- * Everything that can get to one of these, following edges as far as they go.
- *
- * @param {Map<string, string[]>} graph
- * @param {string[]} targets
- * @returns {Set<string>}
- */
-function reachers(graph, targets) {
-  const found = new Set(targets);
-
-  for (let changed = true; changed;) {
-    changed = false;
-    for (const [file, edges] of graph) {
-      if (found.has(file)) continue;
-      if (edges.some((edge) => found.has(edge))) {
-        found.add(file);
-        changed = true;
-      }
-    }
-  }
-
-  return found;
-}
-
-/**
- * @returns {string[]}
- */
-function sourceFiles() {
-  /** @type {string[]} */
-  const files = [];
-
-  for (const dir of ['src', 'scripts']) {
-    for (const name of fs.readdirSync(path.join(ROOT, dir))) {
-      if (name.endsWith('.js') || name.endsWith('.mjs')) files.push(`${dir}/${name}`);
-    }
-  }
-
-  return files;
-}
-
-/**
- * Doc comments removed, so a type annotation is not read as an import.
- *
- * @param {string} source
- * @returns {string}
- */
-function withoutBlockComments(source) {
-  return source.replaceAll(/\/\*[\s\S]*?\*\//gu, '');
-}

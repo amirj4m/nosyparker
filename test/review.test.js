@@ -35,6 +35,7 @@ import {
   unknownMemories,
 } from '../src/store.js';
 import { OWNER, temporaryStore } from './helpers.js';
+import { onTheMemoryPath, ROOT } from './import-graph.js';
 
 /**
  * Store one memory, the short way, so a test about states is not three quarters
@@ -751,48 +752,111 @@ test('the review has no way to reach putAway, and the source says so', () => {
   assert.ok(reviewDoors.includes('export function undoReview'));
 });
 
-test('nothing that can reach a memory has a clock of its own', () => {
-  // The line the owner drew, made mechanical, and it needs saying precisely
-  // because the loose version of it is wrong. Writing a timestamp down is fine
-  // and this project does it constantly — every memory, every decision, every
-  // line of the action log. What is forbidden is a piece of code that *reads*
-  // one and concludes something: compares it against now, does arithmetic on
-  // it, decides a memory's fate from it. That is the rule that turned the
-  // owner's previous project into a thing that deleted his memories.
-  //
-  // So the check is not "no dates under src" — `log.js` and `setup.js` stamp
-  // the action log and are correct to. It is that no module which can reach a
-  // memory names a clock at all. The store is handed `now` at the door and the
-  // tests hand it a different one; `config.js` is where the single real clock
-  // lives and is the only file allowed to name one.
-  //
-  // The list is the entrances test's list, and if a module joins that one it
-  // joins this one, in the same commit, for the same reason.
-  const NEAR_MEMORIES = [
-    'src/cli-main.js',
-    'src/cli.js',
-    'src/credentials.js',
-    'src/gate.js',
-    'src/mcp-main.js',
-    'src/mcp-server.js',
-    'src/store.js',
-    'src/text.js',
-    'src/tools.js',
-    'scripts/purge-main.mjs',
-    'scripts/purge.mjs',
-  ];
+/**
+ * Everything that would have to be true for a piece of code to decide something
+ * from a date, and the phrase that gives each of them away.
+ *
+ * The first version of this guard forbade naming a clock, and a reviewer walked
+ * straight past it with the rule that destroyed the owner's previous project:
+ *
+ *     if (memory.created_at < '2024-01-01T00:00:00.000Z') { actions.leaveBehind(...) }
+ *
+ * Older than N, therefore archive it, inside `review()`, waved through. It
+ * needs no clock at all. Timestamps in this project are ISO 8601 strings and
+ * ISO 8601 sorts as text, which is a deliberate property of the format and the
+ * reason it was chosen — so the comparison a clock would have been needed for
+ * is available for free, in a language operator, to anything holding two rows.
+ *
+ * The guard was protecting the phrasing of a mistake rather than the mistake.
+ * These are the mistake.
+ *
+ * @type {{what: string, pattern: RegExp, unless?: RegExp}[]}
+ */
+const FORBIDDEN = [
+  {
+    // Every way of asking the machine what time it is. `Date` on its own rather
+    // than `Date.now` and `new Date` separately, because an alias — `const D =
+    // Date` — is one line and would have satisfied a narrower pattern. Nothing
+    // on this path has any business naming the constructor at all.
+    what: 'names a clock',
+    pattern: /\b(?:Date|performance\s*\.\s*now|process\s*\.\s*hrtime|Temporal)\b/u,
+  },
+  {
+    // A column holding a moment, next to an operator that orders or measures.
+    // `created_at`, `state_at`, `decided_at`, `began_at`, `closed_at`,
+    // `undone_at` — the shape rather than the list, so a seventh is covered the
+    // day it is added.
+    //
+    // Null is the exception and is the only one. `closed_at IS NULL` is how a
+    // pass says it is open and `undone_at !== null` is how it says it was
+    // undone; neither reads the moment, both ask whether there is one. Every
+    // other comparison of a timestamp is this project deciding from a date.
+    what: 'compares a timestamp with something other than null',
+    pattern: new RegExp(
+      String.raw`\b\w*_at\b\s*(?:<=|>=|<>|<|>|===|!==|==|!=|-)|`
+      + String.raw`(?:<=|>=|<>|<|>|===|!==|==|!=|-)\s*\b\w*_at\b`,
+      'u',
+    ),
+    unless: /\b\w*_at\b\s*(?:!==?|===?)\s*null|null\s*(?:!==?|===?)\s*\b\w*_at\b/u,
+  },
+  {
+    // The literal on the other side of that comparison, caught separately so
+    // that writing the threshold as a bare string rather than against a column
+    // — `at < '2024-01-01'`, `since > NOW` — is caught too. This is also what
+    // catches it inside a SQL string, which is where the same rule is one WHERE
+    // clause away from being written.
+    what: 'compares something against a moment written out',
+    pattern: /(?:<=|>=|<>|<|>|===|!==|==|!=|=)\s*['"`]\d{4}-\d\d-\d\d|['"`]\d{4}-\d\d-\d\d[^'"`]*['"`]\s*(?:<=|>=|<>|<|>|===|!==|==|!=)/u,
+  },
+  {
+    // Arithmetic on a moment, which is how a threshold gets written when
+    // somebody has already decided the comparison would look too obvious.
+    what: 'does arithmetic on a moment',
+    pattern: /\b(?:getTime|valueOf)\s*\(\s*\)|\bMath\s*\.\s*(?:floor|round)\s*\(\s*\w*_at/u,
+  },
+];
 
-  const root = fileURLToPath(new URL('..', import.meta.url));
+test('nothing on the memory path can decide anything from a date', () => {
+  // The list is derived from the import graph and not written down here. The
+  // hand-written version of it missed `doctor.js` when that module joined the
+  // entrances in this very phase — in the commit whose own test says a module
+  // joining one list joins the other, in the same commit, for the same reason.
+  // Two lists kept by hand drifted apart inside the change that promised they
+  // would not, so now there is one and nobody keeps it.
+  const files = onTheMemoryPath();
+
+  // What the derivation has to have got right, asserted rather than assumed,
+  // because a guard over an empty list passes.
+  for (const near of ['src/store.js', 'src/gate.js', 'src/tools.js', 'src/cli-main.js',
+    'src/doctor.js', 'src/text.js', 'src/credentials.js', 'scripts/purge.mjs']) {
+    assert.ok(files.includes(near), `${near} is on the memory path and is not being checked`);
+  }
+
+  // And what it has to have left out. Writing a timestamp down is fine and this
+  // project does it constantly: `log.js` stamps every line of the action log
+  // and `setup.js` stamps a run. `config.js` holds the one real clock, which is
+  // handed in at the door — and if it ever turns up in this list that is not an
+  // exemption to add, it is the clock having joined the memory path.
+  for (const far of ['src/log.js', 'src/setup.js', 'src/config.js', 'src/write.js']) {
+    assert.equal(files.includes(far), false, `${far} is on the memory path and should not be`);
+  }
+
   /** @type {string[]} */
   const offenders = [];
 
-  for (const file of NEAR_MEMORIES) {
-    const text = fs.readFileSync(path.join(root, file), 'utf8');
-    // These files talk about time a great deal, on purpose. Only code counts.
+  for (const file of files) {
+    const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    // Comments go; string literals stay. The SQL in `store.js` lives in string
+    // literals, and `WHERE created_at < ?` is the same rule written one layer
+    // down where JavaScript cannot see it.
     const code = text.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/^\s*\/\/.*$/gmu, '');
 
-    for (const clock of [/\bDate\.now\s*\(/u, /\bnew Date\b/u, /\bDate\.parse\s*\(/u, /\.getTime\s*\(/u]) {
-      if (clock.test(code)) offenders.push(`${file}: ${clock.source}`);
+    for (const line of code.split('\n')) {
+      for (const rule of FORBIDDEN) {
+        if (!rule.pattern.test(line)) continue;
+        if (rule.unless?.test(line)) continue;
+        offenders.push(`${file}: ${rule.what} — ${line.trim()}`);
+      }
     }
   }
 
