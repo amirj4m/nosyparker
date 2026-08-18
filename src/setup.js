@@ -32,6 +32,7 @@ import {
   configPathFor,
   entryJsonWithName,
   expandPath,
+  invocation,
   fillTokens,
   loadClients,
   serverCommand,
@@ -304,7 +305,7 @@ export function printConfig(io, clientId) {
       '"extensions" in YAML with `cmd` in place of `command`, and Codex uses TOML.',
       '',
       `To see the exact shape and path for a client this knows about, name it:`,
-      `  nosyparker setup --print-config <client>`,
+      `  ${invocation()} setup --print-config <client>`,
       '',
       `Known: ${loadClients().clients.map((client) => client.id).join(', ')}`,
       '',
@@ -588,7 +589,7 @@ function plural(count, one, many) {
  * @returns {string}
  */
 function blockFor({ client, found, written, verified }) {
-  const byHand = `      nosyparker setup --print-config ${client.id} prints what to add by hand.\n`;
+  const byHand = `      ${invocation()} setup --print-config ${client.id} prints what to add by hand.\n`;
 
   if (found.state === INSTALLED_PATH_UNKNOWN) {
     return `  ${client.name} — it is here, and this table has no configuration path for it on\n`

@@ -94,6 +94,21 @@ prints the exact thing to paste, and naming a client it does know
 [CONNECTING.md](CONNECTING.md) has the by-hand version and what to say to
 check it works.
 
+If something is not working, this will tell you what:
+
+```
+node src/cli.js doctor
+```
+
+It says which clients have an entry, which of them are working, which cannot be
+asked at all, and — for anything broken — what is wrong and what to do about it.
+The commonest answer is that you changed your Node version, in which case it
+says so and running `setup` again fixes it. It changes nothing itself.
+
+If that does not resolve it, the
+[issues page](https://github.com/amirj4m/nosyparker/issues) is the place to say
+so.
+
 ## Removing it
 
 ```

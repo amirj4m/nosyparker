@@ -220,6 +220,31 @@ export function serverCommand() {
 }
 
 /**
+ * How to run this program again, in words a person can paste.
+ *
+ * It matters that this is derived rather than written down. Every message that
+ * ends "run setup again" said `nosyparker setup`, and there is no such command:
+ * nothing is released, nothing is on anybody's PATH, and a person copying that
+ * gets `command not found` at the moment they are already stuck. The documents
+ * said `node src/cli.js setup` and were right, which is the program and a
+ * document disagreeing about what to do next — the class this project keeps
+ * having to close.
+ *
+ * The script path is absolute so the line works from wherever the person is
+ * standing. The interpreter is not, and that is the difference between this and
+ * a config entry: an entry is started by an application with no PATH, and this
+ * is a line a person pastes into the shell they are already using — the shell
+ * they just ran this program from. Naming the interpreter in full here would
+ * double the length of the sentence to solve a problem that shell does not
+ * have, and if their `node` is too old the version guard says so in a sentence.
+ *
+ * @returns {string}
+ */
+export function invocation() {
+  return `node ${fileURLToPath(new URL('./cli.js', import.meta.url))}`;
+}
+
+/**
  * The default environment: this machine.
  *
  * @returns {{home: string, platform: string, appData: string|undefined, cwd: string}}

@@ -48,7 +48,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 
-import { fillArgv, fillTokens } from './clients.js';
+import { fillArgv, fillTokens, invocation } from './clients.js';
 import { manifestRowFor, recordFirstTouch } from './backup.js';
 import { anyRunning } from './detect.js';
 import { noLog } from './log.js';
@@ -644,7 +644,7 @@ function readOnlyRefusal(client, file) {
     + 'Nothing was written, because a file set read-only is somebody saying to leave it alone, '
     + 'and rewriting it anyway would not have shown up in its permissions afterwards. '
     + `Make it writable and run this again, or add the entry by hand with `
-    + `\`nosyparker setup --print-config ${client.id}\`.`;
+    + `\`${invocation()} setup --print-config ${client.id}\`.`;
 }
 
 /**

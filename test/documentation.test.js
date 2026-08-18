@@ -32,13 +32,13 @@ test('every document agrees with the program', () => {
   }
 });
 
-test('there are ten of them, and each says what it is checking', () => {
+test('there are twelve of them, and each says what it is checking', () => {
   // Counted so that a check cannot be quietly dropped, and each one's sentence
   // is what `doctor` prints, so an empty one would be a blank line in front of
   // somebody trying to work out what is wrong.
   const checks = checkDocumentation();
 
-  assert.equal(checks.length, 10);
+  assert.equal(checks.length, 12);
   for (const check of checks) assert.ok(check.what.length > 10, `a check with no sentence: ${check.what}`);
 });
 
@@ -67,6 +67,8 @@ test('a document that stops being true is noticed', (t) => {
     ['CLIENTS.md', '/permissions trust', '/permissions grant'],
     ['CLIENTS.md', 'we do not use it', 'we rely on it'],
     ['DECISIONS.md', 'What Phase 3 refuses to write', 'What the installer will not do'],
+    ['README.md', '```\nnode src/cli.js doctor\n```', '`node src/cli.js doctor`'],
+    ['README.md', '/issues', '/discussions'],
   ];
 
   for (const [file, from, to] of mutations) {

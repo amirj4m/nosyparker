@@ -49,7 +49,7 @@
 
 import fs from 'node:fs';
 
-import { configPathFor, fillTokens, loadClients } from './clients.js';
+import { configPathFor, fillTokens, invocation, loadClients } from './clients.js';
 import { detect, NOT_INSTALLED } from './detect.js';
 import { hasEntry, insertEntry, stripComments, withoutBom, withoutTrailingCommas } from './edit.js';
 import { checkDocumentation } from './documentation.js';
@@ -255,8 +255,8 @@ export function reportDiagnosis(io, { findings, documents }) {
   if (wrongDocuments.length > 0) io.out('\n');
 
   if (broken.length > 0) {
-    io.out('Run `nosyparker setup` to rewrite the broken entries. This command does not\n');
-    io.out('change anything itself.\n\n');
+    io.out(`Run \`${invocation()} setup\` to rewrite the broken entries.\n`);
+    io.out('This command does not change anything itself.\n\n');
   }
 
   // Zero when nothing was found wrong, one when something was — so that

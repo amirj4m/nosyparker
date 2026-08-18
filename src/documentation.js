@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { loadClients } from './clients.js';
+import { invocation, loadClients } from './clients.js';
 import { OLDEST_SUPPORTED } from './node-version.js';
 
 /**
@@ -144,6 +144,29 @@ export function checkDocumentation(root = repositoryRoot()) {
         ...(clientsMd.includes('we do not use it') ? [] : ['CLIENTS.md does not say it is unused']),
       ];
     })()),
+
+    check('the program and the README name the same command to run next', (() => {
+      // Every message ending "run setup again" used to say `nosyparker setup`,
+      // which is not a command anybody has: nothing is released and nothing is
+      // on a PATH. The documents said `node src/cli.js setup` and were right.
+      // A person stuck enough to be reading either one should not then be told
+      // to run something that does not exist.
+      const script = invocation().split(' ').slice(-1)[0];
+      return [
+        ...(script.endsWith('/src/cli.js') ? [] : [`the program points at ${script}`]),
+        ...(readme.includes('node src/cli.js setup') ? [] : ['the README does not name setup']),
+        ...(readme.includes('node src/cli.js doctor') ? [] : ['the README does not name doctor']),
+        ...(/```\nnode src\/cli\.js doctor\n```/u.test(readme)
+          ? [] : ['the README does not put doctor in a block somebody can copy']),
+      ];
+    })()),
+
+    check('the README says where to go if doctor did not resolve it', [
+      ...(readme.includes('/issues') ? [] : ['the README does not point anywhere']),
+      // A personal address in a public repository gets scraped, and the owner
+      // has decided against one.
+      ...(/[\w.+-]+@[\w-]+\.[\w.]+/u.test(readme) ? ['the README carries an email address'] : []),
+    ]),
 
     check('what the installer refuses is written down where the code points', [
       ...(decisions.includes(heading) ? [] : ['DECISIONS.md has lost the section']),
