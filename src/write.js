@@ -41,6 +41,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 
 import { fillArgv, fillTokens } from './clients.js';
 import { manifestRowFor, recordFirstTouch } from './backup.js';
@@ -385,6 +386,11 @@ function writeThroughFile(client, options, request) {
     rootKeyExisted: hadRootKey(before, request),
   });
 
+  // A previous run that was killed between opening its temporary file and
+  // renaming it leaves one behind, and cannot come back to tidy up. This is the
+  // next run doing it for them, before adding one of its own.
+  clearAbandonedTemporaries(options.configPath);
+
   if (wanted === before) return result('file', options.configPath, backup, UNCHANGED, null);
 
   writePreservingMode(options.configPath, wanted);
@@ -434,16 +440,82 @@ export function writePreservingMode(file, text) {
   const mode = existingMode(file);
   fs.mkdirSync(path.dirname(file), { recursive: true });
 
-  const temporary = path.join(path.dirname(file), `.nosyparker.${path.basename(file)}.tmp`);
-  const handle = fs.openSync(temporary, 'w', mode);
+  // A name no other process can be holding at the same time. The first version
+  // of this built `.nosyparker.<basename>.tmp` from the filename alone, so every
+  // process on the machine chose the same path and two writers blended into one
+  // file — measured, and at four concurrent writers it destroyed data that was
+  // not ours. The read-back check downstream catches that, but only after the
+  // file is already ruined, which is the wrong end.
+  //
+  // `O_EXCL` is the part that actually makes it safe rather than merely
+  // unlikely: if the name somehow does exist, the open fails instead of
+  // truncating whatever is there. The pid and the random suffix are what make
+  // that failure never happen in practice.
+  const temporary = path.join(
+    path.dirname(file),
+    `.nosyparker.${path.basename(file)}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`,
+  );
+
+  let handle;
   try {
+    handle = fs.openSync(temporary, 'wx', mode);
     fs.writeFileSync(handle, text);
     fs.fchmodSync(handle, mode);
-  } finally {
-    fs.closeSync(handle);
+    fs.fsyncSync(handle);
+  } catch (error) {
+    if (handle !== undefined) fs.closeSync(handle);
+    fs.rmSync(temporary, { force: true });
+    throw error;
+  }
+  fs.closeSync(handle);
+
+  try {
+    fs.renameSync(temporary, file);
+  } catch (error) {
+    // The rename is the only step that cannot half-happen. If it fails, the
+    // original is untouched and the only thing left to do is not litter.
+    fs.rmSync(temporary, { force: true });
+    throw error;
+  }
+}
+
+/**
+ * Temporary files left behind by a process that was killed mid-write.
+ *
+ * They are inert — nothing reads them, and the unique name means nothing will
+ * ever pick one up by mistake — but a directory of somebody else's that slowly
+ * fills with our litter is still our litter. A killed process cannot clean up
+ * after itself, so the next run does it, and only for names this project owns.
+ *
+ * @param {string} file the config file whose directory to sweep
+ */
+export function clearAbandonedTemporaries(file) {
+  const dir = path.dirname(file);
+  const ours = new RegExp(`^\\.nosyparker\\.${escapeForFilename(path.basename(file))}\\.\\d+\\.[0-9a-f]+\\.tmp$`, 'u');
+
+  let names;
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return;
   }
 
-  fs.renameSync(temporary, file);
+  for (const name of names) {
+    if (!ours.test(name)) continue;
+    try {
+      fs.rmSync(path.join(dir, name), { force: true });
+    } catch {
+      // Somebody else's to worry about, or gone already. Either way, not fatal.
+    }
+  }
+}
+
+/**
+ * @param {string} text
+ * @returns {string}
+ */
+function escapeForFilename(text) {
+  return text.replaceAll(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
 /**
