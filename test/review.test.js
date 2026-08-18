@@ -753,114 +753,238 @@ test('the review has no way to reach putAway, and the source says so', () => {
 });
 
 /**
- * Everything that would have to be true for a piece of code to decide something
- * from a date, and the phrase that gives each of them away.
+ * Which characters of a line are code and which are the text of a template
+ * literal, with `${…}` counting as code again.
  *
- * The first version of this guard forbade naming a clock, and a reviewer walked
- * straight past it with the rule that destroyed the owner's previous project:
+ * A stack rather than a pattern, because both nest and this project does nest
+ * them: `doctor.js` builds a sentence out of a `map` whose callback is itself a
+ * template literal. Three false positives came from not doing this — `<id>` in
+ * a usage message read as a comparison, and `=>` twice.
+ *
+ * @param {string} line
+ * @returns {('code'|'text')[]} one entry per character
+ */
+function classify(line) {
+  /** @type {('code'|'text')[]} */
+  const kinds = [];
+  /** @type {{type: 'code'|'text', braces: number}[]} */
+  const stack = [{ type: 'code', braces: 0 }];
+  const top = () => stack[stack.length - 1];
+
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+
+    if (character === '`') {
+      if (top().type === 'text') stack.pop();
+      else stack.push({ type: 'text', braces: 0 });
+      kinds.push('text');
+      continue;
+    }
+
+    if (character === '$' && line[index + 1] === '{' && top().type === 'text') {
+      stack.push({ type: 'code', braces: 0 });
+      kinds.push('code', 'code');
+      index += 1;
+      continue;
+    }
+
+    if (top().type === 'code') {
+      if (character === '{') top().braces += 1;
+      else if (character === '}') {
+        if (top().braces > 0) top().braces -= 1;
+        else if (stack.length > 1) stack.pop();
+      }
+    }
+
+    kinds.push(top().type);
+  }
+
+  return kinds;
+}
+
+/**
+ * Is this character inside a `${…}`, which is where a timestamp is allowed to
+ * be because that is a person being shown a sentence.
+ *
+ * @param {('code'|'text')[]} kinds
+ * @param {number} index
+ * @returns {boolean}
+ */
+function beingRendered(kinds, index) {
+  // Inside a substitution means: code, with template text somewhere outside it.
+  return kinds[index] === 'code' && kinds.includes('text')
+    && kinds.slice(0, index).lastIndexOf('text') !== -1;
+}
+
+/**
+ * Is this mention of a timestamp column a question about whether there is one.
+ *
+ * `closed_at === null` is how a pass says it is open and `undone_at !== null` is
+ * how it says it was undone. Neither reads the moment. It is the only thing a
+ * timestamp may be compared against outside the storage layer, and it is the
+ * only exception in the rule below.
+ *
+ * @param {string} line
+ * @param {number} start where the identifier begins
+ * @param {number} end where it ends
+ * @returns {boolean}
+ */
+function asksWhetherThereIsOne(line, start, end) {
+  return /^\s*(?:!==?|===?)\s*null\b/u.test(line.slice(end))
+    || /\bnull\s*(?:!==?|===?)\s*$/u.test(line.slice(0, start));
+}
+
+/**
+ * Everything that would have to be true for code to decide something from a
+ * date, and how each of them gives itself away.
+ *
+ * The first version of this guard forbade naming a clock. A reviewer walked
+ * past it with the rule that destroyed the owner's previous project:
  *
  *     if (memory.created_at < '2024-01-01T00:00:00.000Z') { actions.leaveBehind(...) }
  *
- * Older than N, therefore archive it, inside `review()`, waved through. It
- * needs no clock at all. Timestamps in this project are ISO 8601 strings and
- * ISO 8601 sorts as text, which is a deliberate property of the format and the
- * reason it was chosen — so the comparison a clock would have been needed for
- * is available for free, in a language operator, to anything holding two rows.
+ * No clock at all. Timestamps here are ISO 8601 strings, ISO 8601 sorts as
+ * text, and that is a deliberate property of the format — so the comparison a
+ * clock would have been needed for is a language operator available to anything
+ * holding two rows. That was fixed by matching the comparison.
  *
- * The guard was protecting the phrasing of a mistake rather than the mistake.
- * These are the mistake.
+ * The second version was walked past by this:
  *
- * @type {{what: string, pattern: RegExp, unless?: RegExp}[]}
+ *     const c = memory.created_at;
+ *     if (c < at) { ... }
+ *
+ * Which is not evasion. It is what happens when somebody extracts a variable. A
+ * check that looks at what sits next to what survives exactly one assignment,
+ * and eight of twelve mutations got past it — every one of them ordinary
+ * refactoring rather than an attempt to hide.
+ *
+ * So this version asks a different question. Not "is the mistake spelled this
+ * way" but **"can the value get out at all"**. Outside `store.js`, a timestamp
+ * column may appear in exactly two places: inside a `${…}` being rendered into
+ * a sentence for a person, and in a comparison against null. It may not be
+ * assigned to anything, passed to anything, or have a method called on it —
+ * because once it is in a variable or an argument, nothing lexical can follow
+ * it, and every one of those eight mutations begins by getting it out.
+ *
+ * `store.js` is exempt from that one and keeps the older rules. It is the
+ * storage layer; its SQL names these columns in every statement it has, and a
+ * rule that forbade mentioning them would forbid the file existing. What guards
+ * it instead is that the comparisons are the thing looked for, in the SQL too,
+ * which is why string literals stay in scope here.
  */
-const FORBIDDEN = [
-  {
-    // Every way of asking the machine what time it is. `Date` on its own rather
-    // than `Date.now` and `new Date` separately, because an alias — `const D =
-    // Date` — is one line and would have satisfied a narrower pattern. Nothing
-    // on this path has any business naming the constructor at all.
-    what: 'names a clock',
-    pattern: /\b(?:Date|performance\s*\.\s*now|process\s*\.\s*hrtime|Temporal)\b/u,
-  },
-  {
-    // A column holding a moment, next to an operator that orders or measures.
-    // `created_at`, `state_at`, `decided_at`, `began_at`, `closed_at`,
-    // `undone_at` — the shape rather than the list, so a seventh is covered the
-    // day it is added.
-    //
-    // Null is the exception and is the only one. `closed_at IS NULL` is how a
-    // pass says it is open and `undone_at !== null` is how it says it was
-    // undone; neither reads the moment, both ask whether there is one. Every
-    // other comparison of a timestamp is this project deciding from a date.
-    what: 'compares a timestamp with something other than null',
-    pattern: new RegExp(
-      String.raw`\b\w*_at\b\s*(?:<=|>=|<>|<|>|===|!==|==|!=|-)|`
-      + String.raw`(?:<=|>=|<>|<|>|===|!==|==|!=|-)\s*\b\w*_at\b`,
-      'u',
-    ),
-    unless: /\b\w*_at\b\s*(?:!==?|===?)\s*null|null\s*(?:!==?|===?)\s*\b\w*_at\b/u,
-  },
-  {
-    // The literal on the other side of that comparison, caught separately so
-    // that writing the threshold as a bare string rather than against a column
-    // — `at < '2024-01-01'`, `since > NOW` — is caught too. This is also what
-    // catches it inside a SQL string, which is where the same rule is one WHERE
-    // clause away from being written.
-    what: 'compares something against a moment written out',
-    pattern: /(?:<=|>=|<>|<|>|===|!==|==|!=|=)\s*['"`]\d{4}-\d\d-\d\d|['"`]\d{4}-\d\d-\d\d[^'"`]*['"`]\s*(?:<=|>=|<>|<|>|===|!==|==|!=)/u,
-  },
-  {
-    // Arithmetic on a moment, which is how a threshold gets written when
-    // somebody has already decided the comparison would look too obvious.
-    what: 'does arithmetic on a moment',
-    pattern: /\b(?:getTime|valueOf)\s*\(\s*\)|\bMath\s*\.\s*(?:floor|round)\s*\(\s*\w*_at/u,
-  },
-];
 
-test('nothing on the memory path can decide anything from a date', () => {
-  // The list is derived from the import graph and not written down here. The
-  // hand-written version of it missed `doctor.js` when that module joined the
-  // entrances in this very phase — in the commit whose own test says a module
-  // joining one list joins the other, in the same commit, for the same reason.
-  // Two lists kept by hand drifted apart inside the change that promised they
-  // would not, so now there is one and nobody keeps it.
+test('nothing on the memory path can get a timestamp out where it could be compared', () => {
+  // Derived, not written down. The hand-kept version of this list missed
+  // `doctor.js` when that module joined the entrances — in the commit whose own
+  // test says a module joining one list joins the other, in the same commit,
+  // for the same reason.
   const files = onTheMemoryPath();
 
-  // What the derivation has to have got right, asserted rather than assumed,
-  // because a guard over an empty list passes.
   for (const near of ['src/store.js', 'src/gate.js', 'src/tools.js', 'src/cli-main.js',
     'src/doctor.js', 'src/text.js', 'src/credentials.js', 'scripts/purge.mjs']) {
     assert.ok(files.includes(near), `${near} is on the memory path and is not being checked`);
   }
 
-  // And what it has to have left out. Writing a timestamp down is fine and this
-  // project does it constantly: `log.js` stamps every line of the action log
-  // and `setup.js` stamps a run. `config.js` holds the one real clock, which is
-  // handed in at the door — and if it ever turns up in this list that is not an
-  // exemption to add, it is the clock having joined the memory path.
+  // Writing a timestamp down is fine and this project does it constantly.
+  // `log.js` stamps every line of the action log, `setup.js` stamps a run, and
+  // `config.js` holds the one real clock, handed in at the door. If any of them
+  // turns up here that is not an exemption to add — it is the clock having
+  // joined the memory path.
   for (const far of ['src/log.js', 'src/setup.js', 'src/config.js', 'src/write.js']) {
     assert.equal(files.includes(far), false, `${far} is on the memory path and should not be`);
   }
 
   /** @type {string[]} */
   const offenders = [];
+  let allowed = 0;
 
   for (const file of files) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
     // Comments go; string literals stay. The SQL in `store.js` lives in string
-    // literals, and `WHERE created_at < ?` is the same rule written one layer
-    // down where JavaScript cannot see it.
+    // literals, and `WHERE created_at < ?` is the same rule one layer down
+    // where JavaScript cannot see it.
     const code = text.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/^\s*\/\/.*$/gmu, '');
 
-    for (const line of code.split('\n')) {
-      for (const rule of FORBIDDEN) {
-        if (!rule.pattern.test(line)) continue;
-        if (rule.unless?.test(line)) continue;
-        offenders.push(`${file}: ${rule.what} — ${line.trim()}`);
+    code.split('\n').forEach((line, index) => {
+      const where = `${file}:${index + 1}`;
+
+      // A clock, however it is spelled. `Date` as a bare identifier rather than
+      // `Date.now` and `new Date` separately, because an alias is one line.
+      if (/\b(?:Date|performance\s*\.\s*now|process\s*\.\s*hrtime|Temporal)\b/u.test(line)) {
+        offenders.push(`${where}: names a clock — ${line.trim()}`);
       }
-    }
+
+      // A moment written out, next to anything that orders. This is what
+      // catches the rule inside a SQL string.
+      if (/(?:<=|>=|<>|<|>|===|!==|==|!=|=)\s*['"`]\d{4}-\d\d-\d\d|['"`]\d{4}-\d\d-\d\d[^'"`]*['"`]\s*(?:<=|>=|<>|<|>|===|!==|==|!=)/u.test(line)) {
+        offenders.push(`${where}: compares against a moment written out — ${line.trim()}`);
+      }
+
+      // Arithmetic on a moment, for when the comparison would look too obvious.
+      if (/\b(?:getTime|valueOf)\s*\(\s*\)/u.test(line)) {
+        offenders.push(`${where}: does arithmetic on a moment — ${line.trim()}`);
+      }
+
+      const kinds = classify(line);
+
+      // Two rendered strings compared with each other. Rendering a timestamp
+      // into a sentence is allowed, and this is the one thing that can be done
+      // with a rendered sentence other than showing it to somebody.
+      //
+      // The operator has to be code rather than the text of a template — `<id>`
+      // in a usage message is not a comparison — and `=>` is not one either.
+      for (const match of line.matchAll(/<=|>=|<|>|===|!==|==|!=/gu)) {
+        const start = /** @type {number} */ (match.index);
+        if (kinds[start] !== 'code') continue;
+        if (match[0] === '>' && line[start - 1] === '=') continue;
+        if (/^\s*`/u.test(line.slice(start + match[0].length))
+          || /`\s*$/u.test(line.slice(0, start))) {
+          offenders.push(`${where}: compares one rendered string against another — ${line.trim()}`);
+        }
+      }
+
+      for (const match of line.matchAll(/\b\w*_at\b/gu)) {
+        const start = /** @type {number} */ (match.index);
+        const end = start + match[0].length;
+
+        if (file === 'src/store.js') {
+          // The storage layer names these columns in every statement it has.
+          // What it may not do is order by one against anything but a bound
+          // parameter's absence, so the older adjacency rule stands here.
+          if (/^\s*(?:<=|>=|<>|<|>|===|!==|==|!=|-)/u.test(line.slice(end))
+            || /(?:<=|>=|<>|<|>|===|!==|==|!=|-)\s*$/u.test(line.slice(0, start))) {
+            if (!asksWhetherThereIsOne(line, start, end)) {
+              offenders.push(`${where}: compares a timestamp — ${line.trim()}`);
+            }
+          }
+          continue;
+        }
+
+        if (beingRendered(kinds, start) || asksWhetherThereIsOne(line, start, end)) {
+          allowed += 1;
+          continue;
+        }
+
+        offenders.push(
+          `${where}: lets ${match[0]} out of the row — ${line.trim()}`,
+        );
+      }
+    });
   }
 
   assert.deepEqual(offenders, []);
+
+  // That the rule is looking at anything at all. A pattern that stopped
+  // matching would let everything through and pass in silence, which is how
+  // five checks in this project have been wrong before.
+  //
+  // Deliberately not an exact count. Fourteen mentions satisfy the rule today —
+  // every one of them a person being shown a sentence or a row being asked
+  // whether it has been closed — and pinning the number would turn writing a
+  // new message that names a date into a red test with a number to bump. A
+  // check that goes red for correct work is a check people learn to silence,
+  // and this is the last one in the project that should be silenced.
+  assert.ok(allowed > 0, 'the rule matched nothing, so it is guarding nothing');
 });
 
 test('a review row records its reasoning once, and not twice under two names', (t) => {
