@@ -181,8 +181,13 @@ test('--replaces is checked before anything is stored', (t) => {
 /**
  * A runner bound to a store file of its own.
  *
+ * It carries that file on it, for the one test that has to set something up the
+ * terminal has no command for. Said in the type as well as in a comment: the
+ * property was there and the return type did not mention it, so every use of it
+ * was a type error nobody could act on.
+ *
  * @param {import('node:test').TestContext} t
- * @returns {(args: string[]) => {code: number|null, out: string, err: string}}
+ * @returns {((args: string[]) => {code: number|null, out: string, err: string}) & {file: string}}
  */
 function commandRunner(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-cli-'));
@@ -190,6 +195,7 @@ function commandRunner(t) {
 
   const file = path.join(dir, 'memory.sqlite');
 
+  /** @param {string[]} args */
   const run = (args) => {
     const result = spawnSync(process.execPath, [CLI, ...args], {
       encoding: 'utf8',

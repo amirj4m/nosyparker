@@ -837,9 +837,14 @@ export function review(store, { owner, pass, id, outcome, reasoning, derivedFrom
       // Read here rather than through `whyNotOpen` alone, because every row
       // below this one carries `pass_id` and that column is a foreign key: a
       // finding naming a review that was never started has nothing to point at.
+      // `found === null` is tested here as well as inside `whyNotOpen`, which
+      // reads as one check too many and is not. Every row below carries
+      // `pass_id`, and this is what says the pass exists to point at — to the
+      // reader and to the type checker, which cannot see that a null `shut`
+      // means a non-null `found` and was reporting five of these.
       const found = getPass(store, owner, pass);
       const shut = whyNotOpen(found, pass);
-      if (shut !== null) {
+      if (found === null || shut !== null) {
         return {
           owner,
           verdict: 'refused',
@@ -1014,7 +1019,7 @@ export function closeReview(store, { owner, pass }) {
 
       const found = getPass(store, owner, pass);
       const shut = whyNotOpen(found, pass);
-      if (shut !== null) {
+      if (found === null || shut !== null) {
         return {
           owner,
           verdict: 'refused',
