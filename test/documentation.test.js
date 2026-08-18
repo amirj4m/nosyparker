@@ -32,13 +32,13 @@ test('every document agrees with the program', () => {
   }
 });
 
-test('there are fourteen of them, and each says what it is checking', () => {
+test('there are fifteen of them, and each says what it is checking', () => {
   // Counted so that a check cannot be quietly dropped, and each one's sentence
   // is what `doctor` prints, so an empty one would be a blank line in front of
   // somebody trying to work out what is wrong.
   const checks = checkDocumentation();
 
-  assert.equal(checks.length, 14);
+  assert.equal(checks.length, 15);
   for (const check of checks) assert.ok(check.what.length > 10, `a check with no sentence: ${check.what}`);
 });
 
@@ -53,12 +53,16 @@ test('a document that stops being true is noticed', (t) => {
   for (const name of ['CLIENTS.md', 'README.md', 'CONNECTING.md', 'DECISIONS.md', 'package.json']) {
     fs.copyFileSync(path.join(real, name), path.join(root, name));
   }
-  fs.mkdirSync(path.join(root, 'src'));
-  fs.copyFileSync(path.join(real, 'src/write.js'), path.join(root, 'src/write.js'));
-  // The check reads the scripts too, since a command nobody has can be named
-  // there as easily as anywhere else.
-  fs.mkdirSync(path.join(root, 'scripts'));
-  fs.copyFileSync(path.join(real, 'scripts/drift.mjs'), path.join(root, 'scripts/drift.mjs'));
+  // The whole of src and scripts, not a couple of files: the checks read every
+  // source for a command nobody has, and every source for the pointers into
+  // DECISIONS.md. Copying two of them made the copy look broken before any
+  // mutation had been applied.
+  for (const dir of ['src', 'scripts']) {
+    fs.mkdirSync(path.join(root, dir));
+    for (const name of fs.readdirSync(path.join(real, dir))) {
+      fs.copyFileSync(path.join(real, dir, name), path.join(root, dir, name));
+    }
+  }
 
   const failing = () => checkDocumentation(root).filter((check) => !check.ok).length;
   assert.equal(failing(), 0, 'the copy starts clean');
@@ -75,15 +79,16 @@ test('a document that stops being true is noticed', (t) => {
     ['README.md', '/issues', '/discussions'],
     ['README.md', 'actions.log', 'actions-log'],
     ['CLIENTS.md', '**Continue**, **Warp**', '**Cline**, **Continue**, **Warp**'],
+    ['DECISIONS.md', 'where a bound belongs  [record]', 'where a bound belongs'],
   ];
 
   // And the one that is about the program rather than a document: a usage
   // string naming a command nobody has.
   const cli = path.join(root, 'src', 'cli-main.js');
-  fs.mkdirSync(path.dirname(cli), { recursive: true });
-  fs.writeFileSync(cli, 'fail("Which one? nosyparker restore <id>");');
+  const untouched = fs.readFileSync(cli, 'utf8');
+  fs.writeFileSync(cli, `${untouched}\n// eslint-disable-next-line\nfail("Which one? nosyparker restore <id>");`);
   assert.ok(failing() > 0, 'a usage string naming a command nobody has was not noticed');
-  fs.rmSync(cli);
+  fs.writeFileSync(cli, untouched);
 
   // And the half that was not held at all: two of the seven original instances
   // were in documents, fixed by hand with nothing watching them. Each of the

@@ -2,7 +2,14 @@
 
 Reasoning that is too long to live in the code, kept where it can be read
 rather than scrolled past. Each section is pointed at from the place it
-explains.
+explains, and a check enforces that rather than this sentence asking you to
+believe it.
+
+One section is marked **[record]** instead. That is a retrospective — what a
+phase learned, written for the next one — and it explains no particular line, so
+nothing points at it. A section that is neither pointed at nor marked is one of
+the two things having quietly become the other, which is what happened to that
+one before it was marked.
 
 Nothing here is instructions. If this file and the code disagree, the code is
 what runs and this file is out of date.
@@ -238,9 +245,12 @@ a process that can be killed. Both change what search is. If real use shows the
 residual matters, that is the moment — and these numbers are the argument for
 revisiting it.
 
-## What Phase 2 learned about where a bound belongs
+## What Phase 2 learned about where a bound belongs  [record]
 
-Written down for Phase 3, which is where it will matter.
+*Written before Phase 3, for Phase 3. Phase 3 has happened and everything below
+was built — the inventory test exists and is verified by mutation, the gate
+holds the bounds, and what the installer refuses is two sections down. This is
+kept as the reasoning that produced them, not as work outstanding.*
 
 The same defect was fixed three times, and each fix was placed at whichever
 doors existed that week. Item 14 bounded the query in the MCP adapter, and

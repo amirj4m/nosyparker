@@ -187,6 +187,27 @@ export function checkDocumentation(root = repositoryRoot()) {
       ];
     })()),
 
+    check('every section of DECISIONS.md is pointed at from the code, or marked a record', (() => {
+      // The file's own opening says this, and nothing was checking it — so a
+      // retrospective written in the future tense to a phase that had finished
+      // sat in it as though it were guidance, pointed at from nowhere.
+      //
+      // Comments wrap, so the titles are not contiguous in the source; the same
+      // whitespace collapsing the pointer check two entries down uses.
+      const code = [
+        ...fs.readdirSync(path.join(root, 'src')).filter((file) => file.endsWith('.js'))
+          .map((file) => `src/${file}`),
+        ...fs.readdirSync(path.join(root, 'scripts')).filter((file) => file.endsWith('.mjs'))
+          .map((file) => `scripts/${file}`),
+      ].map((file) => read(file).replaceAll(/\s*\n\s*\*?\s*/gu, ' ').replaceAll('`', '')).join('\n');
+
+      return decisions.split('\n').filter((line) => line.startsWith('## '))
+        .map((line) => line.slice(3).trim())
+        .filter((title) => !title.endsWith('[record]'))
+        .filter((title) => !code.includes(title.replaceAll('`', '')))
+        .map((title) => `"${title}" is pointed at from nowhere and is not marked a record`);
+    })()),
+
     check('CLIENTS.md does not claim a firmer basis than a row has', (() => {
       // The document grouped Cline with the four clients written from vendor
       // documentation; its row says third-party write-ups, which is weaker.
