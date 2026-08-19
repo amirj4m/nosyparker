@@ -16,8 +16,8 @@ for, nothing hosted. We never run a server and we never hold anyone's data.
 
 ## What it can do
 
-Point your agents at it and they read and write the same file, so what you tell
-one, the others know. Ten things an agent can do:
+Point the agents on your machine at it and they read and write the same file,
+so what you tell one, the others know. Ten things an agent can do:
 
 - **remember** a fact about you, replacing an older one if you have changed
   your mind.
