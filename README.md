@@ -1,14 +1,22 @@
 # nosyparker
 
-A place to keep the things you tell an AI agent about yourself, so you do not
-have to tell it again tomorrow.
+Shared memory for the AI agents on your machine — and, more to the point, the
+gate in front of it.
 
-What it accepts, it keeps. Nothing in it expires, and nothing is ever removed
-behind your back. It does turn some things away, and it says so at the time.
+Keeping things is the easy part: it is a SQLite file and anyone could write
+that. What nosyparker is is the judgement at the door. What gets in. What is
+turned away, and why. What supersedes what, and what has merely been overtaken
+by events. And a record of every one of those decisions, in plain sentences, for
+you to read back afterwards.
+
+Nothing in it expires, and nothing is ever removed behind your back.
+
+**The file is yours, wherever it is.** There is no account, nothing to sign up
+for, nothing hosted. We never run a server and we never hold anyone's data.
 
 ## What it can do
 
-Every agent on your machine reads and writes the same file, so what you tell
+Point your agents at it and they read and write the same file, so what you tell
 one, the others know. Ten things an agent can do:
 
 - **remember** a fact about you, replacing an older one if you have changed
@@ -26,10 +34,15 @@ one, the others know. Ten things an agent can do:
 - **review_end** — finish, after which that review takes nothing more.
 - **review_undo** — put back everything one review changed, all at once.
 
-Offers can be refused. Anything shaped like a password, a key or a card number
-is not stored and is not written into the record either; so is empty text, and
-so is something you have already said word for word. Files are refused too: if
-an agent pastes a log, it is told to keep the fact and leave the file.
+### What it turns away
+
+Refusing is half of it, and a refusal is an answer rather than an error.
+Anything shaped like a password, a key or a card number is not stored — and is
+not written into the record either, so offering one leaves the fact that it was
+offered and never the text. Empty text is refused. So is something you have
+already said word for word. So is a file: paste an agent a log and it is told to
+keep the fact and leave the file. Every one of those is written down with the
+rule that decided it.
 
 ### Reviewing
 
@@ -71,10 +84,8 @@ you run yourself, and it cannot be undone:
 node scripts/purge.mjs --id 4 --yes
 ```
 
-There is also a command line tool for reading and changing your memories without
-an agent in the way, and a log at `~/.nosyparker/actions.log` of every file this
-has touched on your machine — which config, when, what changed. Never the
-contents of anything, so no key of yours is in it.
+There is also a command line tool, for reading and changing your memories
+without an agent in the way.
 
 ## Installing it
 
@@ -89,19 +100,19 @@ It looks for twenty clients, writes its entry into the ones it finds, and sorts
 them into three groups: the ones that answered us, the ones you should check
 yourself, and the ones that did not work, with the reason.
 
-The middle group is most of them. Three applications can be asked whether they
-started the server and will say so — Claude Code, Gemini CLI and opencode. Two
+The middle group is most of them, because most of these applications offer no
+way to be asked. Three can be — Claude Code, Gemini CLI and opencode — and two
 more, Codex and Goose, will show you their own parsed configuration with our
-entry in it, which is not the same thing. The rest offer no way to be asked at
-all. For those, open the client and ask the agent something it could only know
-from your shared memory. Ten seconds, once per client.
+entry in it, which is not the same thing. For the rest, open the client and ask
+the agent something it could only know from your shared memory. Ten seconds,
+once per client.
 
 [CLIENTS.md](CLIENTS.md) lists all twenty and says which group each is in.
 
-It never removes anything it did not add. Where it edits a config file itself it
-keeps a copy in `~/.nosyparker/backups/` first, and that copy is never replaced.
-Where a client has its own command for adding a server, that command does the
-writing and no copy is taken.
+It never removes anything it did not add, and where it edits a config file
+itself it keeps a copy in `~/.nosyparker/backups/` first, never replaced. A
+client that writes its own config leaves nothing of ours to undo, so no copy is
+taken for those.
 
 The last thing it prints is which applications to close and reopen. None of them
 re-read their config while running.
@@ -118,10 +129,10 @@ node src/cli.js doctor
 ```
 
 It says which clients are working, which cannot be asked, and for anything
-broken what is wrong and what to do. It also says whether your memory store
-opens, whether a review was left open, and what the recent reviews did. The
-commonest answer is that you changed your Node version, and running `setup`
-again fixes it. It changes nothing itself.
+broken what is wrong and what to do — plus whether your store opens, whether a
+review was left open, and what the recent reviews did. The commonest answer is
+that you changed your Node version, and running `setup` again fixes it. It
+changes nothing itself.
 
 If that does not resolve it, the
 [issues page](https://github.com/amirj4m/nosyparker/issues) is the place to say
@@ -141,7 +152,7 @@ folder:
 
 ```
 ~/.nosyparker/memory.sqlite   your memories
-~/.nosyparker/actions.log     what it did to which file, and when
+~/.nosyparker/actions.log     what it did to which file and when, never contents
 ~/.nosyparker/backups/        a copy of each config as it was before it was edited
 ```
 

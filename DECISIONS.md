@@ -5,12 +5,12 @@ rather than scrolled past. Each section is pointed at from the place it
 explains, and a check enforces that rather than this sentence asking you to
 believe it.
 
-Two sections are marked **[record]** instead. Those are retrospectives — what a
-phase learned, written for the next one — and they explain no particular line,
-so nothing points at them. A section that is neither pointed at nor marked is
-one of the two things having quietly become the other, which is what happened to
-the first of them before it was marked. This paragraph said "one" while there
-were two, which is the same defect one level up and was found by counting.
+Some sections are marked **[record]** instead. Those are retrospectives, or
+policy for something not built — they explain no particular line, so nothing
+points at them. A section that is neither pointed at nor marked is one of the two
+things having quietly become the other, which is what happened to the first of
+them before it was marked. This paragraph twice said a number that had stopped
+being true, which is the same defect one level up; it no longer counts.
 
 Nothing here is instructions. If this file and the code disagree, the code is
 what runs and this file is out of date.
@@ -733,3 +733,43 @@ removes what somebody might want, and a migration is the moment it matters most.
 `node src/cli.js export` is the other half of this. It is the copy that does not
 depend on the schema being readable at all, and the sentence to put in front of
 somebody before a migration runs is to take one.
+
+## What we are, and the one thing to leave room for  [record]
+
+**We are not a place. We are a gate that decides.** The storage is a SQLite file
+and anybody could have written it. What this project is is the judgement at the
+door — what gets in, what is refused and why, what supersedes what, what has
+merely been overtaken — and a record of every one of those decisions in
+sentences a person can read. If a change ever makes the store more interesting
+and the gate less, it is the wrong change.
+
+**The file is yours, wherever it is.** That is the claim, and it is stronger than
+"it stays on your laptop" because it stays true in every deployment. We never
+run a server and we never hold anyone's data: there is no account, nothing
+hosted, and no path by which somebody's memories reach us. If a person puts this
+on a machine of their own, that is their machine and their file, and the claim
+is unchanged. Do not weaken it to a privacy footnote and do not qualify it into
+"local-first" — it is what the thing is.
+
+**One future direction, so nobody designs against it.** The owner wants his own
+devices sharing one memory, and that will be designed after this ships and after
+a week of real use. It is written here only so that nothing in the meantime
+makes it harder.
+
+Nothing is built for it and nothing in the documents claims it — the product
+today is one file on one machine, and any sentence that could be read as "this
+works across your devices" is a defect. What makes it an addition rather than a
+rewrite:
+
+- The gate and the store are transport-agnostic. Neither knows what called it;
+  `submit` takes an owner and text, and every entrance is an adapter above them.
+- Phase 2 proved the adapter pattern by putting an MCP server beside the
+  terminal tool with no change to either layer beneath. A second transport is
+  the same shape.
+- The `owner` column has been on every row since Phase 1 and is threaded through
+  every read and every rule already.
+
+So the shape to keep is the one that exists: decisions in one place, adapters
+above it, and the owner carried rather than assumed. The thing that would make
+this hard later is a rule that lives in an adapter — which is the defect this
+project has already paid for four times.
