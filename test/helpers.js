@@ -107,6 +107,38 @@ export function runWatched(argv, options = {}) {
 }
 
 /**
+ * Every temporary folder this file has handed out, so they can be taken away
+ * again at the end.
+ *
+ * They were not, for five phases. Each call left a directory in `/tmp` holding
+ * a SQLite file, nothing removed them, and `/tmp` is on the root filesystem
+ * here rather than a tmpfs — so they survived every reboot and accumulated. By
+ * the time anybody looked there were 31,420 of them holding 5.0 GB, which was
+ * the whole of the free space on that filesystem and stopped an unrelated
+ * system upgrade.
+ *
+ * Cleaned at process exit rather than by each test, because the alternative is
+ * a cleanup inside `close()` — and two tests deliberately reopen a store's file
+ * after closing it, so that would break them for the sake of tidiness. The
+ * exit handler needs nothing from any caller and cannot be forgotten by a new
+ * test.
+ *
+ * @type {string[]}
+ */
+const temporaryFolders = [];
+
+process.on('exit', () => {
+  for (const dir of temporaryFolders) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // A folder a test moved or removed itself. Nothing to do and nothing
+      // worth failing a finished run over.
+    }
+  }
+});
+
+/**
  * A store in a fresh temporary folder, with a clock the test controls.
  *
  * @param {object} [options]
@@ -115,6 +147,7 @@ export function runWatched(argv, options = {}) {
  */
 export function temporaryStore(options = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-test-'));
+  temporaryFolders.push(dir);
   const file = path.join(dir, 'memory.sqlite');
 
   let clock = Date.parse(options.start ?? '2026-01-01T00:00:00.000Z');
