@@ -605,3 +605,69 @@ The state a review can reach is `overtaken`, and its name is part of this. Not
 `expired`, which describes a timer. Not `forgotten`, which is the person saying
 they do not want something shown. Overtaken by events: the world moved and this
 did not, which says nothing whatever about how old the row is.
+
+## The schema, frozen on 19 August 2026
+
+Three tables, one virtual table, three triggers, one index. Schema version 2.
+
+    memories        id · owner · text · text_normalised · created_at
+                    state {active, superseded, forgotten, overtaken}
+                    state_reason · state_at · supersedes · superseded_by
+    review_passes   id · owner · reviewer · began_at · closed_at · undone_at
+    decisions       id · owner · decided_at · verdict · rule · explanation
+                    memory_id · related_memory_id · input_excerpt
+                    pass_id · reasoning · derived_from
+    memories_fts    external content, trigram, kept in step by three triggers
+    index           decisions(pass_id)
+
+Changing this was free until today and costs somebody's memories after it. So
+it was looked at once, deliberately, and this is what we live with.
+
+**What the look changed.** One index, and only because measurement asked for it.
+At 20,000 memories and 24,400 decisions, `reviewSummaries` took 357 ms because
+it reads the decisions of every pass — cost is passes multiplied by decisions,
+both grow with use, and `doctor` calls it on every run. With `decisions(pass_id)`
+it is 35 ms. Two other indexes were tried and made things worse: one over
+`(owner, text_normalised)` for the duplicate check turned 7.4 ms into 10.0 ms,
+inside the write lock every other agent waits on, and one over `(owner, state)`
+turned `listMemories` from 21.4 ms into 25.5 ms, which is what happens when you
+index a query that wants every row anyway. They are not here.
+
+The index is created on open rather than only for new stores, because the
+schema statements run once for a fresh file and would reach nobody who already
+had one. It is not a column, so it does not move the schema version.
+
+**What is missing, and is staying missing.**
+
+*Nothing records which agent stored a memory.* A review says who ran it and a
+memory does not say who wrote it, which is the one asymmetry a year of use would
+notice: "which of them told you that" is a fair question and there is no answer
+in the file. It is not here because filling it honestly means every door
+supplying it — the MCP server has the client's name, the terminal has no agent
+at all — and inventing a value for the door that has none is worse than the gap.
+This is the most likely reason for a schema version 3.
+
+*There is no way to repair the search index.* `memories_fts` takes its content
+from `memories` and three triggers keep it in step. If they are ever bypassed,
+searching lies quietly. FTS5's own `integrity-check` was tried and does not
+detect that case — it verifies the index against itself, and a row removed
+behind the trigger came back clean — so nothing was built on the strength of a
+check that does not check. A `rebuild` costs 25 ms per 2,000 rows if it is ever
+needed.
+
+*`derived_from` holds ids as text, so a purge can leave one pointing at nothing.*
+Purge clears the two foreign keys and runs `foreign_key_check`; it does not
+touch this, because it is a record of what an agent read and the agent did read
+it. Rewriting it would make the record claim the review read fewer memories than
+it did, which is a worse thing for a log to say than a number that no longer
+resolves. A join table would have avoided the question and is the one part of
+the shape I would think longer about if it were being designed again.
+
+*No unique constraint over active text.* The duplicate rule is the gate's, and
+making it the file's would also make `restore` fail with an SQLite error when
+somebody brings back a memory whose words happen to be stored again — worse than
+the two identical memories it would prevent.
+
+*No `decisions(memory_id)` index.* No query here asks that question. An index
+for a question nobody asks is a guess about the future written into everybody's
+file.

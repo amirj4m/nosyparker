@@ -174,6 +174,10 @@ export const TEXT_LIMIT = 10_000;
  * of the number, which would go red on the first bump for reasons that had
  * nothing to do with the change being made.
  *
+ * The shape this number describes was frozen before release, and what was
+ * looked at, what changed and what is deliberately absent is in DECISIONS.md,
+ * "The schema, frozen on 19 August 2026".
+ *
  * Two at Phase 4. The CHECK on `state` learned a fourth word, `decisions` grew
  * three columns and there is a new table, so a file written by Phase 3 is a
  * file this code would fail against on the first review — with SQLite's own
@@ -402,6 +406,40 @@ END;
 `;
 
 /**
+ * The one index, and it is separate from the schema above on purpose.
+ *
+ * `SCHEMA` runs for a new store and never again, so anything in it reaches
+ * nobody who already has a file. This runs on every open, is idempotent, and
+ * therefore arrives for stores that already exist.
+ *
+ * There is one because one is what measurement justified. Three were tried at
+ * 20,000 memories and 24,400 decisions:
+ *
+ *     decisions(pass_id)             reviewSummaries  357 ms -> 35 ms
+ *     memories(owner, text_normalised)  a submit      7.4 ms -> 10.0 ms
+ *     memories(owner, state)          listMemories   21.4 ms -> 25.5 ms
+ *
+ * The first is the one that matters and it is the only one that scales badly:
+ * `reviewSummaries` reads the decisions of every pass, so its cost is passes
+ * multiplied by decisions and both grow with use, and `doctor` calls it every
+ * time it runs. The other two made things slower — a duplicate check is already
+ * a fast scan at that size and the writes it slows down happen inside the lock
+ * every other agent is waiting on, and `listMemories` returns every row, which
+ * is what a scan is already for.
+ *
+ * Two indexes that would have looked sensible are not here. `decisions(memory_id)`
+ * serves no query this code makes, and an index for a question nobody asks is a
+ * guess about the future written into everybody's file. A unique index over
+ * active text would make the duplicate rule a property of the file rather than
+ * of the gate, and would also make `restore` fail with an SQLite error when
+ * somebody brings back a memory whose words are now stored again — which is
+ * worse than the two identical memories it would prevent.
+ */
+const INDEXES = `
+CREATE INDEX IF NOT EXISTS decisions_by_pass ON decisions(pass_id);
+`;
+
+/**
  * Open the store, creating the file and the tables if they are not there yet.
  *
  * @param {object} options
@@ -487,6 +525,7 @@ function prepareSchema(db, file) {
     if (fresh) {
       db.exec(SCHEMA);
       db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+      db.exec(INDEXES);
     } else if (version < SCHEMA_VERSION) {
       throw new Error(
         `${file} was written by an older version of nosyparker: it is at schema version ` +
@@ -507,6 +546,13 @@ function prepareSchema(db, file) {
           'again; the file itself is fine and nothing in it has been changed.',
       );
     }
+
+    // Outside the `fresh` branch and after the version check, so that a store
+    // written before this index existed gets it on the next open. An index is
+    // not a column: it is not a reason to turn a file away and it does not move
+    // the schema version, because code without it reads a file with it, and
+    // code with it reads a file without it, more slowly.
+    if (!fresh) db.exec(INDEXES);
 
     db.exec('COMMIT');
   } catch (error) {
