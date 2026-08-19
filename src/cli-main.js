@@ -18,6 +18,7 @@
  */
 
 import { defaultStorePath, LOCAL_OWNER, systemClock } from './config.js';
+import { exportAll, writeExport } from './export.js';
 import { forget, restore, screenQuery, submit, undoReview } from './gate.js';
 import { invocation } from './clients.js';
 import { diagnose, reportDiagnosis } from './doctor.js';
@@ -81,6 +82,9 @@ function main(argv) {
         break;
       case 'undo-review':
         runUndoReview(store, rest);
+        break;
+      case 'export':
+        runExport(store, rest);
         break;
       default:
         fail(`There is no command called "${command}".`);
@@ -253,6 +257,38 @@ function runLog(store, args) {
 }
 
 /**
+ * `export` to a file, or to whatever the shell is pointing at.
+ *
+ * No file named means standard output, so it pipes. A file named means a file
+ * written, and one that is already there is a refusal rather than an overwrite:
+ * see `writeExport`.
+ *
+ * @param {import('./store.js').Store} store
+ * @param {string[]} args
+ */
+function runExport(store, args) {
+  const [file, ...extra] = args;
+  refuseExtra('export', extra);
+
+  const contents = exportAll(store, LOCAL_OWNER);
+  if (file === undefined) {
+    process.stdout.write(contents);
+    return;
+  }
+
+  try {
+    process.stdout.write(`${writeExport(file, contents)}\n`);
+  } catch (error) {
+    const code = /** @type {NodeJS.ErrnoException} */ (error).code;
+    if (code === 'EEXIST') {
+      fail(`${file} is already there, and this will not write over it. `
+        + 'Move it aside, or name a file that does not exist yet.');
+    }
+    fail(error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
  * @param {import('./store.js').Store} store
  * @param {string[]} args
  */
@@ -316,7 +352,7 @@ function formatMemory(memory) {
 /**
  * Refuse what a command was not asked for.
  *
- * `list`, `log`, `restore` and `undo-review` take a fixed number of arguments, and until now
+ * `list`, `log`, `restore`, `undo-review` and `export` take a fixed number of arguments, and until now
  * they read the ones they wanted and dropped the rest on the floor. So
  * `list --all` printed the active memories and exited 0, and the person
  * reading it had every reason to believe they had been shown the forgotten

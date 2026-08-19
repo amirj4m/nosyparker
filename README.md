@@ -86,6 +86,17 @@ file — this is a memory, not a filing cabinet.
 There is also a command line tool, so you can read and change your memories
 without an agent in the way.
 
+You can take everything out at any time:
+
+```
+node src/cli.js export memories.json
+```
+
+That is every memory in every state, every review, and the whole record of what
+was decided and why — not just what is currently shown. Plain JSON, which any
+program opens and you can read. It will not write over a file that is already
+there.
+
 Nothing here deletes a memory. If you want one gone for good, that is a
 command you run yourself:
 
