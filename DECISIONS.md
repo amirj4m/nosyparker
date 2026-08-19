@@ -611,14 +611,14 @@ did not, which says nothing whatever about how old the row is.
 An installed npm package with no command in it is a wart, and it is deliberate.
 
 `setup` writes the path of the program that starts the server into every config
-it touches — up to twenty files. A `bin` entry makes `npx nosyparker setup`
-possible, and a package run through `npx` lives under `~/.npm/_npx/<hash>/`,
+it touches — up to twenty files. A `bin` entry makes it runnable through `npx`,
+and a package run that way lives under `~/.npm/_npx/<hash>/`,
 which npm clears. Every entry written that way would point at nothing
 afterwards, silently, because a client that cannot start a server mostly does
 not say so. That is this product's worst failure mode and the one `doctor`
 exists to catch after the fact.
 
-With no `bin`, `npx nosyparker` cannot run at all. The hazard does not exist
+With no `bin`, `npx` cannot run this at all. The hazard does not exist
 rather than being warned about, which is the difference between a rule and a
 paragraph. The cost is that somebody who installs has no command, so the README
 gives the path and says why.
@@ -627,8 +627,8 @@ Two things would have to be true to add one, and both are real work rather than
 a line in the manifest. `setup` would have to refuse to write when the path it
 is about to record is inside an npx cache — with a test, and mutations, like
 every other guard here. And `invocation()` would have to learn that it was
-started through the shim, so the sentences it prints say `nosyparker setup`
-rather than a path inside `node_modules`; on Windows the shim runs the script
+started through the shim, so the sentences it prints name the command rather
+than a path inside `node_modules`; on Windows the shim runs the script
 directly, so that detection has a platform split in it.
 
 Neither is hard. Both were the wrong thing to start on the day before a first
