@@ -45,6 +45,14 @@ export function checkDocumentation(root = repositoryRoot()) {
   const clients = loadClients().clients;
   const clientsMd = read('CLIENTS.md');
   const readme = read('README.md');
+
+  // The same text with every run of whitespace flattened to one space, for the
+  // checks that look for a phrase rather than for structure. These documents
+  // are wrapped by hand, and "ten things an agent can do" wrapping after
+  // "agent" is a claim moving across a line break, not a claim disappearing.
+  // A check that goes red for correctly wrapped prose is one people learn to
+  // work around, which is the whole value of it gone.
+  const flatReadme = readme.replaceAll(/\s+/gu, ' ');
   const connecting = read('CONNECTING.md');
   const decisions = read('DECISIONS.md');
 
@@ -104,10 +112,9 @@ export function checkDocumentation(root = repositoryRoot()) {
 
     check('the README says how many clients there are, and is right',
       words.flatMap((word, n) => {
-        if (n === clients.length) {
-          return readme.includes(`${word} clients`) ? [] : [`the README does not say ${word}`];
-        }
-        return readme.includes(`${word} clients`) ? [`the README still says ${word} clients`] : [];
+        const said = flatReadme.includes(`${word} clients`);
+        if (n === clients.length) return said ? [] : [`the README does not say ${word}`];
+        return said ? [`the README still says ${word} clients`] : [];
       })),
 
     check('the README lists every tool an agent has, and says how many there are', (() => {
@@ -125,13 +132,13 @@ export function checkDocumentation(root = repositoryRoot()) {
 
       return [
         ...(tools.length === 0 ? ['no tool names could be read out of src/tools.js'] : []),
-        ...tools.filter((tool) => !readme.includes(`**${tool}**`))
+        ...tools.filter((tool) => !flatReadme.includes(`**${tool}**`))
           .map((tool) => `the README does not list ${tool}`),
         // Lowercased, because the number opens a sentence and is capitalised
         // there. A check that missed for that reason would be a check nobody
         // could satisfy without rewriting the sentence around it.
         ...words.flatMap((word, n) => {
-          const said = readme.toLowerCase().includes(`${word} things an agent can do`);
+          const said = flatReadme.toLowerCase().includes(`${word} things an agent can do`);
           if (n === tools.length) {
             return said ? [] : [`the README does not say ${word} things an agent can do`];
           }
@@ -147,6 +154,38 @@ export function checkDocumentation(root = repositoryRoot()) {
           }
           return said ? [`CONNECTING.md still says ${word} tools`] : [];
         }),
+      ];
+    })()),
+
+    check('the README does not call the package unreleased once it can be published', (() => {
+      // The one document-versus-code gap left, and it would have arrived at the
+      // most expensive moment available: `README.md` said "nosyparker is not
+      // released yet — there is no package to fetch" and that paragraph ships
+      // inside the tarball. The first thing a stranger reads after installing
+      // would have been a sentence saying the thing they just installed does
+      // not exist.
+      //
+      // It matters more here than the wording suggests. This project's whole
+      // claim is that it tells you the truth about what it did — refusals
+      // explain themselves, `doctor` says what it cannot check, CLIENTS.md says
+      // which rows nobody has watched work. Being wrong about the most
+      // checkable fact there is, in the first paragraph, spends that in ten
+      // seconds.
+      const manifest = JSON.parse(read('package.json'));
+      const publishable = manifest.private !== true
+        && /^\d+\.\d+\.\d+$/u.test(manifest.version ?? '');
+
+      if (!publishable) return [];
+
+      return [
+        ...[/\bnot (?:yet )?released\b/iu, /\bunreleased\b/iu, /no package to fetch/iu,
+          /\bnot on npm\b/iu, /\bcoming soon\b/iu]
+          .filter((claim) => claim.test(flatReadme))
+          .map((claim) => `the README says /${claim.source}/ and package.json is at ${manifest.version}`),
+        // And the other half: it has to say how to get it, in the name the
+        // manifest will publish under rather than the one somebody typed.
+        ...(flatReadme.includes(`npm install -g ${manifest.name}`)
+          ? [] : [`the README does not say \`npm install -g ${manifest.name}\``]),
       ];
     })()),
 

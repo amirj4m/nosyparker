@@ -50,6 +50,7 @@ const ENTRANCES = [
   'src/cli-main.js',
   'src/cli.js',
   'src/doctor.js',
+  'src/export.js',
   'src/gate.js',
   'src/mcp-main.js',
   'src/mcp-server.js',

@@ -5,12 +5,12 @@ rather than scrolled past. Each section is pointed at from the place it
 explains, and a check enforces that rather than this sentence asking you to
 believe it.
 
-Two sections are marked **[record]** instead. Those are retrospectives — what a
-phase learned, written for the next one — and they explain no particular line,
-so nothing points at them. A section that is neither pointed at nor marked is
-one of the two things having quietly become the other, which is what happened to
-the first of them before it was marked. This paragraph said "one" while there
-were two, which is the same defect one level up and was found by counting.
+Some sections are marked **[record]** instead. Those are retrospectives, or
+policy for something not built — they explain no particular line, so nothing
+points at them. A section that is neither pointed at nor marked is one of the two
+things having quietly become the other, which is what happened to the first of
+them before it was marked. This paragraph twice said a number that had stopped
+being true, which is the same defect one level up; it no longer counts.
 
 Nothing here is instructions. If this file and the code disagree, the code is
 what runs and this file is out of date.
@@ -605,3 +605,199 @@ The state a review can reach is `overtaken`, and its name is part of this. Not
 `expired`, which describes a timer. Not `forgotten`, which is the person saying
 they do not want something shown. Overtaken by events: the world moved and this
 did not, which says nothing whatever about how old the row is.
+
+## No `bin`, and what would change the answer  [record]
+
+An installed npm package with no command in it is a wart, and it is deliberate.
+
+`setup` writes the path of the program that starts the server into every config
+it touches — up to twenty files. A `bin` entry makes it runnable through `npx`,
+and a package run that way lives under `~/.npm/_npx/<hash>/`,
+which npm clears. Every entry written that way would point at nothing
+afterwards, silently, because a client that cannot start a server mostly does
+not say so. That is this product's worst failure mode and the one `doctor`
+exists to catch after the fact.
+
+With no `bin`, `npx` cannot run this at all. The hazard does not exist
+rather than being warned about, which is the difference between a rule and a
+paragraph. The cost is that somebody who installs has no command, so the README
+gives the path and says why.
+
+Two things would have to be true to add one, and both are real work rather than
+a line in the manifest. `setup` would have to refuse to write when the path it
+is about to record is inside an npx cache — with a test, and mutations, like
+every other guard here. And `invocation()` would have to learn that it was
+started through the shim, so the sentences it prints name the command rather
+than a path inside `node_modules`; on Windows the shim runs the script
+directly, so that detection has a platform split in it.
+
+Neither is hard. Both were the wrong thing to start on the day before a first
+release, which is the whole of why the answer is no rather than never.
+
+## The schema, frozen on 19 August 2026
+
+Three tables, one virtual table, three triggers, one index. Schema version 2.
+
+    memories        id · owner · text · text_normalised · created_at
+                    state {active, superseded, forgotten, overtaken}
+                    state_reason · state_at · supersedes · superseded_by
+    review_passes   id · owner · reviewer · began_at · closed_at · undone_at
+    decisions       id · owner · decided_at · verdict · rule · explanation
+                    memory_id · related_memory_id · input_excerpt
+                    pass_id · reasoning · derived_from
+    memories_fts    external content, trigram, kept in step by three triggers
+    index           decisions(pass_id)
+
+Changing this was free until today and costs somebody's memories after it. So
+it was looked at once, deliberately, and this is what we live with.
+
+**What the look changed.** One index, and only because measurement asked for it.
+At 20,000 memories and 24,400 decisions, `reviewSummaries` took 357 ms because
+it reads the decisions of every pass — cost is passes multiplied by decisions,
+both grow with use, and `doctor` calls it on every run. With `decisions(pass_id)`
+it is 35 ms. Two other indexes were tried and made things worse: one over
+`(owner, text_normalised)` for the duplicate check turned 7.4 ms into 10.0 ms,
+inside the write lock every other agent waits on, and one over `(owner, state)`
+turned `listMemories` from 21.4 ms into 25.5 ms, which is what happens when you
+index a query that wants every row anyway. They are not here.
+
+The index is created on open rather than only for new stores, because the
+schema statements run once for a fresh file and would reach nobody who already
+had one. It is not a column, so it does not move the schema version.
+
+**What is missing, and is staying missing.**
+
+*Nothing records which agent stored a memory.* A review says who ran it and a
+memory does not say who wrote it, which is the one asymmetry a year of use would
+notice: "which of them told you that" is a fair question and there is no answer
+in the file. It is not here because filling it honestly means every door
+supplying it — the MCP server has the client's name, the terminal has no agent
+at all — and inventing a value for the door that has none is worse than the gap.
+This is the most likely reason for a schema version 3.
+
+*There is no way to repair the search index.* `memories_fts` takes its content
+from `memories` and three triggers keep it in step. If they are ever bypassed,
+searching lies quietly. FTS5's own `integrity-check` was tried and does not
+detect that case — it verifies the index against itself, and a row removed
+behind the trigger came back clean — so nothing was built on the strength of a
+check that does not check. A `rebuild` costs 25 ms per 2,000 rows if it is ever
+needed.
+
+*`derived_from` holds ids as text, so a purge can leave one pointing at nothing.*
+Purge clears the two foreign keys and runs `foreign_key_check`; it does not
+touch this, because it is a record of what an agent read and the agent did read
+it. Rewriting it would make the record claim the review read fewer memories than
+it did, which is a worse thing for a log to say than a number that no longer
+resolves. A join table would have avoided the question and is the one part of
+the shape I would think longer about if it were being designed again.
+
+*No unique constraint over active text.* The duplicate rule is the gate's, and
+making it the file's would also make `restore` fail with an SQLite error when
+somebody brings back a memory whose words happen to be stored again — worse than
+the two identical memories it would prevent.
+
+*No `decisions(memory_id)` index.* No query here asks that question. An index
+for a question nobody asks is a guess about the future written into everybody's
+file.
+
+## How a migration is done, if one is ever needed  [record]
+
+There is no migration in this code and deliberately nowhere to put one: a store
+written under an older schema is turned away at the door with a sentence naming
+the file. That is right for a project with no released version. It stops being
+right the first time somebody has memories in a file and an upgrade needs a
+column, and this is the policy for that day, written now rather than under
+pressure.
+
+**Never in place.** The original file is not touched. Copy it, migrate the copy,
+verify the copy, and only then swap. The original stays where it is as the
+backup, and the person deletes it when they are satisfied — not us, not the
+migration, not a tidy-up.
+
+The worst case that policy allows is a failed migration leaving somebody exactly
+where they started. Any policy that edits the live file has a worst case of
+somebody losing everything, and no amount of care inside the migration changes
+which of those two you are choosing.
+
+**Copy it with `VACUUM INTO`, not with `cp`.** This is the step to get wrong and
+it fails silently. The store runs in WAL mode, so recent writes live in a
+`-wal` sidecar until a checkpoint folds them in. Measured on a store of 200
+memories with an open connection:
+
+    original                    200 memories, 200 in the search index
+    cp memory.sqlite copy       135 memories, 135 in the search index
+    VACUUM INTO 'copy'          200 memories, 200 in the search index
+
+The plain copy lost a third of the store, reported no error, passed
+`foreign_key_check`, and had a search index that agreed with the truncated
+table — so every check you would think to run says it is fine. `VACUUM INTO`
+produces one consistent standalone file. It is one statement:
+
+```sql
+VACUUM INTO '/path/to/memory.migrating.sqlite'
+```
+
+**Then, in order.**
+
+1. `VACUUM INTO` a new file beside the original.
+2. Migrate that copy. `ALTER TABLE … ADD COLUMN` for a new column; for anything
+   structural, create the new table, copy the rows, and swap inside one
+   transaction. Set `PRAGMA user_version` to the new number last, so a copy that
+   failed halfway is still recognisably the old shape.
+3. Verify the copy, and verify it against the original rather than against
+   hope: the same number of rows in `memories`, `decisions` and `review_passes`;
+   `PRAGMA foreign_key_check` empty; `PRAGMA integrity_check` clean; the search
+   index returning the same count for a term that matches most of the store; and
+   `openStore` opening it under the new code.
+4. Anything wrong: delete the copy, say what failed, and stop. Nothing has
+   happened to the original.
+5. Only then rename the original to `memory.sqlite.before-v<n>` and the copy
+   into place. Say where the backup is, in that sentence, in the output.
+
+**Never delete the backup**, on any schedule, for any reason, including disk
+space. That is the same rule as everywhere else here: nothing in this project
+removes what somebody might want, and a migration is the moment it matters most.
+
+`node src/cli.js export` is the other half of this. It is the copy that does not
+depend on the schema being readable at all, and the sentence to put in front of
+somebody before a migration runs is to take one.
+
+## What we are, and the one thing to leave room for  [record]
+
+**We are not a place. We are a gate that decides.** The storage is a SQLite file
+and anybody could have written it. What this project is is the judgement at the
+door — what gets in, what is refused and why, what supersedes what, what has
+merely been overtaken — and a record of every one of those decisions in
+sentences a person can read. If a change ever makes the store more interesting
+and the gate less, it is the wrong change.
+
+**The file is yours, wherever it is.** That is the claim, and it is stronger than
+"it stays on your laptop" because it stays true in every deployment. We never
+run a server and we never hold anyone's data: there is no account, nothing
+hosted, and no path by which somebody's memories reach us. If a person puts this
+on a machine of their own, that is their machine and their file, and the claim
+is unchanged. Do not weaken it to a privacy footnote and do not qualify it into
+"local-first" — it is what the thing is.
+
+**One future direction, so nobody designs against it.** The owner wants his own
+devices sharing one memory, and that will be designed after this ships and after
+a week of real use. It is written here only so that nothing in the meantime
+makes it harder.
+
+Nothing is built for it and nothing in the documents claims it — the product
+today is one file on one machine, and any sentence that could be read as "this
+works across your devices" is a defect. What makes it an addition rather than a
+rewrite:
+
+- The gate and the store are transport-agnostic. Neither knows what called it;
+  `submit` takes an owner and text, and every entrance is an adapter above them.
+- Phase 2 proved the adapter pattern by putting an MCP server beside the
+  terminal tool with no change to either layer beneath. A second transport is
+  the same shape.
+- The `owner` column has been on every row since Phase 1 and is threaded through
+  every read and every rule already.
+
+So the shape to keep is the one that exists: decisions in one place, adapters
+above it, and the owner carried rather than assumed. The thing that would make
+this hard later is a rule that lives in an adapter — which is the defect this
+project has already paid for four times.

@@ -334,3 +334,34 @@ test('a person can undo a whole review from the terminal, and the log tells them
   assert.match(run(['undo-review', '1']).out, /already undone/u);
   assert.match(run(['undo-review', '1', 'extra']).err, /does not take extra/u);
 });
+
+test('export writes a file, refuses to write over one, and pipes when unnamed', (t) => {
+  const run = commandRunner(t);
+  const dump = path.join(path.dirname(run.file), 'dump.json');
+
+  run(['add', 'I live in Tehran']);
+  run(['add', 'I have moved to Vienna', '--replaces', '1']);
+  run(['forget', '2', 'no, I am still in Tehran']);
+
+  const written = run(['export', dump]);
+  assert.equal(written.code, 0);
+  assert.match(written.out, /Written to/u);
+
+  const dumped = JSON.parse(fs.readFileSync(dump, 'utf8'));
+  assert.deepEqual(dumped.memories.map((/** @type {any} */ m) => m.state).sort(),
+    ['forgotten', 'superseded']);
+  assert.ok(dumped.decisions.length >= 3);
+
+  // Insurance is not something to overwrite by accident.
+  const again = run(['export', dump]);
+  assert.equal(again.code, 1);
+  assert.match(again.err, /already there, and this will not write over it/u);
+  assert.deepEqual(JSON.parse(fs.readFileSync(dump, 'utf8')), dumped);
+
+  // Unnamed goes to standard output, so it pipes.
+  const piped = run(['export']);
+  assert.equal(piped.code, 0);
+  assert.deepEqual(JSON.parse(piped.out).memories, dumped.memories);
+
+  assert.match(run(['export', dump, 'extra']).err, /does not take extra/u);
+});

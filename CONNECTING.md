@@ -14,14 +14,10 @@ your own paths, and naming a client prints that client's own shape.
 node /absolute/path/to/nosyparker/src/mcp-server.js
 ```
 
-Node 22.5 or newer. On anything older the server stops immediately and says so
-rather than failing halfway through starting — which matters here, because a
-client starting it would otherwise show you nothing but a connection that did
-not happen.
-
-It speaks MCP over stdin and stdout, so run on its own it will sit there
-saying nothing. That is what working looks like. An agent starts it for you;
-the command is here because it is what you put in the config below.
+Node 22.5 or newer; on anything older it stops immediately and says so. It
+speaks MCP over stdin and stdout, so run on its own it sits there saying
+nothing — that is what working looks like. An agent starts it for you; the
+command is here because it is what goes in the config below.
 
 It reads and writes `~/.nosyparker/memory.sqlite`, the same file the command
 line tool uses. Set `NOSYPARKER_STORE` to point both somewhere else.
@@ -48,21 +44,13 @@ file it points at rather than replacing the link. `setup` does this for you;
 doing it by hand is the one place it is easy to get wrong, and replacing the
 link disconnects your repository from your live config without saying so.
 
-**Both paths have to be absolute, including the one to Node.** Run `which node`
-to get it, or `node -e 'console.log(process.execPath)'`.
-
-That is not fussiness. An application started from a desktop icon does not
-inherit your shell's `PATH`, so `node` is a command it may simply not find —
-we watched opencode fail with `Connection closed` and no other explanation for
-exactly this reason. A few clients import the shell environment deliberately
-and do work with a bare `node`; most do not, and there is no way to tell which
-from the outside.
-
-The cost is that a version manager moves that path when you switch versions,
-and the entry then fails silently. Run `setup` again after changing Node, or
-edit the path by hand.
-
-`setup` does all of this for you and prints the interpreter path it wrote.
+**Both paths have to be absolute, including the one to Node.** Run
+`node -e 'console.log(process.execPath)'` to get it. An application started from
+a desktop icon does not inherit your shell's `PATH`, so a bare `node` is a
+command it may not find — opencode fails with `Connection closed` and nothing
+else for exactly this reason. The cost is that a version manager moves that path
+when you switch versions and the entry then fails silently, so run `setup` again
+after changing Node. `setup` does all of this and prints the path it wrote.
 
 Restart Claude Code. `/mcp` lists the connected servers; nosyparker should be
 there with ten tools.
@@ -81,13 +69,12 @@ Ask for each of these in turn, in ordinary words:
   out of date."* → `review_start`, then `review_finding` for anything it
   concludes, then `review_end`
 
-The last one is worth trying on a store with something dated in it. Tell an
-agent *"next week I am giving a talk"*, come back a fortnight later, and ask it
-to review. It should work out from the sentence and the date that the week has
-gone, and say so. Ask it about something with no date in it — where you live,
-what you prefer — and it should leave that alone however old it is, or tell you
-it could not tell. Nothing in nosyparker decides any of that; you are watching
-the agent read.
+The last one is worth trying properly. Tell an agent *"next week I am giving a
+talk"*, come back a fortnight later, and ask it to review. It should work out
+from the sentence and the date that the week has gone. Ask it about something
+with no date in it and it should leave that alone however old it is, or say it
+could not tell. Nothing in nosyparker decides any of that; you are watching the
+agent read.
 
 Then start a second agent — another Claude Code window, or the command line
 tool in a terminal — and ask it what it knows about you. It reads the same

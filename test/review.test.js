@@ -817,6 +817,18 @@ function beingRendered(kinds, index) {
 }
 
 /**
+ * Where a SQL clause stops, so that looking at what follows `ORDER BY` does not
+ * wander into the next statement in the same template literal.
+ *
+ * @param {string} rest
+ * @returns {number}
+ */
+function indexOrEnd(rest) {
+  const stop = [...rest.matchAll(/[`;)]|\bLIMIT\b/giu)].map((m) => /** @type {number} */ (m.index));
+  return stop.length > 0 ? stop[0] : rest.length;
+}
+
+/**
  * Is this mention of a timestamp column a question about whether there is one.
  *
  * `closed_at === null` is how a pass says it is open and `undone_at !== null` is
@@ -925,6 +937,20 @@ test('nothing on the memory path can get a timestamp out where it could be compa
         offenders.push(`${where}: does arithmetic on a moment — ${line.trim()}`);
       }
 
+      // Ordering by a moment, which containment does not cover and comparison
+      // does not either — `SELECT … ORDER BY created_at LIMIT 5` hands a caller
+      // the five oldest without an operator anywhere. Only `store.js` writes
+      // SQL, and every ORDER BY it has is on `id` or on `rank`. Aggregates over
+      // a moment are the same thing said differently: `min(created_at)` is "the
+      // oldest" and nothing else.
+      for (const match of line.matchAll(/ORDER\s+BY|\b(?:min|max)\s*\(/giu)) {
+        const after = line.slice(/** @type {number} */ (match.index));
+        const clause = after.slice(0, Math.min(after.length, indexOrEnd(after)));
+        if (/\b\w*_at\b/u.test(clause)) {
+          offenders.push(`${where}: ${/ORDER/iu.test(match[0]) ? 'orders by' : 'takes the extreme of'} a moment — ${line.trim()}`);
+        }
+      }
+
       const kinds = classify(line);
 
       // Two rendered strings compared with each other. Rendering a timestamp
@@ -949,8 +975,8 @@ test('nothing on the memory path can get a timestamp out where it could be compa
 
         if (file === 'src/store.js') {
           // The storage layer names these columns in every statement it has.
-          // What it may not do is order by one against anything but a bound
-          // parameter's absence, so the older adjacency rule stands here.
+          // What it may not do is compare one, so the older adjacency rule
+          // stands here.
           if (/^\s*(?:<=|>=|<>|<|>|===|!==|==|!=|-)/u.test(line.slice(end))
             || /(?:<=|>=|<>|<|>|===|!==|==|!=|-)\s*$/u.test(line.slice(0, start))) {
             if (!asksWhetherThereIsOne(line, start, end)) {
