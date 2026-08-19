@@ -86,3 +86,40 @@ test('what is ours rather than theirs stays out of the package', () => {
   assert.equal(inside.has('scripts/drift.mjs'), false, 'the drift watcher is ours, not theirs');
   assert.equal(inside.has('tsconfig.json'), false);
 });
+
+test('nothing in the package names the machine it was built on', () => {
+  // A reviewer appended `const LEAK = '/home/amirjam/…'` to `src/config.js` and
+  // nothing fired. Every absolute path this program uses is worked out at run
+  // time from the machine it is on; one written down instead would be wrong for
+  // everybody who installed it, and would also tell them the name of somebody's
+  // home directory. Both of those are worth a line.
+  //
+  // Checked against the files npm would actually ship, not against `src/`, so a
+  // document or a script added to the package is covered by the same rule.
+  const inside = [...packed()];
+  /** @type {string[]} */
+  const leaks = [];
+
+  for (const file of inside) {
+    const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    for (const shape of [/\/home\/[a-z][\w.-]*/iu, /\/Users\/[A-Za-z][\w.-]*/u, /[A-Z]:\\Users\\/u]) {
+      const found = shape.exec(text);
+      if (found !== null) leaks.push(`${file}: ${found[0]}`);
+    }
+  }
+
+  assert.deepEqual(leaks, []);
+});
+
+test('there is one runtime dependency, and it is the MCP SDK', () => {
+  // Load-bearing for four phases and asserted by nobody. Everything else here
+  // is Node's own: `node:sqlite`, `node:fs`, `node:test`. A second dependency
+  // is a decision about what somebody installs onto their machine along with a
+  // memory store, and it should not be possible to take it by accident.
+  const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+
+  assert.deepEqual(Object.keys(manifest.dependencies ?? {}), ['@modelcontextprotocol/sdk']);
+  assert.equal(manifest.bundleDependencies ?? undefined, undefined);
+  assert.equal(manifest.peerDependencies ?? undefined, undefined);
+  assert.equal(manifest.optionalDependencies ?? undefined, undefined);
+});
