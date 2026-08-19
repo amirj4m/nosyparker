@@ -671,3 +671,65 @@ the two identical memories it would prevent.
 *No `decisions(memory_id)` index.* No query here asks that question. An index
 for a question nobody asks is a guess about the future written into everybody's
 file.
+
+## How a migration is done, if one is ever needed  [record]
+
+There is no migration in this code and deliberately nowhere to put one: a store
+written under an older schema is turned away at the door with a sentence naming
+the file. That is right for a project with no released version. It stops being
+right the first time somebody has memories in a file and an upgrade needs a
+column, and this is the policy for that day, written now rather than under
+pressure.
+
+**Never in place.** The original file is not touched. Copy it, migrate the copy,
+verify the copy, and only then swap. The original stays where it is as the
+backup, and the person deletes it when they are satisfied — not us, not the
+migration, not a tidy-up.
+
+The worst case that policy allows is a failed migration leaving somebody exactly
+where they started. Any policy that edits the live file has a worst case of
+somebody losing everything, and no amount of care inside the migration changes
+which of those two you are choosing.
+
+**Copy it with `VACUUM INTO`, not with `cp`.** This is the step to get wrong and
+it fails silently. The store runs in WAL mode, so recent writes live in a
+`-wal` sidecar until a checkpoint folds them in. Measured on a store of 200
+memories with an open connection:
+
+    original                    200 memories, 200 in the search index
+    cp memory.sqlite copy       135 memories, 135 in the search index
+    VACUUM INTO 'copy'          200 memories, 200 in the search index
+
+The plain copy lost a third of the store, reported no error, passed
+`foreign_key_check`, and had a search index that agreed with the truncated
+table — so every check you would think to run says it is fine. `VACUUM INTO`
+produces one consistent standalone file. It is one statement:
+
+```sql
+VACUUM INTO '/path/to/memory.migrating.sqlite'
+```
+
+**Then, in order.**
+
+1. `VACUUM INTO` a new file beside the original.
+2. Migrate that copy. `ALTER TABLE … ADD COLUMN` for a new column; for anything
+   structural, create the new table, copy the rows, and swap inside one
+   transaction. Set `PRAGMA user_version` to the new number last, so a copy that
+   failed halfway is still recognisably the old shape.
+3. Verify the copy, and verify it against the original rather than against
+   hope: the same number of rows in `memories`, `decisions` and `review_passes`;
+   `PRAGMA foreign_key_check` empty; `PRAGMA integrity_check` clean; the search
+   index returning the same count for a term that matches most of the store; and
+   `openStore` opening it under the new code.
+4. Anything wrong: delete the copy, say what failed, and stop. Nothing has
+   happened to the original.
+5. Only then rename the original to `memory.sqlite.before-v<n>` and the copy
+   into place. Say where the backup is, in that sentence, in the output.
+
+**Never delete the backup**, on any schedule, for any reason, including disk
+space. That is the same rule as everywhere else here: nothing in this project
+removes what somebody might want, and a migration is the moment it matters most.
+
+`node src/cli.js export` is the other half of this. It is the copy that does not
+depend on the schema being readable at all, and the sentence to put in front of
+somebody before a migration runs is to take one.
