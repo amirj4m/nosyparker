@@ -32,12 +32,11 @@ can do:
 ### What it turns away
 
 Refusing is half of it, and a refusal is an answer rather than an error.
-Anything shaped like a password, a key or a card number is not stored — and is
-not written into the record either, so offering one leaves the fact that it was
-offered and never the text. Empty text is refused. So is something you have
-already said word for word. So is a file: paste an agent a log and it is told to
-keep the fact and leave the file. Every one of those is written down with the
-rule that decided it.
+Anything shaped like a password, a key or a card number is not stored, and is
+not written into the record either — offering one leaves the fact and never the
+text. Empty text is refused, so is something you have already said word for
+word, and so is a file: paste an agent a log and it is told to keep the fact and
+leave the file. Every one is written down with the rule that decided it.
 
 ### Reviewing
 
@@ -79,13 +78,19 @@ you run yourself, and it cannot be undone:
 node scripts/purge.mjs --id 4 --yes
 ```
 
-There is also a command line tool, for reading and changing your memories
-without an agent in the way.
-
 ## Installing it
 
-nosyparker is not released yet — there is no package to fetch — but from a copy
-of this folder, with Node 22.5 or newer and nothing else:
+Node 22.5 or newer, and nothing else:
+
+```
+npm install -g nosyparker
+```
+
+There is deliberately no `nosyparker` command: setup writes the path of the
+program that starts the server into every config it touches, and an `npx`
+command lives in a cache npm clears. So it is run by path. This page writes that
+path as `node src/cli.js` — literal from a clone; from an install, prefix it
+with `"$(npm root -g)/nosyparker/"`.
 
 ```
 node src/cli.js setup
@@ -106,16 +111,15 @@ once per client.
 
 It never removes anything it did not add, and where it edits a config file
 itself it keeps a copy in `~/.nosyparker/backups/` first, never replaced. A
-client that writes its own config leaves nothing of ours to undo, so no copy is
-taken for those.
+client that writes its own config leaves nothing of ours to undo, so takes none.
 
 The last thing it prints is which applications to close and reopen. None of them
 re-read their config while running.
 
-If it does not know your client, `node src/cli.js setup --print-config` prints
-the exact thing to paste, and naming a client it does know (`--print-config zed`)
-prints that client's shape, path and pitfalls. [CONNECTING.md](CONNECTING.md) has
-the by-hand version.
+If it does not know your client, `setup --print-config` prints the exact thing
+to paste, and naming one it does know (`--print-config zed`) prints that
+client's shape, path and pitfalls. [CONNECTING.md](CONNECTING.md) has the
+by-hand version.
 
 If something is not working:
 
@@ -125,9 +129,8 @@ node src/cli.js doctor
 
 It says which clients are working, which cannot be asked, and for anything
 broken what is wrong and what to do — plus whether your store opens, whether a
-review was left open, and what the recent reviews did. The commonest answer is
-that you changed your Node version, and running `setup` again fixes it. It
-changes nothing itself.
+review was left open, and what the recent reviews did. The commonest answer is a
+changed Node version, and running `setup` again fixes it. It changes nothing.
 
 If that does not resolve it, the
 [issues page](https://github.com/amirj4m/nosyparker/issues) is the place to say
@@ -151,5 +154,5 @@ folder:
 ~/.nosyparker/backups/        a copy of each config as it was before it was edited
 ```
 
-Delete the folder and all of it is gone. If you set `NOSYPARKER_STORE`, the
-memories live wherever you pointed it and the other two stay here.
+Delete the folder and all of it is gone. `NOSYPARKER_STORE` moves the memories
+elsewhere; the other two stay here.

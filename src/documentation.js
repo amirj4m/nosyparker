@@ -157,6 +157,38 @@ export function checkDocumentation(root = repositoryRoot()) {
       ];
     })()),
 
+    check('the README does not call the package unreleased once it can be published', (() => {
+      // The one document-versus-code gap left, and it would have arrived at the
+      // most expensive moment available: `README.md` said "nosyparker is not
+      // released yet — there is no package to fetch" and that paragraph ships
+      // inside the tarball. The first thing a stranger reads after installing
+      // would have been a sentence saying the thing they just installed does
+      // not exist.
+      //
+      // It matters more here than the wording suggests. This project's whole
+      // claim is that it tells you the truth about what it did — refusals
+      // explain themselves, `doctor` says what it cannot check, CLIENTS.md says
+      // which rows nobody has watched work. Being wrong about the most
+      // checkable fact there is, in the first paragraph, spends that in ten
+      // seconds.
+      const manifest = JSON.parse(read('package.json'));
+      const publishable = manifest.private !== true
+        && /^\d+\.\d+\.\d+$/u.test(manifest.version ?? '');
+
+      if (!publishable) return [];
+
+      return [
+        ...[/\bnot (?:yet )?released\b/iu, /\bunreleased\b/iu, /no package to fetch/iu,
+          /\bnot on npm\b/iu, /\bcoming soon\b/iu]
+          .filter((claim) => claim.test(flatReadme))
+          .map((claim) => `the README says /${claim.source}/ and package.json is at ${manifest.version}`),
+        // And the other half: it has to say how to get it, in the name the
+        // manifest will publish under rather than the one somebody typed.
+        ...(flatReadme.includes(`npm install -g ${manifest.name}`)
+          ? [] : [`the README does not say \`npm install -g ${manifest.name}\``]),
+      ];
+    })()),
+
     check('no sentence the gate says out loud names one of its own functions', (() => {
       // Found by running it. A review offered to a closed pass answered "Start
       // one with beginReview", and `beginReview` is a function inside this
