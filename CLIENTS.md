@@ -1,18 +1,16 @@
 # Which agents nosyparker can wire itself into
 
-`node src/cli.js setup` finds the AI tools already installed on your machine and adds
-itself to each one's configuration. This is the list of what it knows how to do
-that for, and — just as important — how sure it is afterwards.
+`node src/cli.js setup` finds the AI tools on your machine and adds itself to
+each one's configuration. This is what it knows how to do that for, and how sure
+it is afterwards.
 
-Most of these applications offer no way to ask whether they actually loaded a
-server. There is no command to run, no log to read, nothing to check. That is a
-limitation of theirs rather than a sign something went wrong, and it is the only
-reason the second group below exists. Where a tool *can* answer, setup asks it
-and tells you what it said. Where it cannot, setup says so plainly instead of
-showing you a tick it has not earned.
+Most of these applications offer no way to ask whether they loaded a server —
+no command, no log, nothing to check. That is their limitation and it is the
+only reason the second group exists. Where a tool can answer, setup asks it.
+Where it cannot, setup says so rather than showing a tick it has not earned.
 
-Every entry here was established by installing the application on a real machine
-and reading what it does, not from its documentation, except where the entry says
+Every entry was established by installing the application on a real machine and
+watching what it does, not from its documentation, except where it says
 otherwise.
 
 ---
@@ -231,18 +229,12 @@ the mark is still there afterwards.
 
 ## One thing that trips everything up
 
-If nosyparker was installed through a version manager — `nvm`, `fnm`, `asdf` —
-the program that runs it may not be on the search path of the application trying
-to start it. We hit this in testing: one tool failed to connect for exactly this
-reason and gave no useful explanation.
+An application started from a desktop icon does not inherit your shell's search
+path, so a Node installed through a version manager — `nvm`, `fnm`, `asdf` — is
+invisible to it. One tool failed to connect for exactly this reason and gave no
+useful explanation. Setup writes the full path to the interpreter instead, and
+prints it. If you edit one of these files by hand, do the same.
 
-Setup writes the full path to the interpreter for this reason, so it works
-regardless, and it prints that path when it finishes. It is worth knowing about
-if you ever edit one of these files by hand: use the full path, not just `node`.
-
-The cost of that is worth knowing too. A version manager moves the interpreter
-when you switch or remove a version, and every entry written by an earlier run
-then points at a program that is no longer there. Nothing announces this — a
-client that cannot start a server mostly just does not mention it. **After
-changing your Node version, run `setup` again.** It rewrites every entry with
-the new path.
+The cost: a version manager moves that path when you switch or remove a version,
+and every entry then points at nothing. Nothing announces it. **After changing
+your Node version, run `setup` again.**
