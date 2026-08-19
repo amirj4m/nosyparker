@@ -1,7 +1,7 @@
 {
   "name": "nosyparker",
   "version": "0.0.1",
-  "description": "The gate in front of your agents' shared memory: what gets in, what is refused and why, and a record of every decision. Local, no service.",
+  "description": "One memory for every AI agent on your machine: tell one, and the rest know. A gate, not a store \u2014 it decides what gets in, and why.",
   "license": "MIT",
   "type": "module",
   "repository": {

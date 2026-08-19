@@ -1,23 +1,18 @@
 # nosyparker
 
-Shared memory for the AI agents on your machine — and, more to the point, the
-gate in front of it.
+One memory for every AI agent on your machine: tell one, and the rest know.
 
-Keeping things is the easy part: it is a SQLite file and anyone could write
-that. What nosyparker is is the judgement at the door. What gets in. What is
-turned away, and why. What supersedes what, and what has merely been overtaken
-by events. And a record of every one of those decisions, in plain sentences, for
-you to read back afterwards.
+A gate, not a store — it decides what gets in, and writes down why.
 
 Nothing in it expires, and nothing is ever removed behind your back.
 
-**The file is yours, wherever it is.** There is no account, nothing to sign up
-for, nothing hosted. We never run a server and we never hold anyone's data.
+**The file is yours, wherever it is.** No account, nothing to sign up for,
+nothing hosted. We never run a server and we never hold anyone's data.
 
 ## What it can do
 
-Point the agents on your machine at it and they read and write the same file,
-so what you tell one, the others know. Ten things an agent can do:
+Every agent on your machine reads and writes the same file. Ten things an agent
+can do:
 
 - **remember** a fact about you, replacing an older one if you have changed
   your mind.

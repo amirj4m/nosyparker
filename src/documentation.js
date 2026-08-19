@@ -45,6 +45,14 @@ export function checkDocumentation(root = repositoryRoot()) {
   const clients = loadClients().clients;
   const clientsMd = read('CLIENTS.md');
   const readme = read('README.md');
+
+  // The same text with every run of whitespace flattened to one space, for the
+  // checks that look for a phrase rather than for structure. These documents
+  // are wrapped by hand, and "ten things an agent can do" wrapping after
+  // "agent" is a claim moving across a line break, not a claim disappearing.
+  // A check that goes red for correctly wrapped prose is one people learn to
+  // work around, which is the whole value of it gone.
+  const flatReadme = readme.replaceAll(/\s+/gu, ' ');
   const connecting = read('CONNECTING.md');
   const decisions = read('DECISIONS.md');
 
@@ -104,10 +112,9 @@ export function checkDocumentation(root = repositoryRoot()) {
 
     check('the README says how many clients there are, and is right',
       words.flatMap((word, n) => {
-        if (n === clients.length) {
-          return readme.includes(`${word} clients`) ? [] : [`the README does not say ${word}`];
-        }
-        return readme.includes(`${word} clients`) ? [`the README still says ${word} clients`] : [];
+        const said = flatReadme.includes(`${word} clients`);
+        if (n === clients.length) return said ? [] : [`the README does not say ${word}`];
+        return said ? [`the README still says ${word} clients`] : [];
       })),
 
     check('the README lists every tool an agent has, and says how many there are', (() => {
@@ -125,13 +132,13 @@ export function checkDocumentation(root = repositoryRoot()) {
 
       return [
         ...(tools.length === 0 ? ['no tool names could be read out of src/tools.js'] : []),
-        ...tools.filter((tool) => !readme.includes(`**${tool}**`))
+        ...tools.filter((tool) => !flatReadme.includes(`**${tool}**`))
           .map((tool) => `the README does not list ${tool}`),
         // Lowercased, because the number opens a sentence and is capitalised
         // there. A check that missed for that reason would be a check nobody
         // could satisfy without rewriting the sentence around it.
         ...words.flatMap((word, n) => {
-          const said = readme.toLowerCase().includes(`${word} things an agent can do`);
+          const said = flatReadme.toLowerCase().includes(`${word} things an agent can do`);
           if (n === tools.length) {
             return said ? [] : [`the README does not say ${word} things an agent can do`];
           }
