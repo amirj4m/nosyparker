@@ -1,0 +1,136 @@
+# Publishing, on a GitHub release.
+#
+# An automatic publish is a loaded gun: it takes something from a browser click
+# and puts it on a registry that a stranger installs from, with no human between
+# the two. So this refuses more readily than it fires, and every refusal below
+# is there because it is a way somebody publishes a thing they did not mean to.
+#
+# What triggers it is a *published release*, not a pushed tag. A tag is a thing
+# you can push by accident and cannot easily unpush; a release is a form you
+# fill in and press a button on. This project's owner wants to approve the
+# moment, and the release page is that moment.
+#
+# `workflow_dispatch` is here for the dry run, and defaults to dry. Running the
+# whole pipeline once without publishing is how the pipeline stops being
+# untested at the exact moment it matters.
+name: publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run everything, print what would be published, publish nothing'
+        type: boolean
+        default: true
+
+# `id-token: write` is what lets npm's trusted publishing work: the job proves
+# who it is to the registry with a short-lived OIDC token, and no long-lived
+# secret exists anywhere to be found in a file later. This repository has
+# already had two npm tokens found sitting in plaintext on a laptop.
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Not a fork, and not somebody else. A release can only be published by
+      # someone with write access, so this is belt and braces rather than the
+      # only lock — but the cost is one step and the failure it prevents is
+      # somebody else's fork publishing under this name.
+      - name: only this repository, only its owner
+        env:
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if [ "$REPO" != "amirj4m/nosyparker" ]; then
+            echo "This workflow runs only in amirj4m/nosyparker, not $REPO." >&2
+            exit 1
+          fi
+          if [ "$ACTOR" != "amirj4m" ]; then
+            echo "Publishing was triggered by $ACTOR, who is not the owner." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Trusted publishing needs npm 11.5.1 or newer and Node 22.14 or newer.
+      # The runner's bundled npm is older than that at the time of writing, and
+      # a version check that silently passes is worse than no check.
+      - name: npm new enough to publish this way
+        run: |
+          npm install -g npm@latest
+          npm --version
+          node --version
+
+      - run: npm ci
+
+      # Both, before anything is published, and a failure in either stops the
+      # job here. `npm test` includes the check that reads `npm pack` and
+      # asserts what is and is not in the tarball, so the package contents are
+      # verified on the way past rather than trusted.
+      - run: npm run typecheck
+      - run: npm test
+
+      # The tag and the manifest have to agree. Publishing v0.0.2 from a tree
+      # whose package.json says 0.0.1 puts a version on the registry that
+      # matches no tag in the repository, and nothing afterwards can tell you
+      # which commit it was built from.
+      - name: the release tag and package.json must say the same version
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          MANIFEST=$(node -p "require('./package.json').version")
+          WANTED=${TAG#v}
+          echo "tag $TAG -> $WANTED, package.json $MANIFEST"
+          if [ "$WANTED" != "$MANIFEST" ]; then
+            echo "The release is tagged $TAG but package.json says $MANIFEST." >&2
+            echo "Nothing was published. Fix one of them and cut the release again." >&2
+            exit 1
+          fi
+
+      # A version already on the registry cannot be replaced, and the error npm
+      # gives for it is a bare 403. Saying so here means the log explains it.
+      - name: that version must not already be published
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "$NAME@$VERSION is already on the registry and cannot be replaced." >&2
+            echo "Bump the version and cut a new release." >&2
+            exit 1
+          fi
+          echo "$NAME@$VERSION is not on the registry yet."
+
+      - name: what would go out
+        run: npm pack --dry-run
+
+      # The dry run stops here, having done everything except the one
+      # irreversible thing.
+      - name: publish
+        if: github.event_name == 'release' || inputs.dry_run == false
+        env:
+          # Empty unless a token has been put in the repository's secrets. With
+          # trusted publishing configured on npmjs.com this is unused and npm
+          # authenticates with the OIDC token instead; without it, npm falls
+          # back to this. If neither is present the publish fails, which is the
+          # right outcome — refusing beats guessing.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish
+
+      - name: say what happened
+        if: always()
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "Dry run. Everything ran except the publish itself."
+          fi
