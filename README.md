@@ -58,8 +58,10 @@ What it cannot do matters more:
   says which came first, the agent says so and changes nothing. Its reasoning is
   recorded either way, so you can judge afterwards whether it thought well.
 
-`node src/cli.js undo-review <number>` puts a whole review back. The number is
-in `why`. Anything you changed yourself since is left alone.
+A review can put away a large part of a store in one pass, and nothing will
+mention it unless the agent does or you run `doctor`. `undo-review <number>`
+puts a whole review back; the number is in `why`, and anything you changed
+yourself since is left alone.
 
 ### Your copy of everything
 
