@@ -1,11 +1,38 @@
 {
   "name": "nosyparker",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "A memory store for AI agents that keeps everything it is told and forgets nothing on its own.",
   "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/amirj4m/nosyparker.git"
+  },
+  "bugs": {
+    "url": "https://github.com/amirj4m/nosyparker/issues"
+  },
+  "homepage": "https://github.com/amirj4m/nosyparker#readme",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "memory",
+    "agent",
+    "sqlite",
+    "local-first"
+  ],
   "engines": {
     "node": ">=22.5.0"
+  },
+  "files": [
+    "src",
+    "scripts/purge.mjs",
+    "scripts/purge-main.mjs",
+    "CLIENTS.md",
+    "CONNECTING.md",
+    "DECISIONS.md"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "test": "node --test 'test/*.test.js'",
