@@ -148,6 +148,10 @@ function spliceOut(text, request) {
 /**
  * Does this text use the name as a key, anywhere at any depth.
  *
+ * Exported because the primary removal path needs the same question. It asked
+ * `hasEntry`, got no, and returned "absent" — which is the one answer that is
+ * wrong when the entry is there and the root key cannot reach it.
+ *
  * Deliberately blunt and deliberately not a parser. It runs only when a removal
  * changed nothing, and its whole job is to tell "absent" from "present and out
  * of reach". A false positive costs a loud error on a file that mentions the
@@ -160,7 +164,7 @@ function spliceOut(text, request) {
  * @param {string} name
  * @returns {boolean}
  */
-function usedAsKey(text, name) {
+export function usedAsKey(text, name) {
   const escaped = name.replaceAll(/[.*+?^${}()|[\]\\]/gu, '\\$&');
   return new RegExp(`(^|[\\s{,\\[-])["']?${escaped}["']?\\s*:`, 'mu').test(text);
 }

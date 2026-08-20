@@ -60,6 +60,7 @@ import {
   removeEmptyRootKey,
   removeEntry,
   stripComments,
+  usedAsKey,
   withoutBom,
   withoutTrailingCommas,
 } from './edit.js';
@@ -190,7 +191,7 @@ export function removeFromClient(client, options) {
     }
 
     if (client.remove.method === 'cli' && options.clientCommand !== null) {
-      if (!hasEntry(before, request)) return result('cli', options.configPath, null, ABSENT, null);
+      if (!hasEntry(before, request)) return absentOrOutOfReach(before, options, 'cli');
 
       const argv = fillArgv(client.remove.argv, client, options);
       const run = options.run ?? runCommand;
@@ -212,7 +213,7 @@ export function removeFromClient(client, options) {
       return result('cli', options.configPath, null, REMOVED, null);
     }
 
-    if (!hasEntry(before, request)) return result('file', options.configPath, null, ABSENT, null);
+    if (!hasEntry(before, request)) return absentOrOutOfReach(before, options);
 
     // The fallback exists so an uninstall works on a machine where the client
     // has been deleted, upgraded or moved off PATH. For one client it cannot:
@@ -754,6 +755,33 @@ export function runCommand(argv) {
  * @param {string|null} [reason]
  * @returns {WriteResult}
  */
+/**
+ * "Not there" and "there, and the root key cannot reach it" are different
+ * answers, and this path gave the first for both.
+ *
+ * `hasEntry` looks under the row's root key. When the row is wrong about where
+ * a client keeps its servers — which has happened, for Cursor — it answers no
+ * while our entry sits in the file, and uninstall said "absent" and moved on.
+ * The conscience added to `removeEntry` never fired here, because this returns
+ * before `removeEntry` is ever called.
+ *
+ * @param {string} before
+ * @param {any} options
+ * @param {string} [method]
+ * @returns {any}
+ */
+function absentOrOutOfReach(before, options, method = 'file') {
+  if (!usedAsKey(before, options.name)) {
+    return result(method, options.configPath, null, ABSENT, null);
+  }
+
+  return result(method, options.configPath, null, FAILED,
+    `"${options.name}" is in ${options.configPath} but not where the client table says this `
+    + 'client keeps its servers, so nothing was removed and the file is exactly as it was. '
+    + 'That is a bug in the table rather than in your file. Please report it, with the name of '
+    + 'this client, rather than editing it by hand.');
+}
+
 function result(method, file, backup, outcome, error, reason = null) {
   return { outcome, method, path: file, backup, error, reason };
 }
