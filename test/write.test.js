@@ -798,6 +798,15 @@ test('a primary config holding our name where the root key cannot reach it is a 
   const before = '{\n  "context_servers_TYPO": {\n    "nosyparker": { "command": "/usr/bin/node" }\n  }\n}\n';
   fs.writeFileSync(file, before);
 
+  // A manifest row, because this program only says its own table is wrong about
+  // a file it actually wrote to. A mention in a file we never touched proves
+  // nothing, and saying otherwise accused `~/.claude.json` of holding an entry
+  // it did not hold.
+  fs.mkdirSync(path.join(dir, 'backups'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'backups', 'manifest.json'), JSON.stringify({
+    'zed.settings.json': { path: file, backup: null, existed: true, client: 'zed' },
+  }, null, 2));
+
   const client = clientById('zed');
   const removed = removeFromClient(client, {
     name: 'nosyparker',
@@ -851,6 +860,11 @@ test('the same question is asked on the path a client removes through its own co
   const before = '{\n  "mcpServers_TYPO": {\n    "nosyparker": { "command": "/usr/bin/node" }\n  }\n}\n';
   fs.writeFileSync(file, before);
 
+  fs.mkdirSync(path.join(dir, 'backups'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'backups', 'manifest.json'), JSON.stringify({
+    'claude-code..claude.json': { path: file, backup: null, existed: true, client: 'claude-code' },
+  }, null, 2));
+
   const removed = removeFromClient(clientById('claude-code'), {
     name: 'nosyparker',
     command: '/usr/bin/node',
@@ -868,6 +882,74 @@ test('the same question is asked on the path a client removes through its own co
   });
 
   assert.equal(removed.outcome, FAILED);
-  assert.match(String(removed.error), /not where the client table says/u);
+  assert.match(String(removed.error), /the client table is wrong about where/u);
   assert.equal(fs.readFileSync(file, 'utf8'), before);
+});
+
+test('the reach check does not accuse a file of holding an entry it does not hold', (t) => {
+  // `usedAsKey` is a deliberately blunt regex. It was safe where it was born —
+  // inside `removeEntry`, after a splice, on a file we were about to edit. The
+  // last round moved it onto twenty primary configs, including `~/.claude.json`,
+  // which is full of arbitrary user text. Every sentence of the resulting
+  // message is false, and the last one tells somebody to hand-edit a file our
+  // own code calls a live OAuth store.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-accuse-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  /** @param {string} name @param {string} text @param {string} id */
+  const removing = (name, text, id) => {
+    const file = path.join(dir, name);
+    fs.writeFileSync(file, text);
+    return removeFromClient(clientById(id), {
+      name: 'nosyparker',
+      command: '/usr/bin/node',
+      serverPath: '/srv/mcp-server.js',
+      configPath: file,
+      clientCommand: null,
+      backupDir: path.join(dir, 'backups'),
+      now: '2026-08-20T10:00:00.000Z',
+      log: noLog(),
+      run: () => ({ status: 0, stdout: '', stderr: '' }),
+    });
+  };
+
+  // A comment that happens to mention us.
+  assert.equal(
+    removing('zed.json', '{\n  // nosyparker: I took this out myself\n  "context_servers": {}\n}\n', 'zed').outcome,
+    ABSENT,
+    'a comment naming us is not an entry',
+  );
+
+  // An ordinary project-scoped Claude Code entry, which is not ours to remove:
+  // we write user scope, and this is somebody else's project asking for it.
+  assert.equal(
+    removing('claude.json',
+      '{\n  "mcpServers": {},\n  "projects": {\n    "/w": {\n      "mcpServers": {\n'
+      + '        "nosyparker": { "command": "/usr/bin/node" }\n      }\n    }\n  }\n}\n', 'claude-code').outcome,
+    ABSENT,
+    'a project-scoped entry is not the user-scope one we wrote',
+  );
+
+  // And the case it exists for still fires: we installed here, the container
+  // the table names is not in the file at all, and our name is.
+  const file = path.join(dir, 'real.json');
+  fs.writeFileSync(file, '{\n  "context_servers_TYPO": {\n    "nosyparker": {}\n  }\n}\n');
+  fs.mkdirSync(path.join(dir, 'backups'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'backups', 'manifest.json'), JSON.stringify({
+    'zed.settings.json': { path: file, backup: null, existed: true, client: 'zed' },
+  }, null, 2));
+
+  const real = removeFromClient(clientById('zed'), {
+    name: 'nosyparker',
+    command: '/usr/bin/node',
+    serverPath: '/srv/mcp-server.js',
+    configPath: file,
+    clientCommand: null,
+    backupDir: path.join(dir, 'backups'),
+    now: '2026-08-20T10:00:00.000Z',
+    log: noLog(),
+  });
+  assert.equal(real.outcome, FAILED, 'the case this check exists for stopped firing');
+  assert.doesNotMatch(String(real.error), /by hand/u,
+    'it should not tell somebody to hand-edit a config we call a credential store');
 });

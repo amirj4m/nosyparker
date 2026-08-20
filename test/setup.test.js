@@ -996,3 +996,24 @@ test('a write that leaves the entry behind is caught, not reported as removed', 
     'it reported a clean removal while the entry was still there');
   assert.match(printed(), /could not clean/u, 'the failure was not reported');
 });
+
+test('a second surface with nothing of ours in it is not touched, backed up, or claimed', (t) => {
+  // The first review's worst finding, one deleted line away and held by nobody.
+  // Removing `if (after === before) continue;` leaves all 441 tests green while
+  // uninstall rewrites a settings.json holding only somebody's font size and
+  // colour theme, takes a backup of it, and reports having removed something
+  // that was never there.
+  const { io, home, printed } = machine(t, { files: ['.config/Cursor/User/', '.cursor/'] });
+
+  const theirs = path.join(home, '.config', 'Cursor', 'User', 'settings.json');
+  const before = '{\n\t"editor.fontSize": 13,\n\t"workbench.colorTheme": "Solarized Light"\n}\n';
+  fs.writeFileSync(theirs, before);
+  const stamp = fs.statSync(theirs).mtimeMs;
+
+  reportRemoval(io, uninstall(io));
+
+  assert.equal(fs.readFileSync(theirs, 'utf8'), before, 'the file was rewritten');
+  assert.equal(fs.statSync(theirs).mtimeMs, stamp, 'the file was touched');
+  assert.equal(fs.existsSync(io.backupDir), false, 'a backup was taken of a file we never edited');
+  assert.match(printed(), /Nothing to remove/u, 'it claimed to have removed something');
+});
