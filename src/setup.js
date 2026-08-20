@@ -298,7 +298,10 @@ function cleanSecondSurfaces(client, io) {
   const done = [];
 
   for (const surface of client.alsoRemoveFrom ?? []) {
-    const file = expandPath(surface.path, io.machine);
+    const wanted = surface.path[io.machine.platform] ?? null;
+    if (wanted === null) continue;
+
+    const file = expandPath(wanted, io.machine);
     if (!io.machine.exists(file)) continue;
 
     try {

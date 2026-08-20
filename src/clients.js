@@ -289,6 +289,29 @@ function validateTable(table) {
     if (!['A', 'B+', 'B', 'C'].includes(client.verify.tier)) {
       throw new Error(`"${client.id}" has verification tier "${client.verify.tier}".`);
     }
+    for (const surface of client.alsoRemoveFrom ?? []) {
+      for (const key of ['path', 'rootKey', 'format', 'why', 'measuredOn']) {
+        if (!(key in surface)) {
+          throw new Error(`"${client.id}" has a second surface with no "${key}".`);
+        }
+      }
+      for (const platform of ['linux', 'darwin', 'win32']) {
+        if (!(platform in surface.path)) {
+          throw new Error(
+            `"${client.id}" says nothing about ${platform} for ${surface.rootKey}. Say null if `
+            + 'it is unknown — a missing key reads as "not on this platform" and cleans nothing.',
+          );
+        }
+      }
+      if (!Array.isArray(surface.measuredOn) || surface.measuredOn.length === 0) {
+        throw new Error(
+          `"${client.id}" does not say which platform its second surface was measured on. One `
+          + 'machine runs Linux here; a path nobody has watched work is inference and has to '
+          + 'be labelled as such.',
+        );
+      }
+    }
+
     if (client.write.method === 'file' && client.entry === null) {
       throw new Error(`"${client.id}" is written by file and has no entry shape.`);
     }

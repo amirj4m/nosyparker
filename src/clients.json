@@ -924,7 +924,7 @@
       },
       "blockers": [],
       "traps": [
-        "`cursor --add-mcp` exits 0 and writes no file. Do not use it to install.",
+        "`cursor --add-mcp` writes `~/.config/Cursor/User/settings.json` under `mcp` -> `servers`, not the `~/.cursor/mcp.json` this row installs into. Setup writes the file itself; uninstall cleans both. This row used to say the flag wrote nothing, which was measured against the wrong file.",
         "The docs mark `type` as required in this file.",
         "`~/.cursor/` exists on a fresh install but `mcp.json` does not. Installed-with-no-config is the normal first case here, not an error."
       ],
@@ -933,15 +933,22 @@
         "configPaths": "2026-08-17",
         "write": "2026-08-17",
         "verify": "2026-08-17",
-        "traps": "2026-08-17"
+        "traps": "2026-08-20"
       },
       "upstreamId": "cursor",
       "alsoRemoveFrom": [
         {
-          "path": "~/.config/Cursor/User/settings.json",
+          "path": {
+            "linux": "~/.config/Cursor/User/settings.json",
+            "darwin": "~/Library/Application Support/Cursor/User/settings.json",
+            "win32": "%APPDATA%/Cursor/User/settings.json"
+          },
           "rootKey": "mcp.servers",
           "format": "json",
-          "why": "Written by `cursor --add-mcp`, not by us. We never write it, and we remove from it, because an entry we caused to exist is one uninstall has to be able to take away."
+          "measuredOn": [
+            "linux"
+          ],
+          "why": "Written by `cursor --add-mcp`, not by us. We never write it, and we remove from it, because an entry we caused to exist is one uninstall has to be able to take away. Only the Linux path was measured — run in a clean HOME on 2026-08-20. The other two are the standard VS Code layout Cursor inherits and are inferred, not seen. Cleaning only ever acts on a file that is there and holds our entry under this key, so an inferred path that is wrong misses rather than damages — and the report says which platform it could speak for."
         }
       ]
     },

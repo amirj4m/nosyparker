@@ -444,7 +444,7 @@ test('a client whose own command writes a second file says so, and the entry can
   // --add-mcp` creates exactly that file, and `code --add-mcp` creates
   // `~/.config/Code/User/mcp.json`, which is what the vscode row already says.
   const cursor = clientById('cursor');
-  const second = (cursor.alsoRemoveFrom ?? []).find((/** @type {any} */ s) => s.path.includes('Cursor/User/settings.json'));
+  const second = (cursor.alsoRemoveFrom ?? []).find((/** @type {any} */ s) => s.path.linux.includes('Cursor/User/settings.json'));
 
   assert.ok(second, 'the cursor row should name the file its own --add-mcp writes');
   assert.equal(second.rootKey, 'mcp.servers');
@@ -469,4 +469,55 @@ test('a client whose own command writes a second file says so, and the entry can
   assert.match(after, /"window\.autoDetectColorScheme": true/u, "his own setting should survive");
   assert.ok(after.includes('\t'), 'the tabs it was written with should survive');
   assert.doesNotThrow(() => JSON.parse(after));
+});
+
+test('a second surface is a per-OS path like every other path in the table', () => {
+  // `alsoRemoveFrom.path` was one hardcoded Linux string while `configPaths`
+  // beside it is a map. On macOS the file is not found, the loop continues, and
+  // the command prints the exact false "Nothing to remove" the first review
+  // flagged — while CLIENTS.md promises the cleanup with no platform named.
+  const cursor = clientById('cursor');
+  const second = cursor.alsoRemoveFrom[0];
+
+  for (const platform of ['linux', 'darwin', 'win32']) {
+    assert.ok(platform in second.path,
+      `${platform} is not in alsoRemoveFrom.path — a path we do not know must be null, not absent`);
+  }
+
+  assert.equal(second.path.linux, '~/.config/Cursor/User/settings.json');
+
+  // And it has to say which of those was measured rather than inferred. We have
+  // one machine and it runs Linux; presenting the other two as fact is what
+  // this finding cost.
+  assert.deepEqual(second.measuredOn, ['linux']);
+});
+
+test('every alsoRemoveFrom row is complete, like every other row in the table', () => {
+  // Nothing validated these. A row missing a rootKey would remove nothing and
+  // say nothing, which is the shape of every finding in both reviews.
+  for (const client of loadClients().clients) {
+    for (const surface of client.alsoRemoveFrom ?? []) {
+      for (const key of ['path', 'rootKey', 'format', 'why', 'measuredOn']) {
+        assert.ok(key in surface, `${client.id}'s second surface has no "${key}"`);
+      }
+      assert.ok(['json', 'jsonc'].includes(surface.format), `${client.id}: ${surface.format}`);
+      assert.ok(Array.isArray(surface.measuredOn) && surface.measuredOn.length > 0,
+        `${client.id}: measuredOn must name at least one platform we actually ran it on`);
+    }
+  }
+});
+
+test('no row claims a command writes nothing when the row itself says it writes', () => {
+  // CLIENTS.md was rewritten and `src/clients.json` was not. `traps[0]` still
+  // said `cursor --add-mcp` "exits 0 and writes no file", contradicted by
+  // `write.why` five lines up in the same object — and `setup --print-config`
+  // prints traps, so the falsehood reached the terminal after the prose that
+  // retracted it had shipped.
+  for (const client of loadClients().clients) {
+    const claimsNothing = (client.traps ?? []).some((/** @type {any} */ trap) => /writes no file|creates no file/iu.test(trap));
+    if (!claimsNothing) continue;
+
+    assert.equal(/does write|writes ~|writes `/iu.test(client.write.why ?? ''), false,
+      `${client.id}: traps say the command writes nothing and write.why says it writes`);
+  }
 });
