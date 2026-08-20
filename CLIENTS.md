@@ -71,15 +71,13 @@ If you work in a custom VS Code profile, that profile has its own separate file
 and setup writes the default one. Several settings can quietly stop a server
 loading — an administrator policy can too, and that is invisible from outside.
 
-**Cursor.** Setup writes its configuration file directly. Cursor does have a
-`--add-mcp` flag, and it is one of the vendor commands we caught reporting
-success and writing nothing at all. Cursor is not one of them, and this page said
-it was: `cursor --add-mcp` does write, to `~/.config/Cursor/User/settings.json`
-under `mcp` -> `servers`, which is the VS Code surface Cursor inherited. The
-earlier claim came from checking `~/.cursor/mcp.json`, the file we write, which
-that command genuinely leaves alone. Re-measured in a clean home on 2026-08-20.
-Uninstall cleans both. Cursor
-also has a per-server on/off switch in its own interface; if the entry is there
+**Cursor.** Setup writes `~/.cursor/mcp.json` directly. Cursor also has a
+`--add-mcp` flag, and this page used to say it "exits cleanly and creates no
+file" — which was wrong. It does write, to `~/.config/Cursor/User/settings.json`
+under `mcp` → `servers`, the VS Code surface Cursor inherited. The earlier claim
+came from checking `~/.cursor/mcp.json`, which that command genuinely leaves
+alone. Re-measured in a clean home on 2026-08-20. Uninstall cleans both files
+and takes a copy of the second before touching it. Cursor also has a per-server on/off switch in its own interface; if the entry is there
 but nothing happens, check it has not been switched off.
 
 **Devin Desktop**, formerly Windsurf. Renamed, but the old configuration folder
