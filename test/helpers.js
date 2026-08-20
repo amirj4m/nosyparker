@@ -111,11 +111,16 @@ export function runWatched(argv, options = {}) {
  * again at the end.
  *
  * They were not, for five phases. Each call left a directory in `/tmp` holding
- * a SQLite file, nothing removed them, and `/tmp` is on the root filesystem
- * here rather than a tmpfs — so they survived every reboot and accumulated. By
- * the time anybody looked there were 31,420 of them holding 5.0 GB, which was
- * the whole of the free space on that filesystem and stopped an unrelated
- * system upgrade.
+ * a SQLite file and nothing removed them. By the time anybody looked there were
+ * 31,420 of them holding 5.0 GB, which was the whole of the free space on that
+ * filesystem and stopped an unrelated system upgrade.
+ *
+ * The reason first written here was that `/tmp` is on the root filesystem
+ * rather than a tmpfs, so they survived reboots. That was a guess and it was
+ * wrong: `tmpfiles.d` on that machine has `D /tmp`, and the capital D empties
+ * the directory at every boot whatever filesystem it sits on. They had all
+ * accumulated inside a single boot session — five days, about a gigabyte a
+ * day — which makes the leak faster than the guess made it sound, not slower.
  *
  * Cleaned at process exit rather than by each test, because the alternative is
  * a cleanup inside `close()` — and two tests deliberately reopen a store's file

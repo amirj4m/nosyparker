@@ -17,6 +17,7 @@ import test from 'node:test';
 import { MANIFEST_NAME, readManifest, recordFirstTouch } from '../src/backup.js';
 import { clientById, loadClients } from '../src/clients.js';
 import { canEdit } from '../src/edit.js';
+import { noLog } from '../src/log.js';
 import {
   ABSENT,
   FAILED,
@@ -781,4 +782,92 @@ test('a link somebody made is not deleted as though we had created it', (t) => {
   removeFromClient(clientById('cursor'), options({ configPath: link, backupDir: space.backupDir }));
 
   assert.equal(fs.lstatSync(link).isSymbolicLink(), true, 'their link survived the uninstall');
+});
+
+test('a primary config holding our name where the root key cannot reach it is a failure, not "absent"', (t) => {
+  // The conscience added to `removeEntry` never fired on a primary config,
+  // because `removeFromClient` returns ABSENT the moment `hasEntry` says no —
+  // and `hasEntry` says no for exactly the case the conscience exists to catch.
+  // So for all twenty primary configs, where a wrong root key actually costs
+  // something, uninstall still said "absent" and moved on. It was fixed only
+  // inside the second-surface path, which is where it matters least.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-reach-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const file = path.join(dir, 'settings.json');
+  const before = '{\n  "context_servers_TYPO": {\n    "nosyparker": { "command": "/usr/bin/node" }\n  }\n}\n';
+  fs.writeFileSync(file, before);
+
+  const client = clientById('zed');
+  const removed = removeFromClient(client, {
+    name: 'nosyparker',
+    command: '/usr/bin/node',
+    serverPath: '/srv/mcp-server.js',
+    configPath: file,
+    clientCommand: null,
+    backupDir: path.join(dir, 'backups'),
+    now: '2026-08-20T10:00:00.000Z',
+    log: noLog(),
+  });
+
+  assert.equal(removed.outcome, FAILED,
+    'our name is in the file and could not be reached — that is not "absent"');
+  assert.match(String(removed.error), /nosyparker/u);
+  assert.equal(fs.readFileSync(file, 'utf8'), before, 'the file must be left exactly as it was');
+});
+
+test('a config with genuinely nothing of ours is still quietly absent', (t) => {
+  // The other half, because uninstall is run twice on purpose and the second
+  // run must stay silent.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-reach2-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const file = path.join(dir, 'settings.json');
+  fs.writeFileSync(file, '{\n  "context_servers": {\n    "somebody-else": {}\n  }\n}\n');
+
+  const removed = removeFromClient(clientById('zed'), {
+    name: 'nosyparker',
+    command: '/usr/bin/node',
+    serverPath: '/srv/mcp-server.js',
+    configPath: file,
+    clientCommand: null,
+    backupDir: path.join(dir, 'backups'),
+    now: '2026-08-20T10:00:00.000Z',
+    log: noLog(),
+  });
+
+  assert.equal(removed.outcome, ABSENT);
+});
+
+test('the same question is asked on the path a client removes through its own command', (t) => {
+  // `absentOrOutOfReach` went onto the file path and the CLI path in the same
+  // change, and only the file path was held by a test — deleting the CLI one
+  // changed nothing. The two paths cover different clients: five of the twenty
+  // are unwired by their own command, including Claude Code.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-clireach-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const file = path.join(dir, 'claude.json');
+  const before = '{\n  "mcpServers_TYPO": {\n    "nosyparker": { "command": "/usr/bin/node" }\n  }\n}\n';
+  fs.writeFileSync(file, before);
+
+  const removed = removeFromClient(clientById('claude-code'), {
+    name: 'nosyparker',
+    command: '/usr/bin/node',
+    serverPath: '/srv/mcp-server.js',
+    configPath: file,
+    clientCommand: '/usr/bin/claude',
+    backupDir: path.join(dir, 'backups'),
+    now: '2026-08-20T10:00:00.000Z',
+    log: noLog(),
+    // The client's own command must never be reached: the answer is known from
+    // the file, and running it would be acting on a table we know is wrong.
+    run: () => {
+      throw new Error('the client command should not have been run');
+    },
+  });
+
+  assert.equal(removed.outcome, FAILED);
+  assert.match(String(removed.error), /not where the client table says/u);
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
 });

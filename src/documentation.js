@@ -293,8 +293,23 @@ export function checkDocumentation(root = repositoryRoot()) {
       const said = invocation();
       const shape = said === 'nosyparker' || said.endsWith('/src/cli.js');
 
+      // The other direction, and the one that was missed. When the command
+      // exists, a document still telling somebody to run `node src/cli.js
+      // setup` is as wrong as naming a command nobody had — and the line above
+      // discarded the whole list the moment `bin` appeared, in the release
+      // whose headline was that the command now exists. Six occurrences shipped
+      // in three documents that go in the tarball. The comment a few lines up
+      // records this identical lesson from the last time.
+      const oldForm = /node src\/cli\.js (add|search|list|log|forget|restore|setup|uninstall|doctor|export|undo-review)\b/u;
+      const stale = [
+        ...sources.filter((file) => oldForm.test(withoutComments(read(file)))),
+        ...['README.md', 'CLIENTS.md', 'CONNECTING.md', 'DECISIONS.md']
+          .filter((file) => oldForm.test(read(file))),
+      ];
+
       return [
         ...(hasCommand ? [] : printing.map((file) => `${file} names a command nobody has`)),
+        ...(hasCommand ? stale.map((file) => `${file} still tells people to run it by path`) : []),
         ...(shape ? [] : [`the program points at ${said}`]),
         ...(hasCommand && !flatReadme.includes('nosyparker setup')
           ? ['the README does not name setup'] : []),

@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { defaultIo, install, printConfig, report, reportRemoval, uninstall } from '../src/setup.js';
+import { defaultIo, install, printConfig, refuseNpxCache, report, reportRemoval, uninstall } from '../src/setup.js';
 
 /**
  * @param {import('node:test').TestContext} t
@@ -886,4 +886,113 @@ test('a second surface the person marked read-only is left alone, like every oth
   } finally {
     fs.chmodSync(theirs, 0o644);
   }
+});
+
+test('cleaning a second surface is backed up, recorded, and reported like every other edit', (t) => {
+  // The injury this project exists to avoid, found by an independent review.
+  // `cleanSecondSurfaces` rewrote the file where a person keeps their font size
+  // and colour theme, took no backup, wrote no manifest row, and the command
+  // printed "Nothing to remove". Every other file we edit goes through
+  // `recordFirstTouch` first; this path called `writePreservingMode` directly.
+  // `.cursor/` too, so Cursor is *detected*. Without it the client falls down
+  // uninstall's not-on-this-machine branch, and the first version of this test
+  // passed through that branch while the ordinary one silently dropped the
+  // report. Second time this exact vacuity has bitten in this branch.
+  const { io, home, printed } = machine(t, { files: ['.config/Cursor/User/', '.cursor/'] });
+
+  const theirs = path.join(home, '.config', 'Cursor', 'User', 'settings.json');
+  const before = '{\n\t"editor.fontSize": 13,\n\t"mcp": {\n\t\t"servers": {\n\t\t\t"nosyparker": {}\n\t\t}\n\t}\n}';
+  fs.writeFileSync(theirs, before);
+
+  // The real path: the terminal runs `reportRemoval(io, uninstall(io))`.
+  reportRemoval(io, uninstall(io));
+
+  assert.equal(fs.readFileSync(theirs, 'utf8').includes('nosyparker'), false, 'the entry should go');
+
+  // A copy of what was there, taken before the first change, exactly as for
+  // every other config this program edits.
+  const manifest = path.join(io.backupDir, 'manifest.json');
+  assert.ok(fs.existsSync(manifest), 'no manifest row was written for a file we edited');
+
+  const rows = Object.values(JSON.parse(fs.readFileSync(manifest, 'utf8')));
+  const row = rows.find((/** @type {any} */ r) => r.path === theirs);
+  assert.ok(row, 'the file we edited is not in the manifest');
+  assert.ok(row.backup, 'no backup was taken of a file we edited');
+  assert.equal(fs.readFileSync(row.backup, 'utf8'), before, 'the backup is not what was there');
+
+  // And the person is told. "Nothing to remove" while having just edited their
+  // editor settings is the part that made this the worst finding on the list.
+  const said = printed();
+  assert.equal(said.includes('Nothing to remove'), false, 'it said it did nothing');
+  assert.match(said, /settings\.json/u, 'the file it edited is not named in the output');
+});
+
+test('one bad second surface is one client failing, not the whole command', (t) => {
+  // The defect a previous commit was written to fix and did not. The errno
+  // filter rethrew anything without a `code`, and the two errors this path
+  // raises deliberately have none — so our own "the table is wrong" refusal
+  // aborted the command at client 11 of 20 and left the rest wired.
+  const { io, home, printed } = machine(t, {
+    files: ['.config/Cursor/User/', '.cursor/', '.config/zed/'],
+  });
+
+  // Our name where `mcp.servers` cannot reach it: `removeEntry` refuses, loudly.
+  fs.writeFileSync(path.join(home, '.config', 'Cursor', 'User', 'settings.json'),
+    '{\n\t"nosyparker": "why not",\n\t"mcp": { "servers": {} }\n}');
+
+  const zed = path.join(home, '.config', 'zed', 'settings.json');
+  fs.writeFileSync(zed, '{\n  "context_servers": {\n    "nosyparker": { "command": "/usr/bin/node" }\n  }\n}');
+
+  assert.doesNotThrow(() => reportRemoval(io, uninstall(io)), 'one surface must not abort the command');
+  assert.equal(fs.readFileSync(zed, 'utf8').includes('nosyparker'), false,
+    'a client after the failing one was left wired');
+  assert.match(printed(), /settings\.json/u, 'the failure names no file');
+});
+
+test('the npx guard knows a Windows cache path too', () => {
+  // `invocation()` has an explicit Windows branch; this had a POSIX-only
+  // pattern beside it, so the same package run through npx on Windows would
+  // have written twenty entries into a cache the guard could not see.
+  for (const cache of [
+    '/home/somebody/.npm/_npx/c4ff8d2d/node_modules/nosyparker/src/mcp-server.js',
+    'C:\\Users\\somebody\\AppData\\Local\\npm-cache\\_npx\\c4ff8d2d\\node_modules\\nosyparker\\src\\mcp-server.js',
+  ]) {
+    assert.throws(() => refuseNpxCache(cache), /npx/iu, `${cache} should be refused`);
+  }
+
+  for (const fine of [
+    'C:\\Program Files\\nodejs\\node_modules\\nosyparker\\src\\mcp-server.js',
+    '/usr/lib/node_modules/nosyparker/src/mcp-server.js',
+    'C:\\projects\\_npxproject\\src\\mcp-server.js',
+  ]) {
+    assert.doesNotThrow(() => refuseNpxCache(fine), `${fine} should be allowed`);
+  }
+});
+
+test('a write that leaves the entry behind is caught, not reported as removed', (t) => {
+  // The read-back after writing a second surface was held by nothing: deleting
+  // it changed no test. Forced here with a file that names our server twice
+  // under the same key — which JSON permits textually and a hand-edited config
+  // can easily contain. `removeMemberFrom` takes the first, the second stays,
+  // and without the read-back the command would report a clean removal.
+  const { io, home, printed } = machine(t, { files: ['.config/Cursor/User/', '.cursor/'] });
+
+  const theirs = path.join(home, '.config', 'Cursor', 'User', 'settings.json');
+  fs.writeFileSync(theirs, [
+    '{',
+    '\t"mcp": {',
+    '\t\t"servers": {',
+    '\t\t\t"nosyparker": { "command": "/one" },',
+    '\t\t\t"nosyparker": { "command": "/two" }',
+    '\t\t}',
+    '\t}',
+    '}',
+  ].join('\n'));
+
+  reportRemoval(io, uninstall(io));
+
+  assert.match(fs.readFileSync(theirs, 'utf8'), /nosyparker/u, 'one copy is still in the file');
+  assert.doesNotMatch(printed(), /also removed from a file its own command wrote/u,
+    'it reported a clean removal while the entry was still there');
+  assert.match(printed(), /could not clean/u, 'the failure was not reported');
 });

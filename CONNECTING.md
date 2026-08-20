@@ -1,11 +1,11 @@
 # Connecting an agent by hand
 
-There is now a command that does this for you — `node src/cli.js setup`, which
+There is now a command that does this for you — `nosyparker setup`, which
 the [README](README.md) describes. This page is the by-hand version: what to do
 for a client the command does not know about, and what it is doing on your
 behalf for the ones it does.
 
-`node src/cli.js setup --print-config` prints the snippet below filled in with
+`nosyparker setup --print-config` prints the snippet below filled in with
 your own paths, and naming a client prints that client's own shape.
 
 ## Running the server

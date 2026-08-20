@@ -59,8 +59,8 @@ import {
   writePreservingMode,
   writeToClient,
 } from './write.js';
-import { removeEntry } from './edit.js';
-import { defaultBackupDir } from './backup.js';
+import { hasEntry, removeEntry } from './edit.js';
+import { defaultBackupDir, recordFirstTouch } from './backup.js';
 import { defaultLogPath, noLog, openLog } from './log.js';
 import {
   CONFIG_CONFIRMED,
@@ -133,6 +133,8 @@ export function ioWithLog(command, overrides = {}) {
  * @property {import('./detect.js').Detection} found
  * @property {import('./write.js').WriteResult|null} written
  * @property {import('./verify.js').Verification|null} verified
+ * @property {{path: string, outcome: string, why: string|null}[]} [surfaces] second
+ *   files a client's own command wrote, and what became of each
  */
 
 /**
@@ -151,16 +153,27 @@ export function ioWithLog(command, overrides = {}) {
  * npm promises nothing about it, and twenty config files pointing into one is
  * not a thing to do quietly.
  */
-const NPX_CACHE = /(^|\/)_npx\//u;
+/**
+ * A no this program means, as opposed to a mistake this program made.
+ *
+ * The terminal catches around `install` so that a deliberate refusal prints as
+ * a sentence rather than a stack trace. It caught everything, so an injected
+ * ReferenceError printed as `nope is not defined` with no stack and nothing to
+ * say it was a bug — dressed up as a considered no. This is what lets the
+ * catch tell them apart.
+ */
+export class Refusal extends Error {}
+
+const NPX_CACHE = /(^|[/\\])_npx[/\\]/u;
 
 /**
  * @param {string} serverPath
  * @returns {void}
  */
-function refuseNpxCache(serverPath) {
+export function refuseNpxCache(serverPath) {
   if (!NPX_CACHE.test(serverPath)) return;
 
-  throw new Error(
+  throw new Refusal(
     'This is running out of an npx cache, and setup writes the path it is running from into '
     + 'every config it touches. npx keeps a separate directory per version, so those entries '
     + 'would go on pointing at this copy after you had moved on from it — working, and quietly '
@@ -178,6 +191,7 @@ function refuseNpxCache(serverPath) {
  */
 export function install(io) {
   refuseNpxCache(io.serverPath);
+
 
   /** @type {Outcome[]} */
   const outcomes = [];
@@ -280,6 +294,9 @@ export function install(io) {
  * @param {any} io
  */
 function cleanSecondSurfaces(client, io) {
+  /** @type {{path: string, outcome: string, why: string|null}[]} */
+  const done = [];
+
   for (const surface of client.alsoRemoveFrom ?? []) {
     const file = expandPath(surface.path, io.machine);
     if (!io.machine.exists(file)) continue;
@@ -299,8 +316,7 @@ function cleanSecondSurfaces(client, io) {
 
       // Read-only means what it says here too. The primary path refuses such a
       // file on purpose — an atomic write would replace it and leave the
-      // permissions looking untouched — and this path went round that rule
-      // until the sweep found it.
+      // permissions looking untouched.
       let mode;
       try {
         mode = fs.statSync(file).mode;
@@ -308,38 +324,66 @@ function cleanSecondSurfaces(client, io) {
         continue;
       }
       if ((mode & 0o200) === 0) {
+        done.push({ path: file, outcome: 'read-only', why: null });
         io.log.record('skipped', { client: client.id, path: file, why: 'read-only' });
         continue;
       }
 
+      // A copy of what was there, before the first change, through the same
+      // mechanism as every other file this program edits. It went without one
+      // for a day: this is somebody's editor settings, and rewriting those with
+      // no way back is the thing this project exists not to do.
+      recordFirstTouch({
+        file,
+        clientId: client.id,
+        backupDir: io.backupDir,
+        now: io.now,
+        weEdit: true,
+        rootKeyExisted: true,
+        log: io.log,
+      });
+
       writePreservingMode(file, after);
 
-      // Every other write in this project reads back before claiming anything,
-      // and this one did not. A log line saying "removed" is a claim.
-      if (removeEntry(readOrEmpty(file), {
+      // Every other write here reads back before claiming anything.
+      if (hasEntry(readOrEmpty(file), {
         name: io.name, rootKey: surface.rootKey, format: surface.format, entry: {},
-      }) !== readOrEmpty(file)) {
+      })) {
+        done.push({ path: file, outcome: 'failed', why: 'the entry was still there afterwards' });
         io.log.record('failed', { client: client.id, path: file, why: 'entry survived the write' });
         continue;
       }
 
+      done.push({ path: file, outcome: 'removed', why: null });
       io.log.record('removed', { client: client.id, path: file, by: 'second surface' });
     } catch (error) {
-      // One second surface that cannot be cleaned must not stop the other
-      // nineteen clients being unwired. It is recorded and the command carries
-      // on.
+      // Everything, without exception. One second surface that cannot be
+      // cleaned is one client failing, exactly as an unparseable config is on
+      // the primary path — never the whole command.
       //
-      // Only failures that came from the filesystem, though. The first version
-      // of this caught everything, and the first thing it caught was a
-      // ReferenceError from a missing import — swallowed and logged as if it
-      // were somebody's permissions. A catch that hides our own mistakes is the
-      // silent-success shape this whole sweep was looking for, one level up.
-      const code = /** @type {NodeJS.ErrnoException} */ (error).code;
-      if (typeof code !== 'string') throw error;
-
-      io.log.record('failed', { client: client.id, path: file, why: code });
+      // The previous version filtered on errno and rethrew the rest, which
+      // rethrew the two refusals this path raises on purpose and aborted the
+      // uninstall at client eleven of twenty. A fix that does not fix the
+      // defect is worse than none, because it closes the question.
+      //
+      // Nothing is hidden by catching widely here: every one of these reaches
+      // the person in the command's output, named by file, and the log too. A
+      // mistake of ours shows up as a client that failed with our own message
+      // against it, which is louder than a stack trace nobody keeps.
+      done.push({
+        path: file,
+        outcome: 'failed',
+        why: error instanceof Error ? error.message : String(error),
+      });
+      io.log.record('failed', {
+        client: client.id,
+        path: file,
+        why: error instanceof Error ? error.message : String(error),
+      });
     }
   }
+
+  return done;
 }
 
 /**
@@ -375,10 +419,10 @@ export function uninstall(io) {
     // test vacuous: it built a home where the second surface existed and Cursor
     // did not, so nothing ran and the test passed for a reason that had nothing
     // to do with what it claimed to check.
-    cleanSecondSurfaces(client, io);
+    const surfaces = cleanSecondSurfaces(client, io);
 
     if (found.configPath === null) {
-      outcomes.push({ client, found, written: null, verified: null });
+      outcomes.push({ client, found, written: null, verified: null, surfaces });
       continue;
     }
 
@@ -394,7 +438,7 @@ export function uninstall(io) {
       run: io.run,
     });
 
-    outcomes.push({ client, found, written: removed, verified: null });
+    outcomes.push({ client, found, written: removed, verified: null, surfaces });
   }
 
   io.log.record('done', {
@@ -780,7 +824,15 @@ export function reportRemoval(io, outcomes) {
   const removed = outcomes.filter((outcome) => outcome.written?.outcome === REMOVED);
   const failed = outcomes.filter((outcome) => outcome.written?.outcome === FAILED);
 
-  if (removed.length === 0 && failed.length === 0) {
+  // Files a client's own command wrote for itself, which we clean and which no
+  // `written` outcome covers. They were reported as nothing at all for a day —
+  // the command said "Nothing to remove" having just edited somebody's editor
+  // settings, which is the worst thing on this project's record.
+  /** @type {{client: string, path: string, outcome: string, why: string|null}[]} */
+  const surfaces = outcomes.flatMap((outcome) =>
+    (outcome.surfaces ?? []).map((surface) => ({ client: outcome.client.name, ...surface })));
+
+  if (removed.length === 0 && failed.length === 0 && surfaces.length === 0) {
     io.out('Nothing to remove: no client on this machine has an entry for nosyparker.\n');
     return;
   }
@@ -792,6 +844,21 @@ export function reportRemoval(io, outcomes) {
   for (const outcome of failed) {
     io.out(`${outcome.client.name} — failed\n    ${outcome.written?.error}\n`
       + `    The entry is still in ${outcome.written?.path} and can be deleted by hand.\n\n`);
+  }
+
+  for (const surface of surfaces) {
+    if (surface.outcome === 'removed') {
+      io.out(`${surface.client} — also removed from a file its own command wrote\n`
+        + `    ${surface.path}\n`
+        + `    A copy of it as it was is in ${io.backupDir}\n\n`);
+    } else if (surface.outcome === 'read-only') {
+      io.out(`${surface.client} — left alone, because you made it read-only\n`
+        + `    ${surface.path}\n`
+        + '    Our entry is still in it. Make it writable and run this again.\n\n');
+    } else {
+      io.out(`${surface.client} — could not clean a file its own command wrote\n`
+        + `    ${surface.path}\n    ${surface.why}\n\n`);
+    }
   }
 
   io.out('Nothing else in any of those files was touched, and no memory was deleted:\n');

@@ -93,6 +93,29 @@ test('a document that stops being true is noticed', (t) => {
   fs.writeFileSync(manifest, `${JSON.stringify(withoutBin, null, 2)}\n`);
   assert.ok(failing() > 0, 'losing the command while the documents still name it was not noticed');
   fs.writeFileSync(manifest, kept);
+
+  // Telling somebody to run it by path now that the command exists. Six of
+  // these shipped in three documents in the release whose headline was the
+  // command, because the check that caught the opposite direction discarded
+  // the whole document list the moment `bin` appeared.
+  //
+  // Appended to a document rather than swapped inside one, because swapping
+  // `nosyparker setup` for the old form in CLIENTS.md trips a different check
+  // as well — which would have made this guard look like it worked while
+  // guarding nothing.
+  for (const file of ['CLIENTS.md', 'CONNECTING.md', 'DECISIONS.md']) {
+    const target = path.join(root, file);
+    const original = fs.readFileSync(target, 'utf8');
+
+    fs.writeFileSync(target, `${original}\nRun \`node src/cli.js doctor\` to check.\n`);
+    const noticed = checkDocumentation(root)
+      .filter((check) => !check.ok)
+      .flatMap((check) => check.wrong)
+      .some((wrong) => wrong.includes(file) && wrong.includes('by path'));
+    fs.writeFileSync(target, original);
+
+    assert.ok(noticed, `${file} telling somebody to run it by path was not noticed`);
+  }
   // And the half that was not held at all: two of the seven original instances
   // were in documents, fixed by hand with nothing watching them. The documents
   // are read, and this is what says so — with the command gone from the
