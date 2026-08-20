@@ -838,3 +838,36 @@ test('a config with genuinely nothing of ours is still quietly absent', (t) => {
 
   assert.equal(removed.outcome, ABSENT);
 });
+
+test('the same question is asked on the path a client removes through its own command', (t) => {
+  // `absentOrOutOfReach` went onto the file path and the CLI path in the same
+  // change, and only the file path was held by a test — deleting the CLI one
+  // changed nothing. The two paths cover different clients: five of the twenty
+  // are unwired by their own command, including Claude Code.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-clireach-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const file = path.join(dir, 'claude.json');
+  const before = '{\n  "mcpServers_TYPO": {\n    "nosyparker": { "command": "/usr/bin/node" }\n  }\n}\n';
+  fs.writeFileSync(file, before);
+
+  const removed = removeFromClient(clientById('claude-code'), {
+    name: 'nosyparker',
+    command: '/usr/bin/node',
+    serverPath: '/srv/mcp-server.js',
+    configPath: file,
+    clientCommand: '/usr/bin/claude',
+    backupDir: path.join(dir, 'backups'),
+    now: '2026-08-20T10:00:00.000Z',
+    log: noLog(),
+    // The client's own command must never be reached: the answer is known from
+    // the file, and running it would be acting on a table we know is wrong.
+    run: () => {
+      throw new Error('the client command should not have been run');
+    },
+  });
+
+  assert.equal(removed.outcome, FAILED);
+  assert.match(String(removed.error), /not where the client table says/u);
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+});
