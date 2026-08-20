@@ -184,12 +184,8 @@ export function hasEntry(text, request) {
   switch (request.format) {
     case 'json':
     case 'jsonc': {
-      const root = rootObject(text);
-      if (root === null) return false;
-      const section = memberOf(text, root, request.rootKey);
-      if (section === null) return false;
-      const start = skipTrivia(text, section.valueStart);
-      if (text[start] !== '{') return false;
+      const start = sectionStart(text, request.rootKey);
+      if (start === null) return false;
       return memberOf(text, start, request.name) !== null;
     }
     case 'yaml-map': {
@@ -277,9 +273,7 @@ function insertJson(text, request) {
 function removeJson(text, request) {
   if (!hasEntry(text, request)) return text;
 
-  const root = /** @type {number} */ (rootObject(text));
-  const section = /** @type {{valueStart: number}} */ (memberOf(text, root, request.rootKey));
-  const objectStart = skipTrivia(text, section.valueStart);
+  const objectStart = /** @type {number} */ (sectionStart(text, request.rootKey));
 
   return removeMemberFrom(text, objectStart, request.name,
     'The entry could not be removed without leaving the file unreadable.');
@@ -607,6 +601,34 @@ export function stripComments(text) {
 function rootObject(text) {
   const i = skipTrivia(text, 0);
   return text[i] === '{' ? i : null;
+}
+
+/**
+ * Find the object a root key names, walking dots.
+ *
+ * Most rows name a key at the top level — `mcpServers`, `servers`,
+ * `context_servers`. One does not: the VS Code surface Cursor inherited keeps
+ * its servers at `mcp` -> `servers`, and a resolver that only ever looked at
+ * the top level reported the entry absent and removed nothing, silently, for
+ * three days.
+ *
+ * @param {string} text
+ * @param {string} rootKey may contain dots
+ * @returns {number|null} where that object starts, or null if the path is not there
+ */
+function sectionStart(text, rootKey) {
+  /** @type {number|null} */
+  let at = rootObject(text);
+  if (at === null) return null;
+
+  for (const segment of /** @type {string[]} */ (rootKey.split('.'))) {
+    const member = memberOf(text, at, segment);
+    if (member === null) return null;
+    at = skipTrivia(text, member.valueStart);
+    if (text[at] !== '{') return null;
+  }
+
+  return at;
 }
 
 /**

@@ -757,3 +757,42 @@ test('two applications running are named together, as before', (t) => {
   assert.match(printed(), /Quit Devin Desktop \(formerly Windsurf\) and Claude Desktop and run this again/u);
   assert.doesNotMatch(printed(), /read-only/u);
 });
+
+test('uninstall cleans a second file the client wrote for itself, not only ours', (t) => {
+  // The Cursor case, end to end. `cursor --add-mcp` puts the entry in
+  // ~/.config/Cursor/User/settings.json under `mcp` -> `servers`; we write
+  // ~/.cursor/mcp.json. Before this, uninstall cleaned ours and left theirs —
+  // an entry we caused, pointing at a path a reinstall makes stale, in a file
+  // we never told anybody we had touched.
+  const { io, home } = machine(t, { files: ['.cursor/', '.config/Cursor/User/'] });
+
+  const ours = path.join(home, '.cursor', 'mcp.json');
+  const theirs = path.join(home, '.config', 'Cursor', 'User', 'settings.json');
+
+  fs.writeFileSync(ours, JSON.stringify({
+    mcpServers: { nosyparker: { command: '/usr/bin/node', args: ['/srv/mcp-server.js'] } },
+  }, null, 2));
+  fs.writeFileSync(theirs, [
+    '{',
+    '\t"window.autoDetectColorScheme": true,',
+    '\t"mcp": {',
+    '\t\t"servers": {',
+    '\t\t\t"nosyparker": {',
+    '\t\t\t\t"command": "/usr/bin/node"',
+    '\t\t\t}',
+    '\t\t}',
+    '\t}',
+    '}',
+  ].join('\n'));
+
+  uninstall(io);
+
+  assert.equal(fs.readFileSync(ours, 'utf8').includes('nosyparker'), false, 'our own file');
+  assert.equal(fs.readFileSync(theirs, 'utf8').includes('nosyparker'), false,
+    'the file cursor --add-mcp wrote is still holding the entry');
+
+  const left = fs.readFileSync(theirs, 'utf8');
+  assert.match(left, /"window\.autoDetectColorScheme": true/u, 'his own setting must survive');
+  assert.ok(left.includes('\t'), 'the tabs it was written with must survive');
+  assert.doesNotThrow(() => JSON.parse(left));
+});

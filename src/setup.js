@@ -51,11 +51,14 @@ import {
   READ_ONLY,
   REMOVED,
   RUNNING,
+  readOrEmpty,
   removeFromClient,
   UNCHANGED,
   WRITTEN,
+  writePreservingMode,
   writeToClient,
 } from './write.js';
+import { removeEntry } from './edit.js';
 import { defaultBackupDir } from './backup.js';
 import { defaultLogPath, noLog, openLog } from './log.js';
 import {
@@ -223,12 +226,53 @@ export function install(io) {
 }
 
 /**
+ * Take our entry out of a file the client's own command wrote for itself.
+ *
+ * A row's `configPaths` is where *we* write. `alsoRemoveFrom` is where the
+ * client's own `--add-mcp` writes, which is not always the same place and for
+ * Cursor is not the same place at all. An entry we caused to exist is one
+ * uninstall has to be able to take away, whichever program's hand put it there.
+ *
+ * It only ever removes. Nothing here creates one of these files, and a file
+ * that is not there, or has no entry of ours in it, is left alone in silence —
+ * `removeEntry` is the thing that gets loud when it finds our name somewhere it
+ * cannot reach.
+ *
+ * @param {any} client
+ * @param {any} io
+ */
+function cleanSecondSurfaces(client, io) {
+  for (const surface of client.alsoRemoveFrom ?? []) {
+    const file = expandPath(surface.path, io.machine);
+    if (!io.machine.exists(file)) continue;
+
+    const before = readOrEmpty(file);
+    if (before === '') continue;
+
+    const after = removeEntry(before, {
+      name: io.name,
+      rootKey: surface.rootKey,
+      format: surface.format,
+      entry: {},
+    });
+
+    if (after === before) continue;
+
+    writePreservingMode(file, after);
+    io.log.record('removed', { client: client.id, path: file, by: 'second surface' });
+  }
+}
+
+/**
  * Take our entry out of every client that has one.
  *
  * Every client, not only the ones the manifest says we wrote to: an install may
  * have happened from a different copy of this project, or on a machine that has
  * since been restored from a backup, and an uninstall that only undid what this
  * particular run remembered would leave those behind.
+ *
+ * And not only the files we write: a client whose own command writes a
+ * different file gets that one cleaned too. See {@link cleanSecondSurfaces}.
  *
  * @param {Io} io
  * @returns {Outcome[]}
@@ -246,6 +290,8 @@ export function uninstall(io) {
       outcomes.push({ client, found, written: null, verified: null });
       continue;
     }
+
+    cleanSecondSurfaces(client, io);
 
     const removed = removeFromClient(client, {
       name: io.name,
