@@ -59,14 +59,14 @@ What it cannot do matters more:
   recorded either way, so you can judge afterwards whether it thought well.
 
 A review can put away a large part of a store in one pass, and nothing will
-mention it unless the agent does or you run `doctor`. `undo-review <number>`
+mention it unless the agent does or you run `doctor`. `nosyparker undo-review <number>`
 puts a whole review back; the number is in `why`, and anything you changed
 yourself since is left alone.
 
 ### Your copy of everything
 
 ```
-node src/cli.js export memories.json
+nosyparker export memories.json
 ```
 
 Every memory in every state, every review, and the whole record of what was
@@ -77,7 +77,7 @@ Nothing here deletes a memory. If you want one gone for good, that is a command
 you run yourself, and it cannot be undone:
 
 ```
-node scripts/purge.mjs --id 4 --yes
+node "$(npm root -g)/nosyparker/scripts/purge.mjs" --id 4 --yes
 ```
 
 ## Installing it
@@ -86,17 +86,14 @@ Node 22.5 or newer, and nothing else:
 
 ```
 npm install -g nosyparker
+nosyparker setup
 ```
 
-There is deliberately no `nosyparker` command: setup writes the path of the
-program that starts the server into every config it touches, and an `npx`
-command lives in a cache npm clears. So it is run by path. This page writes that
-path as `node src/cli.js` — literal from a clone; from an install, prefix it
-with `"$(npm root -g)/nosyparker/"`.
-
-```
-node src/cli.js setup
-```
+Install it globally rather than through `npx`. Setup writes the path it is
+running from into every config it touches, and npx keeps a separate copy per
+version in a cache — those entries would keep pointing at a copy you had moved
+on from. Setup refuses to run from there and says so, rather than writing twenty
+paths that quietly rot.
 
 It looks for twenty clients, writes its entry into the ones it finds, and sorts
 them into three groups: the ones that answered us, the ones you should check
@@ -118,21 +115,22 @@ client that writes its own config leaves nothing of ours to undo, so takes none.
 The last thing it prints is which applications to close and reopen. None of them
 re-read their config while running.
 
-If it does not know your client, `setup --print-config` prints the exact thing
-to paste, and naming one it does know (`--print-config zed`) prints that
+If it does not know your client, `nosyparker setup --print-config` prints the exact thing
+to paste, and naming one it does know (`nosyparker setup --print-config zed`) prints that
 client's shape, path and pitfalls. [CONNECTING.md](CONNECTING.md) has the
 by-hand version.
 
 If something is not working:
 
 ```
-node src/cli.js doctor
+nosyparker doctor
 ```
 
 It says which clients are working, which cannot be asked, and for anything
 broken what is wrong and what to do — plus whether your store opens, whether a
 review was left open, and what the recent reviews did. The commonest answer is a
-changed Node version, and running `setup` again fixes it. It changes nothing.
+changed Node version, and running `nosyparker setup` again fixes it. It changes
+nothing.
 
 If that does not resolve it, the
 [issues page](https://github.com/amirj4m/nosyparker/issues) is the place to say
@@ -141,7 +139,7 @@ so.
 ## Removing it
 
 ```
-node src/cli.js uninstall
+nosyparker uninstall
 ```
 
 Takes its entry out of every client that has one and touches nothing else in

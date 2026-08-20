@@ -135,12 +135,49 @@ export function ioWithLog(command, overrides = {}) {
  */
 
 /**
+ * Where npx unpacks a package it is asked to run.
+ *
+ * `~/.npm/_npx/<hash>/node_modules/…`, and the hash is derived from the exact
+ * spec. That is the whole of the problem: `npx nosyparker` and
+ * `npx nosyparker@0.0.3` land in different directories, both persist, and a
+ * config written by the first goes on pointing at a copy that still works and
+ * is silently a version behind for ever.
+ *
+ * The older reasoning here said npm clears this directory. Measured on npm
+ * 10.9.8, it does not — `npm cache clean --force` empties `_cacache` and leaves
+ * `_npx` untouched, and so does `npm cache verify`. The hazard is real and it
+ * is not that one, which is why this refuses rather than warns: it is a cache,
+ * npm promises nothing about it, and twenty config files pointing into one is
+ * not a thing to do quietly.
+ */
+const NPX_CACHE = /(^|\/)_npx\//u;
+
+/**
+ * @param {string} serverPath
+ * @returns {void}
+ */
+function refuseNpxCache(serverPath) {
+  if (!NPX_CACHE.test(serverPath)) return;
+
+  throw new Error(
+    'This is running out of an npx cache, and setup writes the path it is running from into '
+    + 'every config it touches. npx keeps a separate directory per version, so those entries '
+    + 'would go on pointing at this copy after you had moved on from it — working, and quietly '
+    + 'a version behind, in up to twenty files.\n\n'
+    + '  npm install -g nosyparker\n  nosyparker setup\n\n'
+    + 'Nothing has been written.',
+  );
+}
+
+/**
  * Write to every client that is here, and check every one that can be checked.
  *
  * @param {Io} io
  * @returns {Outcome[]}
  */
 export function install(io) {
+  refuseNpxCache(io.serverPath);
+
   /** @type {Outcome[]} */
   const outcomes = [];
 

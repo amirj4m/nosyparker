@@ -123,3 +123,24 @@ test('there is one runtime dependency, and it is the MCP SDK', () => {
   assert.equal(manifest.peerDependencies ?? undefined, undefined);
   assert.equal(manifest.optionalDependencies ?? undefined, undefined);
 });
+
+test('there is a command, and it is named after the package', () => {
+  // The promise this project opened with was one command that wires every agent
+  // up. What 0.0.1 shipped was `node "$(npm root -g)/nosyparker/src/cli.js"
+  // setup`, which is not that, and the reason recorded for it did not survive
+  // being measured — see DECISIONS.md.
+  const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+
+  assert.deepEqual(Object.keys(manifest.bin ?? {}), ['nosyparker'],
+    'a global install has to put exactly one command on PATH, named after the package');
+  assert.equal(manifest.bin.nosyparker, 'src/cli.js');
+
+  // npx works out what to run by matching the bin name against the package
+  // name. A mismatch is the difference between a working `npx nosyparker` and
+  // "could not determine executable to run", which is what 0.0.1 gave.
+  assert.equal(Object.keys(manifest.bin)[0], manifest.name);
+
+  // And it has to be in the tarball, with the shebang that makes it runnable.
+  assert.ok(packed().has('src/cli.js'));
+  assert.match(fs.readFileSync(path.join(ROOT, 'src/cli.js'), 'utf8'), /^#!\/usr\/bin\/env node/u);
+});

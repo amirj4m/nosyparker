@@ -606,33 +606,45 @@ The state a review can reach is `overtaken`, and its name is part of this. Not
 they do not want something shown. Overtaken by events: the world moved and this
 did not, which says nothing whatever about how old the row is.
 
-## No `bin`, and what would change the answer  [record]
+## There is a command, and what the reasoning cost  [record]
 
-An installed npm package with no command in it is a wart, and it is deliberate.
+0.0.1 shipped with no `bin`, so a global install put nothing on PATH and the
+README told people to run `node "$(npm root -g)/nosyparker/src/cli.js" setup`.
+That broke the promise this project opened with — one command that wires every
+agent up — and it was justified here by a claim that had never been measured:
 
-`setup` writes the path of the program that starts the server into every config
-it touches — up to twenty files. A `bin` entry makes it runnable through `npx`,
-and a package run that way lives under `~/.npm/_npx/<hash>/`,
-which npm clears. Every entry written that way would point at nothing
-afterwards, silently, because a client that cannot start a server mostly does
-not say so. That is this product's worst failure mode and the one `doctor`
-exists to catch after the fact.
+> a package run that way lives under `~/.npm/_npx/<hash>/`, which npm clears.
 
-With no `bin`, `npx` cannot run this at all. The hazard does not exist
-rather than being warned about, which is the difference between a rule and a
-paragraph. The cost is that somebody who installs has no command, so the README
-gives the path and says why.
+**npm does not clear it.** Measured on npm 10.9.8: `npm cache clean --force`
+empties `_cacache` and leaves `_npx` exactly as it was, and `npm cache verify`
+does not touch it either. The sentence was written in the confident register
+this document uses for measured things, and it was a guess.
 
-Two things would have to be true to add one, and both are real work rather than
-a line in the manifest. `setup` would have to refuse to write when the path it
-is about to record is inside an npx cache — with a test, and mutations, like
-every other guard here. And `invocation()` would have to learn that it was
-started through the shim, so the sentences it prints name the command rather
-than a path inside `node_modules`; on Windows the shim runs the script
-directly, so that detection has a platform split in it.
+The hazard is real and it is a different one. `_npx/<hash>` is keyed on the
+exact spec, so `npx nosyparker` and `npx nosyparker@0.0.3` unpack to different
+directories and **both persist**. A config written by the first goes on pointing
+at a copy that still works and is silently a version behind, for ever. That is
+worse than a path that breaks, because nothing ever tells you.
 
-Neither is hard. Both were the wrong thing to start on the day before a first
-release, which is the whole of why the answer is no rather than never.
+So 0.0.2 does both halves of what this section previously said would be needed.
+There is a `bin`, named `nosyparker`, so the promise holds and `npx nosyparker`
+resolves instead of failing with "could not determine executable to run". And
+`install` refuses outright when the path it is about to write is inside an
+`_npx` directory, with the two commands to run instead — a refusal rather than a
+warning, because it is a cache, npm promises nothing about it, and twenty
+configs pointing into one is not a thing to do quietly.
+
+`invocation()` now returns `nosyparker` when it was started through the shim and
+the script path otherwise. On Windows npm writes a `.cmd` wrapper that runs the
+script directly, so that platform gets the path form — correct, if wordier, and
+the alternative would be guessing again.
+
+**What this cost, and the lesson worth keeping.** The claim sat in this document
+for a day, was read back by the person who wrote it as though it were evidence,
+and shaped a released package. A measurement takes minutes; this one took a
+user asking why he had to type two commands. **If a paragraph here states a fact
+about another program's behaviour, it has to name what was run and what came
+back — and if it cannot, it is a guess wearing the clothes of a finding.**
 
 ## The schema, frozen on 19 August 2026
 
