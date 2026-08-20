@@ -11,6 +11,7 @@
  * every one of them would then be wrong.
  */
 
+import { removeEntry } from '../src/edit.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -428,4 +429,44 @@ test('a table with a row missing its verification block is refused on load', (t)
   t.after(() => fs.rmSync(url, { force: true }));
 
   assert.throws(() => loadClients(url), /has no "verify"/u);
+});
+
+test('a client whose own command writes a second file says so, and the entry can be removed from it', () => {
+  // Found on a real machine, three days after the fact. `cursor --add-mcp`
+  // was run once during research; the row recorded "exited 0 and created no
+  // file anywhere on disk", and `~/.cursor/mcp.json` — the file the row names —
+  // was indeed untouched. The command had written
+  // `~/.config/Cursor/User/settings.json` instead, under `mcp` → `servers`,
+  // which is the VS Code surface Cursor inherited. Nothing here knew, so
+  // `uninstall` could not clean it.
+  //
+  // Re-measured in a clean HOME before this test was written: `cursor
+  // --add-mcp` creates exactly that file, and `code --add-mcp` creates
+  // `~/.config/Code/User/mcp.json`, which is what the vscode row already says.
+  const cursor = clientById('cursor');
+  const second = (cursor.alsoRemoveFrom ?? []).find((/** @type {any} */ s) => s.path.includes('Cursor/User/settings.json'));
+
+  assert.ok(second, 'the cursor row should name the file its own --add-mcp writes');
+  assert.equal(second.rootKey, 'mcp.servers');
+
+  // And the remover has to be able to reach it, which means a dotted root key.
+  const text = [
+    '{',
+    '\t"window.autoDetectColorScheme": true,',
+    '\t"mcp": {',
+    '\t\t"servers": {',
+    '\t\t\t"nosyparker": {',
+    '\t\t\t\t"command": "/usr/bin/node"',
+    '\t\t\t}',
+    '\t\t}',
+    '\t}',
+    '}',
+  ].join('\n');
+
+  const after = removeEntry(text, { name: 'nosyparker', rootKey: second.rootKey, format: 'json', entry: {} });
+
+  assert.equal(after.includes('nosyparker'), false, 'the entry should be gone');
+  assert.match(after, /"window\.autoDetectColorScheme": true/u, "his own setting should survive");
+  assert.ok(after.includes('\t'), 'the tabs it was written with should survive');
+  assert.doesNotThrow(() => JSON.parse(after));
 });

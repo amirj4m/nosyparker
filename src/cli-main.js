@@ -117,9 +117,16 @@ function runSetup(command, args) {
 
   if (args.length > 0) fail(`"${command}" does not take ${args[0]}.`);
 
-  if (command === 'doctor') process.exit(reportDiagnosis(io, diagnose(io)));
-  else if (command === 'setup') report(io, install(io));
-  else reportRemoval(io, uninstall(io));
+  // `install` refuses outright when it is running somewhere its own path would
+  // rot — an npx cache. That is a sentence a person acts on, not a stack trace,
+  // and it is the same reasoning as the store's version guard above.
+  try {
+    if (command === 'doctor') process.exit(reportDiagnosis(io, diagnose(io)));
+    else if (command === 'setup') report(io, install(io));
+    else reportRemoval(io, uninstall(io));
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
 }
 
 /**

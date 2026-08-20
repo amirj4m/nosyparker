@@ -257,23 +257,23 @@ export function checkDocumentation(root = repositoryRoot()) {
     })()),
 
     check('the program and the README name the same command to run next', (() => {
-      // Every message ending "run setup again" used to say `nosyparker setup`,
-      // which is not a command anybody has: nothing is released and nothing is
-      // on a PATH. The documents said `node src/cli.js setup` and were right.
-      // A person stuck enough to be reading either one should not then be told
-      // to run something that does not exist.
-      const script = invocation().split(' ').slice(-1)[0];
-
-      // Item 4 swept the messages that end "run setup again" and missed the
-      // other half of the CLI: five usage strings still told somebody to run
-      // `nosyparker add`, which is not a command anybody has. A sweep finds what
-      // it looks for.
+      // This rule has been true in both directions and the reason is the same
+      // one each time: a person stuck enough to be reading a document must not
+      // be told to run something that does not exist.
       //
-      // And the check that replaced it only read `src`, so two of the seven
-      // original instances — both in documents — were fixed by hand with
-      // nothing holding them. It reads the documents and the scripts too now,
-      // which is the whole of what this project can print or publish.
-      const names = /nosyparker (add|search|list|log|forget|restore|setup|uninstall|doctor)\b/u;
+      // Until 0.0.2 there was no `bin`, so `nosyparker setup` was a command
+      // nobody had, and every message and document had to say
+      // `node src/cli.js setup` instead. Seven places said otherwise and were
+      // swept, twice, because the first sweep only read `src`.
+      //
+      // 0.0.2 adds the `bin`, so the command exists and the documents should
+      // use it. What the check protects is the agreement, not the wording: it
+      // reads the manifest to find out which commands are real, and it is the
+      // manifest losing its `bin` that brings the old error back.
+      const bin = Object.keys(JSON.parse(read('package.json')).bin ?? {});
+      const hasCommand = bin.includes('nosyparker');
+
+      const names = /nosyparker (add|search|list|log|forget|restore|setup|uninstall|doctor|export|undo-review)\b/u;
       const sources = [
         ...fs.readdirSync(path.join(root, 'src')).filter((file) => file.endsWith('.js'))
           .map((file) => `src/${file}`),
@@ -288,13 +288,20 @@ export function checkDocumentation(root = repositoryRoot()) {
           .filter((file) => names.test(read(file))),
       ];
 
+      // What `invocation()` hands back has to be one of the two real shapes:
+      // the command, when it was started through the shim, or the script path.
+      const said = invocation();
+      const shape = said === 'nosyparker' || said.endsWith('/src/cli.js');
+
       return [
-        ...printing.map((file) => `${file} names a command nobody has`),
-        ...(script.endsWith('/src/cli.js') ? [] : [`the program points at ${script}`]),
-        ...(readme.includes('node src/cli.js setup') ? [] : ['the README does not name setup']),
-        ...(readme.includes('node src/cli.js doctor') ? [] : ['the README does not name doctor']),
-        ...(/```\nnode src\/cli\.js doctor\n```/u.test(readme)
-          ? [] : ['the README does not put doctor in a block somebody can copy']),
+        ...(hasCommand ? [] : printing.map((file) => `${file} names a command nobody has`)),
+        ...(shape ? [] : [`the program points at ${said}`]),
+        ...(hasCommand && !flatReadme.includes('nosyparker setup')
+          ? ['the README does not name setup'] : []),
+        ...(hasCommand && !flatReadme.includes('nosyparker doctor')
+          ? ['the README does not name doctor'] : []),
+        ...(hasCommand && !/```\nnosyparker doctor\n```/u.test(readme)
+          ? ['the README does not put doctor in a block somebody can copy'] : []),
       ];
     })()),
 

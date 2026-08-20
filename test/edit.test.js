@@ -555,3 +555,50 @@ test('a file that begins with a byte order mark and holds one line can be writte
   assert.equal(after.slice(1).includes('﻿'), false, 'and there is not a second one');
   assert.equal(hasEntry(after, JSON_REQUEST), true);
 });
+
+test('a remover that cannot find what it was asked to remove says so, rather than nothing', () => {
+  // The defect this closes, found on a real machine: `cursor --add-mcp` writes
+  // its entry under `mcp` → `servers`, and our table pointed at a different
+  // file with a top-level root key. Asked to remove it, `removeEntry` looked
+  // for `servers` at the top level, did not find it, and returned the file
+  // unchanged — reporting success. The entry stayed on the machine for three
+  // days, invisible to `uninstall`, pointing at a path that a reinstall would
+  // have made stale.
+  //
+  // "Not there" and "there, but not where I looked" have to be different
+  // answers. The first is ordinary — uninstall runs twice and the second is a
+  // no-op. The second is a bug in the table, and it must be loud.
+  const nested = [
+    '{',
+    '\t"window.autoDetectColorScheme": true,',
+    '\t"mcp": {',
+    '\t\t"servers": {',
+    '\t\t\t"nosyparker": {',
+    '\t\t\t\t"command": "/usr/bin/node"',
+    '\t\t\t}',
+    '\t\t}',
+    '\t}',
+    '}',
+  ].join('\n');
+
+  assert.throws(
+    () => removeEntry(nested, { name: 'nosyparker', rootKey: 'servers', format: 'json', entry: {} }),
+    /nosyparker/u,
+    'a nested entry it cannot reach should be an error, not a silent no-op',
+  );
+
+  // And the ordinary case still has to be quiet: a file that genuinely does not
+  // have our entry comes back unchanged, because uninstall is run twice.
+  const absent = '{\n  "mcpServers": {\n    "somebody-else": {}\n  }\n}';
+  assert.equal(
+    removeEntry(absent, { name: 'nosyparker', rootKey: 'mcpServers', format: 'json', entry: {} }),
+    absent,
+  );
+
+  // Including when the file has no root key at all.
+  const empty = '{\n  "editor.fontSize": 12\n}';
+  assert.equal(
+    removeEntry(empty, { name: 'nosyparker', rootKey: 'mcpServers', format: 'json', entry: {} }),
+    empty,
+  );
+});

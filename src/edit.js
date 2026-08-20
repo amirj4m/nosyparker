@@ -96,6 +96,42 @@ export function canEdit(format) {
  * @returns {string}
  */
 export function removeEntry(text, request) {
+  const after = spliceOut(text, request);
+  if (after !== text) return after;
+
+  // Nothing changed, and there are two very different reasons for that. Either
+  // the entry is not in this file — ordinary, because `uninstall` is run twice
+  // and the second run has nothing to do — or it is in this file somewhere we
+  // did not look, which means the table is wrong about where this client keeps
+  // its servers.
+  //
+  // The second was silent for three days. `cursor --add-mcp` writes under `mcp`
+  // → `servers`; our row named a different file and a top-level key, so the
+  // remover looked, found nothing, and reported success while the entry sat on
+  // the machine pointing at a path a reinstall would have made stale.
+  //
+  // So a no-op has to prove it was the harmless kind. If the name is still in
+  // the text as a key, it was not.
+  if (usedAsKey(text, request.name)) {
+    throw new Error(
+      `"${request.name}" is in this file but not under "${request.rootKey}", so nothing was ` +
+        'removed and the file has been left exactly as it was. That means this client keeps ' +
+        'its servers somewhere the client table does not know about, which is a bug in the ' +
+        'table rather than in the file. Report it rather than editing by hand.',
+    );
+  }
+
+  return text;
+}
+
+/**
+ * The switch that was `removeEntry` before it grew a conscience.
+ *
+ * @param {string} text
+ * @param {EditRequest} request
+ * @returns {string}
+ */
+function spliceOut(text, request) {
   switch (request.format) {
     case 'json':
     case 'jsonc':
@@ -107,6 +143,26 @@ export function removeEntry(text, request) {
     default:
       throw new Error(`There is no way to edit a "${request.format}" file here.`);
   }
+}
+
+/**
+ * Does this text use the name as a key, anywhere at any depth.
+ *
+ * Deliberately blunt and deliberately not a parser. It runs only when a removal
+ * changed nothing, and its whole job is to tell "absent" from "present and out
+ * of reach". A false positive costs a loud error on a file that mentions the
+ * name in some other way; a false negative costs another three silent days.
+ *
+ * Both quoting styles, because YAML keys are usually bare and JSON keys never
+ * are.
+ *
+ * @param {string} text
+ * @param {string} name
+ * @returns {boolean}
+ */
+function usedAsKey(text, name) {
+  const escaped = name.replaceAll(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  return new RegExp(`(^|[\\s{,\\[-])["']?${escaped}["']?\\s*:`, 'mu').test(text);
 }
 
 /**
@@ -128,12 +184,8 @@ export function hasEntry(text, request) {
   switch (request.format) {
     case 'json':
     case 'jsonc': {
-      const root = rootObject(text);
-      if (root === null) return false;
-      const section = memberOf(text, root, request.rootKey);
-      if (section === null) return false;
-      const start = skipTrivia(text, section.valueStart);
-      if (text[start] !== '{') return false;
+      const start = sectionStart(text, request.rootKey);
+      if (start === null) return false;
       return memberOf(text, start, request.name) !== null;
     }
     case 'yaml-map': {
@@ -221,9 +273,7 @@ function insertJson(text, request) {
 function removeJson(text, request) {
   if (!hasEntry(text, request)) return text;
 
-  const root = /** @type {number} */ (rootObject(text));
-  const section = /** @type {{valueStart: number}} */ (memberOf(text, root, request.rootKey));
-  const objectStart = skipTrivia(text, section.valueStart);
+  const objectStart = /** @type {number} */ (sectionStart(text, request.rootKey));
 
   return removeMemberFrom(text, objectStart, request.name,
     'The entry could not be removed without leaving the file unreadable.');
@@ -551,6 +601,34 @@ export function stripComments(text) {
 function rootObject(text) {
   const i = skipTrivia(text, 0);
   return text[i] === '{' ? i : null;
+}
+
+/**
+ * Find the object a root key names, walking dots.
+ *
+ * Most rows name a key at the top level — `mcpServers`, `servers`,
+ * `context_servers`. One does not: the VS Code surface Cursor inherited keeps
+ * its servers at `mcp` -> `servers`, and a resolver that only ever looked at
+ * the top level reported the entry absent and removed nothing, silently, for
+ * three days.
+ *
+ * @param {string} text
+ * @param {string} rootKey may contain dots
+ * @returns {number|null} where that object starts, or null if the path is not there
+ */
+function sectionStart(text, rootKey) {
+  /** @type {number|null} */
+  let at = rootObject(text);
+  if (at === null) return null;
+
+  for (const segment of /** @type {string[]} */ (rootKey.split('.'))) {
+    const member = memberOf(text, at, segment);
+    if (member === null) return null;
+    at = skipTrivia(text, member.valueStart);
+    if (text[at] !== '{') return null;
+  }
+
+  return at;
 }
 
 /**

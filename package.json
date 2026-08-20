@@ -1,9 +1,12 @@
 {
   "name": "nosyparker",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "One memory for every AI agent on your machine: tell one, and the rest know. A gate, not a store \u2014 it decides what gets in, and why.",
   "license": "MIT",
   "type": "module",
+  "bin": {
+    "nosyparker": "src/cli.js"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/amirj4m/nosyparker.git"

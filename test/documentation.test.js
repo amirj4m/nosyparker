@@ -75,32 +75,45 @@ test('a document that stops being true is noticed', (t) => {
     ['CLIENTS.md', '/permissions trust', '/permissions grant'],
     ['CLIENTS.md', 'we do not use it', 'we rely on it'],
     ['DECISIONS.md', 'What Phase 3 refuses to write', 'What the installer will not do'],
-    ['README.md', '```\nnode src/cli.js doctor\n```', '`node src/cli.js doctor`'],
+    ['README.md', '```\nnosyparker doctor\n```', '`nosyparker doctor`'],
     ['README.md', '/issues', '/discussions'],
     ['README.md', 'actions.log', 'actions-log'],
     ['CLIENTS.md', '**Continue**, **Warp**', '**Cline**, **Continue**, **Warp**'],
     ['DECISIONS.md', 'where a bound belongs  [record]', 'where a bound belongs'],
   ];
-
-  // And the one that is about the program rather than a document: a usage
-  // string naming a command nobody has.
-  const cli = path.join(root, 'src', 'cli-main.js');
-  const untouched = fs.readFileSync(cli, 'utf8');
-  fs.writeFileSync(cli, `${untouched}\n// eslint-disable-next-line\nfail("Which one? nosyparker restore <id>");`);
-  assert.ok(failing() > 0, 'a usage string naming a command nobody has was not noticed');
-  fs.writeFileSync(cli, untouched);
-
+  // And the one that is about the program rather than a document. Until 0.0.2
+  // this mutation added a usage string naming a command nobody had; the command
+  // exists now, so the mutation that matters is the other direction — take the
+  // `bin` out of the manifest and every one of those strings, in the program and
+  // in four documents, becomes a lie again.
+  const manifest = path.join(root, 'package.json');
+  const kept = fs.readFileSync(manifest, 'utf8');
+  const withoutBin = JSON.parse(kept);
+  delete withoutBin.bin;
+  fs.writeFileSync(manifest, `${JSON.stringify(withoutBin, null, 2)}\n`);
+  assert.ok(failing() > 0, 'losing the command while the documents still name it was not noticed');
+  fs.writeFileSync(manifest, kept);
   // And the half that was not held at all: two of the seven original instances
-  // were in documents, fixed by hand with nothing watching them. Each of the
-  // four documents and the scripts, one at a time.
-  for (const file of ['README.md', 'CLIENTS.md', 'CONNECTING.md', 'DECISIONS.md', 'scripts/drift.mjs']) {
+  // were in documents, fixed by hand with nothing watching them. The documents
+  // are read, and this is what says so — with the command gone from the
+  // manifest, every file that names it has to be named back.
+  const gone = JSON.parse(kept);
+  delete gone.bin;
+  fs.writeFileSync(manifest, `${JSON.stringify(gone, null, 2)}\n`);
+
+  for (const file of ['README.md', 'CLIENTS.md', 'CONNECTING.md', 'DECISIONS.md']) {
     const target = path.join(root, file);
     const original = fs.readFileSync(target, 'utf8');
+    if (!/nosyparker (setup|doctor|uninstall|export|undo-review)\b/u.test(original)) continue;
 
-    fs.writeFileSync(target, `${original}\n\`nosyparker setup\` is the command.\n`);
-    assert.ok(failing() > 0, `a command nobody has, named in ${file}, was not noticed`);
-    fs.writeFileSync(target, original);
+    const named = checkDocumentation(root)
+      .filter((check) => !check.ok)
+      .flatMap((check) => check.wrong)
+      .some((wrong) => wrong.includes(file));
+    assert.ok(named, `${file} names the command and was not named back when it went away`);
   }
+
+  fs.writeFileSync(manifest, kept);
 
   for (const [file, from, to] of mutations) {
     const target = path.join(root, file);

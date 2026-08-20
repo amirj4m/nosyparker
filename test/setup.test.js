@@ -757,3 +757,83 @@ test('two applications running are named together, as before', (t) => {
   assert.match(printed(), /Quit Devin Desktop \(formerly Windsurf\) and Claude Desktop and run this again/u);
   assert.doesNotMatch(printed(), /read-only/u);
 });
+
+test('uninstall cleans a second file the client wrote for itself, not only ours', (t) => {
+  // The Cursor case, end to end. `cursor --add-mcp` puts the entry in
+  // ~/.config/Cursor/User/settings.json under `mcp` -> `servers`; we write
+  // ~/.cursor/mcp.json. Before this, uninstall cleaned ours and left theirs —
+  // an entry we caused, pointing at a path a reinstall makes stale, in a file
+  // we never told anybody we had touched.
+  const { io, home } = machine(t, { files: ['.cursor/', '.config/Cursor/User/'] });
+
+  const ours = path.join(home, '.cursor', 'mcp.json');
+  const theirs = path.join(home, '.config', 'Cursor', 'User', 'settings.json');
+
+  fs.writeFileSync(ours, JSON.stringify({
+    mcpServers: { nosyparker: { command: '/usr/bin/node', args: ['/srv/mcp-server.js'] } },
+  }, null, 2));
+  fs.writeFileSync(theirs, [
+    '{',
+    '\t"window.autoDetectColorScheme": true,',
+    '\t"mcp": {',
+    '\t\t"servers": {',
+    '\t\t\t"nosyparker": {',
+    '\t\t\t\t"command": "/usr/bin/node"',
+    '\t\t\t}',
+    '\t\t}',
+    '\t}',
+    '}',
+  ].join('\n'));
+
+  uninstall(io);
+
+  assert.equal(fs.readFileSync(ours, 'utf8').includes('nosyparker'), false, 'our own file');
+  assert.equal(fs.readFileSync(theirs, 'utf8').includes('nosyparker'), false,
+    'the file cursor --add-mcp wrote is still holding the entry');
+
+  const left = fs.readFileSync(theirs, 'utf8');
+  assert.match(left, /"window\.autoDetectColorScheme": true/u, 'his own setting must survive');
+  assert.ok(left.includes('\t'), 'the tabs it was written with must survive');
+  assert.doesNotThrow(() => JSON.parse(left));
+});
+
+test('setup refuses to write a path inside an npx cache, rather than writing one that rots', (t) => {
+  // The hazard that kept `bin` out of 0.0.1, now that `bin` is in. It is real
+  // but it is not what DECISIONS.md said it was: `npm cache clean --force`
+  // removes `_cacache` and leaves `_npx` alone, measured on npm 10.9.8. What
+  // actually rots is subtler — `npx nosyparker` and `npx nosyparker@0.0.3`
+  // resolve to different `_npx/<hash>` directories, so a config written by one
+  // keeps pointing at a copy that still exists and is silently a version behind
+  // for ever.
+  //
+  // Either way it is a cache, npm promises nothing about it, and twenty config
+  // files pointing into one is not something to do quietly. So it is refused.
+  const { io } = machine(t, {
+    files: ['.cursor/'],
+  });
+
+  io.serverPath = '/home/somebody/.npm/_npx/c4ff8d2d86f44296/node_modules/nosyparker/src/mcp-server.js';
+
+  assert.throws(() => install(io), /npx/iu,
+    'installing from an npx cache should refuse, not write twenty rotting paths');
+
+  assert.equal(fs.existsSync(path.join(io.machine.home, '.cursor', 'mcp.json')), false,
+    'nothing should have been written');
+});
+
+test('an ordinary path is not mistaken for an npx cache', (t) => {
+  const { io } = machine(t, { files: ['.cursor/'] });
+
+  // A global install, which is the recommended route, and a checkout. Neither
+  // is a cache and neither may be refused: a guard that fires on the ordinary
+  // case is worse than no guard.
+  for (const good of [
+    '/usr/lib/node_modules/nosyparker/src/mcp-server.js',
+    '/home/somebody/.nvm/versions/node/v22.23.2/lib/node_modules/nosyparker/src/mcp-server.js',
+    '/home/somebody/projects/nosyparker/src/mcp-server.js',
+    '/home/somebody/_npxproject/src/mcp-server.js',
+  ]) {
+    io.serverPath = good;
+    assert.doesNotThrow(() => install(io), `${good} should be allowed`);
+  }
+});

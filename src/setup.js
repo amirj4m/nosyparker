@@ -51,11 +51,14 @@ import {
   READ_ONLY,
   REMOVED,
   RUNNING,
+  readOrEmpty,
   removeFromClient,
   UNCHANGED,
   WRITTEN,
+  writePreservingMode,
   writeToClient,
 } from './write.js';
+import { removeEntry } from './edit.js';
 import { defaultBackupDir } from './backup.js';
 import { defaultLogPath, noLog, openLog } from './log.js';
 import {
@@ -132,12 +135,49 @@ export function ioWithLog(command, overrides = {}) {
  */
 
 /**
+ * Where npx unpacks a package it is asked to run.
+ *
+ * `~/.npm/_npx/<hash>/node_modules/…`, and the hash is derived from the exact
+ * spec. That is the whole of the problem: `npx nosyparker` and
+ * `npx nosyparker@0.0.3` land in different directories, both persist, and a
+ * config written by the first goes on pointing at a copy that still works and
+ * is silently a version behind for ever.
+ *
+ * The older reasoning here said npm clears this directory. Measured on npm
+ * 10.9.8, it does not — `npm cache clean --force` empties `_cacache` and leaves
+ * `_npx` untouched, and so does `npm cache verify`. The hazard is real and it
+ * is not that one, which is why this refuses rather than warns: it is a cache,
+ * npm promises nothing about it, and twenty config files pointing into one is
+ * not a thing to do quietly.
+ */
+const NPX_CACHE = /(^|\/)_npx\//u;
+
+/**
+ * @param {string} serverPath
+ * @returns {void}
+ */
+function refuseNpxCache(serverPath) {
+  if (!NPX_CACHE.test(serverPath)) return;
+
+  throw new Error(
+    'This is running out of an npx cache, and setup writes the path it is running from into '
+    + 'every config it touches. npx keeps a separate directory per version, so those entries '
+    + 'would go on pointing at this copy after you had moved on from it — working, and quietly '
+    + 'a version behind, in up to twenty files.\n\n'
+    + '  npm install -g nosyparker\n  nosyparker setup\n\n'
+    + 'Nothing has been written.',
+  );
+}
+
+/**
  * Write to every client that is here, and check every one that can be checked.
  *
  * @param {Io} io
  * @returns {Outcome[]}
  */
 export function install(io) {
+  refuseNpxCache(io.serverPath);
+
   /** @type {Outcome[]} */
   const outcomes = [];
 
@@ -223,12 +263,53 @@ export function install(io) {
 }
 
 /**
+ * Take our entry out of a file the client's own command wrote for itself.
+ *
+ * A row's `configPaths` is where *we* write. `alsoRemoveFrom` is where the
+ * client's own `--add-mcp` writes, which is not always the same place and for
+ * Cursor is not the same place at all. An entry we caused to exist is one
+ * uninstall has to be able to take away, whichever program's hand put it there.
+ *
+ * It only ever removes. Nothing here creates one of these files, and a file
+ * that is not there, or has no entry of ours in it, is left alone in silence —
+ * `removeEntry` is the thing that gets loud when it finds our name somewhere it
+ * cannot reach.
+ *
+ * @param {any} client
+ * @param {any} io
+ */
+function cleanSecondSurfaces(client, io) {
+  for (const surface of client.alsoRemoveFrom ?? []) {
+    const file = expandPath(surface.path, io.machine);
+    if (!io.machine.exists(file)) continue;
+
+    const before = readOrEmpty(file);
+    if (before === '') continue;
+
+    const after = removeEntry(before, {
+      name: io.name,
+      rootKey: surface.rootKey,
+      format: surface.format,
+      entry: {},
+    });
+
+    if (after === before) continue;
+
+    writePreservingMode(file, after);
+    io.log.record('removed', { client: client.id, path: file, by: 'second surface' });
+  }
+}
+
+/**
  * Take our entry out of every client that has one.
  *
  * Every client, not only the ones the manifest says we wrote to: an install may
  * have happened from a different copy of this project, or on a machine that has
  * since been restored from a backup, and an uninstall that only undid what this
  * particular run remembered would leave those behind.
+ *
+ * And not only the files we write: a client whose own command writes a
+ * different file gets that one cleaned too. See {@link cleanSecondSurfaces}.
  *
  * @param {Io} io
  * @returns {Outcome[]}
@@ -246,6 +327,8 @@ export function uninstall(io) {
       outcomes.push({ client, found, written: null, verified: null });
       continue;
     }
+
+    cleanSecondSurfaces(client, io);
 
     const removed = removeFromClient(client, {
       name: io.name,

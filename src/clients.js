@@ -240,8 +240,19 @@ export function serverCommand() {
  * @returns {string}
  */
 export function invocation() {
+  // Started through the shim a global install puts on PATH, npm points argv[1]
+  // at that shim, so its basename is the command a person typed. That is the
+  // sentence to give them back.
+  //
+  // On Windows npm writes a `.cmd` wrapper that runs the script directly, so
+  // argv[1] is the JS file and this falls through to the path form — correct,
+  // if wordier, and the alternative would be guessing.
+  const started = path.basename(process.argv[1] ?? '');
+  if (started === 'nosyparker' || started === 'nosyparker.cmd') return 'nosyparker';
+
   return `node ${fileURLToPath(new URL('./cli.js', import.meta.url))}`;
 }
+
 
 /**
  * Refuse a table that is missing something every reader assumes is there.
