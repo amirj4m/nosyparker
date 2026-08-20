@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { defaultIo, install, printConfig, report, reportRemoval, uninstall } from '../src/setup.js';
+import { defaultIo, install, printConfig, refuseNpxCache, report, reportRemoval, uninstall } from '../src/setup.js';
 
 /**
  * @param {import('node:test').TestContext} t
@@ -947,4 +947,24 @@ test('one bad second surface is one client failing, not the whole command', (t) 
   assert.equal(fs.readFileSync(zed, 'utf8').includes('nosyparker'), false,
     'a client after the failing one was left wired');
   assert.match(printed(), /settings\.json/u, 'the failure names no file');
+});
+
+test('the npx guard knows a Windows cache path too', () => {
+  // `invocation()` has an explicit Windows branch; this had a POSIX-only
+  // pattern beside it, so the same package run through npx on Windows would
+  // have written twenty entries into a cache the guard could not see.
+  for (const cache of [
+    '/home/somebody/.npm/_npx/c4ff8d2d/node_modules/nosyparker/src/mcp-server.js',
+    'C:\\Users\\somebody\\AppData\\Local\\npm-cache\\_npx\\c4ff8d2d\\node_modules\\nosyparker\\src\\mcp-server.js',
+  ]) {
+    assert.throws(() => refuseNpxCache(cache), /npx/iu, `${cache} should be refused`);
+  }
+
+  for (const fine of [
+    'C:\\Program Files\\nodejs\\node_modules\\nosyparker\\src\\mcp-server.js',
+    '/usr/lib/node_modules/nosyparker/src/mcp-server.js',
+    'C:\\projects\\_npxproject\\src\\mcp-server.js',
+  ]) {
+    assert.doesNotThrow(() => refuseNpxCache(fine), `${fine} should be allowed`);
+  }
 });

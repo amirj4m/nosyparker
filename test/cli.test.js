@@ -12,6 +12,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
 
 import { runWatched } from './helpers.js';
 import { beginReview, closeReview, review } from '../src/gate.js';
@@ -364,4 +365,37 @@ test('export writes a file, refuses to write over one, and pipes when unnamed', 
   assert.deepEqual(JSON.parse(piped.out).memories, dumped.memories);
 
   assert.match(run(['export', dump, 'extra']).err, /does not take extra/u);
+});
+
+test('a mistake of ours is not dressed up as a refusal', (t) => {
+  // `runSetup` grew a blanket catch so that `install`'s deliberate refusal
+  // would print as a sentence rather than a stack. It caught everything, so an
+  // injected `ReferenceError` printed as `nope is not defined` with no stack
+  // and nothing to say it was a bug — indistinguishable from a considered no.
+  // That is the shape this project keeps writing rules against, one level up
+  // from the one it had just fixed downstream.
+  //
+  // Tested by breaking the program on purpose and running it, because the
+  // question is what a person sees, not what the source looks like.
+  const setup = fileURLToPath(new URL('../src/setup.js', import.meta.url));
+  const original = fs.readFileSync(setup, 'utf8');
+  t.after(() => fs.writeFileSync(setup, original));
+
+  fs.writeFileSync(setup, original.replace(
+    'export function install(io) {',
+    'export function install(io) {\n  nope.notAThing();',
+  ));
+
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-oops-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+
+  const broken = spawnSync(process.execPath, [CLI, 'setup'], {
+    encoding: 'utf8',
+    env: { ...process.env, HOME: home, NOSYPARKER_STORE: path.join(home, 'memory.sqlite') },
+  });
+
+  const said = `${broken.stdout}${broken.stderr}`;
+  assert.match(said, /ReferenceError/u, 'a bug should say it is a bug');
+  assert.match(said, /at .*setup\.js/u, 'a bug should come with the stack somebody would report');
+
 });

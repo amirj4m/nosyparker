@@ -153,16 +153,27 @@ export function ioWithLog(command, overrides = {}) {
  * npm promises nothing about it, and twenty config files pointing into one is
  * not a thing to do quietly.
  */
-const NPX_CACHE = /(^|\/)_npx\//u;
+/**
+ * A no this program means, as opposed to a mistake this program made.
+ *
+ * The terminal catches around `install` so that a deliberate refusal prints as
+ * a sentence rather than a stack trace. It caught everything, so an injected
+ * ReferenceError printed as `nope is not defined` with no stack and nothing to
+ * say it was a bug — dressed up as a considered no. This is what lets the
+ * catch tell them apart.
+ */
+export class Refusal extends Error {}
+
+const NPX_CACHE = /(^|[/\\])_npx[/\\]/u;
 
 /**
  * @param {string} serverPath
  * @returns {void}
  */
-function refuseNpxCache(serverPath) {
+export function refuseNpxCache(serverPath) {
   if (!NPX_CACHE.test(serverPath)) return;
 
-  throw new Error(
+  throw new Refusal(
     'This is running out of an npx cache, and setup writes the path it is running from into '
     + 'every config it touches. npx keeps a separate directory per version, so those entries '
     + 'would go on pointing at this copy after you had moved on from it — working, and quietly '
@@ -180,6 +191,7 @@ function refuseNpxCache(serverPath) {
  */
 export function install(io) {
   refuseNpxCache(io.serverPath);
+
 
   /** @type {Outcome[]} */
   const outcomes = [];

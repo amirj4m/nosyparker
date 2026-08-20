@@ -22,7 +22,7 @@ import { exportAll, writeExport } from './export.js';
 import { forget, restore, screenQuery, submit, undoReview } from './gate.js';
 import { invocation } from './clients.js';
 import { diagnose, reportDiagnosis } from './doctor.js';
-import { defaultIo, install, ioWithLog, printConfig, report, reportRemoval, uninstall } from './setup.js';
+import { defaultIo, install, ioWithLog, printConfig, Refusal, report, reportRemoval, uninstall } from './setup.js';
 import { listDecisions, listMemories, openStore, searchMemories } from './store.js';
 
 main(process.argv.slice(2));
@@ -118,14 +118,19 @@ function runSetup(command, args) {
   if (args.length > 0) fail(`"${command}" does not take ${args[0]}.`);
 
   // `install` refuses outright when it is running somewhere its own path would
-  // rot — an npx cache. That is a sentence a person acts on, not a stack trace,
-  // and it is the same reasoning as the store's version guard above.
+  // rot — an npx cache. That is a sentence a person acts on, not a stack trace.
+  //
+  // Only a refusal, though. The first version of this caught everything, and an
+  // injected ReferenceError came out as a one-line message with no stack,
+  // indistinguishable from a considered no. A mistake of ours goes up as it is,
+  // with the stack, because that is what somebody would need to report it.
   try {
     if (command === 'doctor') process.exit(reportDiagnosis(io, diagnose(io)));
     else if (command === 'setup') report(io, install(io));
     else reportRemoval(io, uninstall(io));
   } catch (error) {
-    fail(error instanceof Error ? error.message : String(error));
+    if (!(error instanceof Refusal)) throw error;
+    fail(error.message);
   }
 }
 

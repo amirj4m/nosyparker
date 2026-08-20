@@ -10,9 +10,11 @@
 # fill in and press a button on. This project's owner wants to approve the
 # moment, and the release page is that moment.
 #
-# `workflow_dispatch` is here for the dry run, and defaults to dry. Running the
-# whole pipeline once without publishing is how the pipeline stops being
-# untested at the exact moment it matters.
+# `workflow_dispatch` is here for the dry run and never publishes, whatever the
+# box says. Running the whole pipeline once without publishing is how it stops
+# being untested at the moment it matters — and the condition on the publish
+# step used to let a manual run through, skipping the tag check, which only runs
+# on a release. That was the one route to the registry with no version guard.
 name: publish
 
 on:
@@ -21,7 +23,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Run everything, print what would be published, publish nothing'
+        description: 'Ignored — a manual run never publishes. Kept so the box is visible.'
         type: boolean
         default: true
 
@@ -115,10 +117,11 @@ jobs:
       - name: what would go out
         run: npm pack --dry-run
 
-      # The dry run stops here, having done everything except the one
-      # irreversible thing.
+      # A published release and nothing else. Everything above has run by now,
+      # so a manual run has done the whole pipeline except this one
+      # irreversible step.
       - name: publish
-        if: github.event_name == 'release' || inputs.dry_run == false
+        if: github.event_name == 'release'
         env:
           # Empty unless a token has been put in the repository's secrets. With
           # trusted publishing configured on npmjs.com this is unused and npm
@@ -131,6 +134,7 @@ jobs:
       - name: say what happened
         if: always()
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "Dry run. Everything ran except the publish itself."
+            echo "A manual run never publishes, whatever the box said. Cut a release for that."
           fi
