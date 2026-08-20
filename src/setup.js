@@ -365,12 +365,22 @@ export function uninstall(io) {
   for (const client of loadClients().clients) {
     const found = detect(client, io.machine);
 
+    // Before the detection gate, deliberately. `detect` returns a null
+    // configPath for a client that is not on this machine, and a leftover file
+    // is a leftover file whether or not the application that made it is still
+    // installed — somebody who removes Cursor and then runs uninstall should
+    // not be left with our entry in a file nothing will ever read again.
+    //
+    // This was the other way round for a day, which also made the read-only
+    // test vacuous: it built a home where the second surface existed and Cursor
+    // did not, so nothing ran and the test passed for a reason that had nothing
+    // to do with what it claimed to check.
+    cleanSecondSurfaces(client, io);
+
     if (found.configPath === null) {
       outcomes.push({ client, found, written: null, verified: null });
       continue;
     }
-
-    cleanSecondSurfaces(client, io);
 
     const removed = removeFromClient(client, {
       name: io.name,
