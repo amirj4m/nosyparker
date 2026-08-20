@@ -16,6 +16,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   clientById,
@@ -470,6 +471,57 @@ test('a client whose own command writes a second file says so, and the entry can
   assert.match(after, /"window\.autoDetectColorScheme": true/u, "his own setting should survive");
   assert.ok(after.includes('\t'), 'the tabs it was written with should survive');
   assert.doesNotThrow(() => JSON.parse(after));
+});
+
+test('a row does not promise output the program does not produce', (t) => {
+  // I wrote the sentence this catches, in the same commit that made the path a
+  // per-OS map. The row said the report "says which platform it could speak
+  // for". `measuredOn` is validated on load and read by nothing else — it
+  // reaches no output at all. So the honest part of the row, the part admitting
+  // two of its three paths were never seen, ended in a promise that was not
+  // kept, in the field somebody reads to decide whether to trust the other two.
+  //
+  // The generalisation, rather than the one sentence: a row may not claim the
+  // program tells anybody about `measuredOn` while nothing in the program reads
+  // it. Either the claim goes or the output does.
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const surfaced = ['setup.js', 'doctor.js', 'write.js']
+    .some((file) => fs.readFileSync(path.join(root, 'src', file), 'utf8').includes('measuredOn'));
+
+  const promises = /report says|output says|tells you which platform|says which platform/iu;
+  const claiming = loadClients().clients.flatMap((client) =>
+    (client.alsoRemoveFrom ?? [])
+      .filter((/** @type {any} */ surface) => promises.test(surface.why))
+      .map((/** @type {any} */ surface) => `${client.id} / ${surface.rootKey}`));
+
+  assert.deepEqual(surfaced ? [] : claiming, [],
+    'a row says the program names the platform it was measured on, and nothing does');
+
+  // The other half: a row measured on one platform out of three has to admit it
+  // in the field somebody reads to decide whether to trust the other two.
+  //
+  // Stated as a rule and then run against a row built to break it, rather than
+  // asserted over the shipped table alone. The first version did the latter, and
+  // deleting the admission from the real row did not fail it — the sentence
+  // added three lines above happens to contain "never looked", so the check
+  // passed on prose that was no longer making the admission. Twice this round a
+  // test has been satisfied by something other than the thing it names.
+  const admits = (/** @type {any} */ surface) =>
+    surface.measuredOn.length === 3
+    || /inferred|not seen|never looked|not measured/iu.test(surface.why);
+
+  const silent = loadClients().clients.flatMap((client) =>
+    (client.alsoRemoveFrom ?? []).filter((/** @type {any} */ surface) => !admits(surface))
+      .map((/** @type {any} */ surface) => `${client.id} / ${surface.rootKey}`));
+
+  assert.deepEqual(silent, [],
+    'a second surface was measured on one platform and its "why" does not say so');
+
+  assert.equal(
+    admits({ measuredOn: ['linux'], why: 'Written by `cursor --add-mcp`, not by us.' }), false,
+    'a row that admits nothing about its unmeasured platforms passes this rule');
+  assert.equal(admits({ measuredOn: ['linux', 'darwin', 'win32'], why: 'Measured.' }), true,
+    'a row measured everywhere is being asked for an admission it does not owe');
 });
 
 test('a table with an incomplete second surface is refused on load', (t) => {

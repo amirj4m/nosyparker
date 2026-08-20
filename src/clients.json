@@ -948,7 +948,7 @@
           "measuredOn": [
             "linux"
           ],
-          "why": "Written by `cursor --add-mcp`, not by us. We never write it, and we remove from it, because an entry we caused to exist is one uninstall has to be able to take away. Only the Linux path was measured — run in a clean HOME on 2026-08-20. The other two are the standard VS Code layout Cursor inherits and are inferred, not seen. Cleaning only ever acts on a file that is there and holds our entry under this key, so an inferred path that is wrong misses rather than damages — and the report says which platform it could speak for."
+          "why": "Written by `cursor --add-mcp`, not by us. We never write it, and we remove from it, because an entry we caused to exist is one uninstall has to be able to take away. Only the Linux path was measured — run in a clean HOME on 2026-08-20. The other two are the standard VS Code layout Cursor inherits and are inferred, not seen. Cleaning only ever acts on a file that is there and holds our entry under this key, so an inferred path that is wrong misses rather than damages. Nothing in the output names the platform this was measured on: on a machine we have never looked at, the file is searched for, not found, and nothing is said about it either way."
         }
       ]
     },
