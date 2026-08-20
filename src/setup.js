@@ -59,7 +59,7 @@ import {
   writePreservingMode,
   writeToClient,
 } from './write.js';
-import { hasEntry, removeEntry } from './edit.js';
+import { hadRootKey, hasEntry, removeEntry } from './edit.js';
 import { defaultBackupDir, recordFirstTouch } from './backup.js';
 import { defaultLogPath, noLog, openLog } from './log.js';
 import {
@@ -342,7 +342,18 @@ function cleanSecondSurfaces(client, io) {
         backupDir: io.backupDir,
         now: io.now,
         weEdit: true,
-        rootKeyExisted: true,
+        // Asked, not asserted. It was hardcoded `true`, which is a fabricated
+        // value in a record that outlives the run — and `write.js` asks the
+        // same question three lines from where it writes the same field.
+        //
+        // The answer is always true for one of these in practice, because the
+        // container has to exist for our entry to be inside it and we never
+        // write this file. That is a reason to compute it, not a reason to
+        // assert it: the next surface added here may be one we do create, and a
+        // hardcoded true would then tell uninstall to leave a container we made.
+        rootKeyExisted: hadRootKey(before, {
+          name: io.name, rootKey: surface.rootKey, format: surface.format, entry: {},
+        }),
         log: io.log,
       });
 

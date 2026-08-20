@@ -602,3 +602,20 @@ test('a remover that cannot find what it was asked to remove says so, rather tha
     empty,
   );
 });
+
+test('hadRootKey understands a dotted key, like every other reader of one', () => {
+  // `removeEntry` and `hasEntry` learned to walk `mcp.servers`; this one did
+  // not, and it looks for a top-level key literally named "mcp.servers". It
+  // answered false for a file that plainly has the container — which, recorded
+  // in the manifest, means "we created it" and tells a later uninstall to
+  // delete somebody else's `mcp` block. Found by reading the value it wrote
+  // rather than by any test.
+  const nested = '{\n\t"mcp": {\n\t\t"servers": {\n\t\t\t"nosyparker": {}\n\t\t}\n\t}\n}';
+
+  assert.equal(hadRootKey(nested, { name: 'nosyparker', rootKey: 'mcp.servers', format: 'json', entry: {} }), true);
+  assert.equal(hadRootKey('{\n\t"mcp": {}\n}', { name: 'nosyparker', rootKey: 'mcp.servers', format: 'json', entry: {} }), false);
+
+  // And a plain key still answers the way it always did.
+  assert.equal(hadRootKey('{"mcpServers":{}}', { name: 'n', rootKey: 'mcpServers', format: 'json', entry: {} }), true);
+  assert.equal(hadRootKey('{"other":{}}', { name: 'n', rootKey: 'mcpServers', format: 'json', entry: {} }), false);
+});
