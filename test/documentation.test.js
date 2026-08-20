@@ -22,6 +22,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { checkDocumentation } from '../src/documentation.js';
 
@@ -153,4 +154,50 @@ test('a document that stops being true is noticed', (t) => {
   }
 
   assert.equal(failing(), 0, 'and everything is put back');
+});
+
+test('both arms of the stale-path guard are held, and both directions of the command rule', (t) => {
+  // Half this guard could be deleted with the suite green: the `sources` arm,
+  // which reads src and scripts, and `README.md` in the document list. The
+  // mutations only ever appended to CLIENTS, CONNECTING and DECISIONS.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-arms-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const real = fileURLToPath(new URL('..', import.meta.url));
+  for (const name of ['CLIENTS.md', 'README.md', 'CONNECTING.md', 'DECISIONS.md', 'package.json']) {
+    fs.copyFileSync(path.join(real, name), path.join(root, name));
+  }
+  for (const dir of ['src', 'scripts']) {
+    fs.cpSync(path.join(real, dir), path.join(root, dir), { recursive: true });
+  }
+
+  /** @param {string} file */
+  const noticedIn = (file) => checkDocumentation(root)
+    .filter((check) => !check.ok)
+    .flatMap((check) => check.wrong)
+    .some((wrong) => wrong.includes(file));
+
+  // The README arm.
+  const readme = path.join(root, 'README.md');
+  const readmeWas = fs.readFileSync(readme, 'utf8');
+  fs.writeFileSync(readme, `${readmeWas}\nRun \`node src/cli.js doctor\` to check.\n`);
+  assert.ok(noticedIn('README.md'), 'the README arm of the stale-path guard is not held');
+  fs.writeFileSync(readme, readmeWas);
+
+  // The sources arm — a usage string in the program itself, which is where five
+  // of the seven original instances lived.
+  const cli = path.join(root, 'src', 'cli-main.js');
+  const cliWas = fs.readFileSync(cli, 'utf8');
+  fs.writeFileSync(cli, `${cliWas}\nfail('Try: node src/cli.js restore <id>');\n`);
+  assert.ok(noticedIn('src/cli-main.js'), 'the sources arm of the stale-path guard is not held');
+  fs.writeFileSync(cli, cliWas);
+
+  // And a script, because `scripts/` is in that arm too and nothing reached it.
+  const purge = path.join(root, 'scripts', 'purge-main.mjs');
+  const purgeWas = fs.readFileSync(purge, 'utf8');
+  // A printed string, not a comment: comments are stripped from sources on
+  // purpose, because a comment is not something a reader copies.
+  fs.writeFileSync(purge, `${purgeWas}\nconsole.log('Try node src/cli.js list first.');\n`);
+  assert.ok(noticedIn('scripts/purge-main.mjs'), 'the scripts half of the sources arm is not held');
+  fs.writeFileSync(purge, purgeWas);
 });

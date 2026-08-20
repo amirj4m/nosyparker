@@ -646,6 +646,47 @@ user asking why he had to type two commands. **If a paragraph here states a fact
 about another program's behaviour, it has to name what was run and what came
 back — and if it cannot, it is a guess wearing the clothes of a finding.**
 
+## Removing an entry we did not write  [record]
+
+The README said, from Phase 3 until 0.0.2, that setup "never removes anything it
+did not add". That was the whole of the promise it made about other people's
+files, and `cleanSecondSurfaces` broke it: `cursor --add-mcp` writes the entry
+into `~/.config/Cursor/User/settings.json`, and uninstall takes it out.
+
+The promise is now narrower and the behaviour stays, which is the right way
+round for one reason. **The purpose of `uninstall` is that nothing of ours is
+left running.** An entry in that file starts our server exactly as an entry in
+`~/.cursor/mcp.json` does. Leaving it because a different program's hand typed
+it would mean the command did not do the one thing it exists for, and the person
+would be told it had.
+
+We caused it to exist. It was written during research, by us, running that
+command to find out what it did. Somebody who ran it themselves has the same
+entry for the same reason — because this project told them to, or because they
+were wiring us up.
+
+What keeps this from becoming a licence:
+
+- **Our entry only.** Keyed on the server name, spliced out, every other byte
+  left alone. `editor.fontSize` beside it is untouched, and there is a test that
+  fails on the file's mtime as well as its contents.
+- **A copy first**, through `recordFirstTouch`, like every other file this
+  program edits. It went a day without one and that was the worst finding of the
+  first review.
+- **Said out loud.** The removal report names the file and where the copy is, and
+  the README says which file and why before anybody runs it.
+- **Only where we know.** The path is per-OS and carries `measuredOn`; on a
+  platform nobody has watched it work, an inferred path that is wrong misses
+  rather than damages, because cleaning only ever acts on a file that exists and
+  holds our entry under that key.
+- **The table decides, not the code.** Adding a second surface is a row in
+  `clients.json` that `validateTable` refuses if it is incomplete.
+
+The rule that replaces the old sentence: *we add and remove our own entry, and
+nothing else, wherever that entry ended up.* If a future row wants to remove
+something we did not cause, that is a different decision and it needs its own
+argument here.
+
 ## The schema, frozen on 19 August 2026
 
 Three tables, one virtual table, three triggers, one index. Schema version 2.

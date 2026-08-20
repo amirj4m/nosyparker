@@ -25,6 +25,7 @@ import {
   fillTokens,
   loadClients,
   serverCommand,
+  invocation,
 } from '../src/clients.js';
 
 const VALUES = { name: 'nosyparker', command: '/usr/bin/node', serverPath: '/srv/mcp-server.js' };
@@ -519,5 +520,30 @@ test('no row claims a command writes nothing when the row itself says it writes'
 
     assert.equal(/does write|writes ~|writes `/iu.test(client.write.why ?? ''), false,
       `${client.id}: traps say the command writes nothing and write.why says it writes`);
+  }
+});
+
+test('invocation names the command only when it was started as one', () => {
+  // Two mutations were green: dropping the `nosyparker.cmd` case, and widening
+  // the branch to return 'nosyparker' unconditionally. The second is the worse
+  // one — every sentence this program prints would name a command that does not
+  // exist for somebody running from a clone, which is the exact defect the
+  // check in documentation.js was written for.
+  const argv = process.argv[1];
+
+  try {
+    for (const started of ['/usr/local/bin/nosyparker', 'C:\\npm\\nosyparker.cmd']) {
+      process.argv[1] = started;
+      assert.equal(invocation(), 'nosyparker', `${started} should name the command`);
+    }
+
+    // From a clone, or anything else, it has to name the path — the shim is the
+    // only thing that makes the bare word true.
+    for (const started of ['/home/somebody/nosyparker/src/cli.js', '/usr/bin/node', '']) {
+      process.argv[1] = started;
+      assert.match(invocation(), /^node \/.*\/src\/cli\.js$/u, `${started} should name the path`);
+    }
+  } finally {
+    process.argv[1] = argv;
   }
 });
