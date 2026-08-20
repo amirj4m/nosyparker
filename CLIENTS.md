@@ -1,6 +1,6 @@
 # Which agents nosyparker can wire itself into
 
-`node src/cli.js setup` finds the AI tools on your machine and adds itself to
+`nosyparker setup` finds the AI tools on your machine and adds itself to
 each one's configuration. This is what it knows how to do that for, and how sure
 it is afterwards.
 
@@ -73,7 +73,12 @@ loading — an administrator policy can too, and that is invisible from outside.
 
 **Cursor.** Setup writes its configuration file directly. Cursor does have a
 `--add-mcp` flag, and it is one of the vendor commands we caught reporting
-success and writing nothing at all — it exits cleanly and creates no file. Cursor
+success and writing nothing at all. Cursor is not one of them, and this page said
+it was: `cursor --add-mcp` does write, to `~/.config/Cursor/User/settings.json`
+under `mcp` -> `servers`, which is the VS Code surface Cursor inherited. The
+earlier claim came from checking `~/.cursor/mcp.json`, the file we write, which
+that command genuinely leaves alone. Re-measured in a clean home on 2026-08-20.
+Uninstall cleans both. Cursor
 also has a per-server on/off switch in its own interface; if the entry is there
 but nothing happens, check it has not been switched off.
 
@@ -90,7 +95,7 @@ MCP configuration files. Setup uses its own `kiro --add-mcp`, which writes the
 file Kiro inherited from VS Code, `~/.config/Kiro/User/mcp.json`. Kiro's own
 agent also reads `~/.kiro/settings/mcp.json`, and whether it reads the inherited
 one was never established — so if the server does not appear in Kiro, that is
-the file to add it to by hand. `node src/cli.js setup --print-config kiro` prints
+the file to add it to by hand. `nosyparker setup --print-config kiro` prints
 both.
 
 **Claude Desktop.** Anthropic's desktop app. Officially macOS and Windows; the
@@ -164,7 +169,7 @@ own machine.
 ## Checking later that it still works
 
 ```
-node src/cli.js doctor
+nosyparker doctor
 ```
 
 Nothing here needs running on a schedule, and this is not a repair tool — it

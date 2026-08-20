@@ -770,7 +770,7 @@ VACUUM INTO '/path/to/memory.migrating.sqlite'
 space. That is the same rule as everywhere else here: nothing in this project
 removes what somebody might want, and a migration is the moment it matters most.
 
-`node src/cli.js export` is the other half of this. It is the copy that does not
+`nosyparker export` is the other half of this. It is the copy that does not
 depend on the schema being readable at all, and the sentence to put in front of
 somebody before a migration runs is to take one.
 
