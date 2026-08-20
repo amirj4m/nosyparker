@@ -472,6 +472,36 @@ test('a client whose own command writes a second file says so, and the entry can
   assert.doesNotThrow(() => JSON.parse(after));
 });
 
+test('a table with an incomplete second surface is refused on load', (t) => {
+  // `validateTable` grew a block for these rows and nothing made it fire: the
+  // shipped table is complete, so a test that reads the shipped table passes
+  // whether the check runs or not. This one hands it a broken row.
+  const url = new URL(`${t.name.replaceAll(/\W/gu, '-')}.json`, import.meta.url);
+  t.after(() => fs.rmSync(url, { force: true }));
+
+  /** @param {(surface: any) => void} damage */
+  const refused = (damage) => {
+    const broken = structuredClone(loadClients());
+    const client = broken.clients.find((/** @type {any} */ c) => c.alsoRemoveFrom?.length);
+    assert.ok(client, 'no client in the table has a second surface to damage');
+    damage(client.alsoRemoveFrom[0]);
+    fs.writeFileSync(url, JSON.stringify(broken));
+    return () => loadClients(url);
+  };
+
+  assert.throws(refused((s) => delete s.why), /second surface with no "why"/u);
+  assert.throws(refused((s) => delete s.measuredOn), /second surface with no "measuredOn"/u);
+
+  // A platform we know nothing about has to say so out loud. A missing key and
+  // an explicit null read identically to the code that cleans — both mean "not
+  // here" — and only one of them is a decision somebody made.
+  assert.throws(refused((s) => delete s.path.win32), /says nothing about win32/u);
+
+  // Measured somewhere, by somebody. A row nobody has ever run is a row that
+  // edits a stranger's editor settings on a guess.
+  assert.throws(refused((s) => { s.measuredOn = []; }), /which platform its second surface was measured on/u);
+});
+
 test('a second surface is a per-OS path like every other path in the table', () => {
   // `alsoRemoveFrom.path` was one hardcoded Linux string while `configPaths`
   // beside it is a map. On macOS the file is not found, the loop continues, and

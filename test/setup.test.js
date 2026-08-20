@@ -22,9 +22,10 @@ import { defaultIo, install, printConfig, refuseNpxCache, report, reportRemoval,
  * @param {string[]} [shape.files]
  * @param {string[]} [shape.pathDirs]
  * @param {(argv: string[]) => {status: number, stdout: string, stderr: string}} [shape.run]
+ * @param {'linux'|'darwin'|'win32'} [shape.platform]
  * @returns {{io: any, printed: () => string, home: string}}
  */
-function machine(t, { files = [], pathDirs = [], run } = {}) {
+function machine(t, { files = [], pathDirs = [], run, platform = 'linux' } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-setup-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
@@ -51,7 +52,7 @@ function machine(t, { files = [], pathDirs = [], run } = {}) {
     },
     machine: {
       home,
-      platform: 'linux',
+      platform,
       appData: undefined,
       cwd: path.join(home, 'work'),
       pathDirs,
@@ -920,11 +921,43 @@ test('cleaning a second surface is backed up, recorded, and reported like every 
   assert.ok(row.backup, 'no backup was taken of a file we edited');
   assert.equal(fs.readFileSync(row.backup, 'utf8'), before, 'the backup is not what was there');
 
+  // And the row says what the file said. This field was hardcoded `true` once;
+  // computing it is only worth anything if the computed value is the one that
+  // lands, and a manifest row outlives the run that wrote it. Note that true is
+  // the only answer reachable through this surface today — our entry cannot be
+  // inside a container that is absent — so what this holds is that the value
+  // comes off the file at all. The false case waits on a second surface we
+  // create ourselves, and there is not one yet.
+  assert.equal(row.rootKeyExisted, true,
+    'the manifest does not record that their `mcp` block was already there');
+
   // And the person is told. "Nothing to remove" while having just edited their
   // editor settings is the part that made this the worst finding on the list.
   const said = printed();
   assert.equal(said.includes('Nothing to remove'), false, 'it said it did nothing');
   assert.match(said, /settings\.json/u, 'the file it edited is not named in the output');
+});
+
+test('a second surface is looked for where that platform keeps it', (t) => {
+  // The path is a three-platform map, and the code indexes it by the platform
+  // it is running on. Every other test here runs on the Linux entry, so a
+  // mutation reading `path.linux` outright was invisible: it is the correct
+  // answer on the machine the suite runs on and wrong everywhere else. The
+  // macOS and Windows rows are inferred from where those builds of VS Code
+  // keep user settings, not measured — `measuredOn` says so, and this test
+  // holds the indexing, not the paths.
+  const { io, home } = machine(t, {
+    platform: 'darwin',
+    files: ['Library/Application Support/Cursor/User/', '.cursor/'],
+  });
+
+  const theirs = path.join(home, 'Library', 'Application Support', 'Cursor', 'User', 'settings.json');
+  fs.writeFileSync(theirs, '{\n\t"mcp": {\n\t\t"servers": {\n\t\t\t"nosyparker": {}\n\t\t}\n\t}\n}');
+
+  reportRemoval(io, uninstall(io));
+
+  assert.equal(fs.readFileSync(theirs, 'utf8').includes('nosyparker'), false,
+    'the macOS surface was not cleaned on a macOS machine');
 });
 
 test('one bad second surface is one client failing, not the whole command', (t) => {
