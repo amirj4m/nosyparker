@@ -747,15 +747,6 @@ export function runCommand(argv) {
 }
 
 /**
- * @param {string} method
- * @param {string|null} file
- * @param {import('./backup.js').BackupResult|null} backup
- * @param {string} outcome
- * @param {string|null} error
- * @param {string|null} [reason]
- * @returns {WriteResult}
- */
-/**
  * "Not there" and "there, and the root key cannot reach it" are different
  * answers, and this path gave the first for both.
  *
@@ -782,6 +773,15 @@ function absentOrOutOfReach(before, options, method = 'file') {
     + 'this client, rather than editing it by hand.');
 }
 
+/**
+ * @param {string} method
+ * @param {string|null} file
+ * @param {import('./backup.js').BackupResult|null} backup
+ * @param {string} outcome
+ * @param {string|null} error
+ * @param {string|null} [reason]
+ * @returns {WriteResult}
+ */
 function result(method, file, backup, outcome, error, reason = null) {
   return { outcome, method, path: file, backup, error, reason };
 }
