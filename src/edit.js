@@ -297,8 +297,12 @@ export function hadRootKey(text, request) {
   if (request.format !== 'json' && request.format !== 'jsonc') return true;
   if (text.trim() === '') return false;
 
-  const root = rootObject(text);
-  return root !== null && memberOf(text, root, request.rootKey) !== null;
+  // Through the same resolver as everything else that reads a root key. It
+  // used `memberOf` at the top level, so for a dotted key it looked for a
+  // member literally named "mcp.servers", answered false, and wrote that into
+  // the manifest — where false means "we made this container" and tells a later
+  // uninstall to delete somebody else's `mcp` block.
+  return sectionStart(text, request.rootKey) !== null;
 }
 
 /**

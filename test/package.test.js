@@ -144,3 +144,36 @@ test('there is a command, and it is named after the package', () => {
   assert.ok(packed().has('src/cli.js'));
   assert.match(fs.readFileSync(path.join(ROOT, 'src/cli.js'), 'utf8'), /^#!\/usr\/bin\/env node/u);
 });
+
+test('the one change that can reach a public registry is held by something', () => {
+  // `publish.yml` was read by no test. Its `if: github.event_name == 'release'`
+  // is the only line in this project that can put a tarball in front of
+  // strangers, and it is the only change nothing could fail on. The condition
+  // used to include `|| inputs.dry_run == false`, which let a manual run publish
+  // with no release and therefore without the tag-versus-manifest check.
+  const yaml = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'publish.yml'), 'utf8');
+
+  // Read as text on purpose: there is no YAML parser in this project's
+  // dependencies and adding one to read one file would be a second runtime
+  // dependency's worth of argument for a nine-line check.
+  const step = yaml.slice(yaml.indexOf('- name: publish'));
+  const condition = /^\s*if:\s*(.+)$/mu.exec(step);
+
+  assert.ok(condition, 'the publish step has no condition at all');
+  assert.equal(condition[1].trim(), "github.event_name == 'release'",
+    'the publish step must fire on a published release and on nothing else');
+
+  // The guards that stand between a release and the registry, each named.
+  for (const guard of [
+    'only this repository, only its owner',
+    'npm run typecheck',
+    'npm test',
+    'the release tag and package.json must say the same version',
+    'that version must not already be published',
+  ]) {
+    assert.ok(yaml.includes(guard), `the publish workflow lost its "${guard}" step`);
+  }
+
+  // And the publish step has to come after them, not beside them.
+  assert.ok(yaml.indexOf('- name: publish') > yaml.indexOf('that version must not already be published'));
+});

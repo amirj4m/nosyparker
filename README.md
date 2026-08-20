@@ -108,9 +108,15 @@ once per client.
 
 [CLIENTS.md](CLIENTS.md) lists all twenty and says which group each is in.
 
-It never removes anything it did not add, and where it edits a config file
-itself it keeps a copy in `~/.nosyparker/backups/` first, never replaced. A
-client that writes its own config leaves nothing of ours to undo, so takes none.
+It only ever adds or removes its own entry, and where it edits a config file it
+keeps a copy in `~/.nosyparker/backups/` first, never replaced.
+
+One thing it does that is worth knowing: Cursor's own `--add-mcp` writes its
+server into `~/.config/Cursor/User/settings.json`, which is where Cursor also
+keeps your editor settings. If that entry is there, `uninstall` takes it out —
+after copying the file. It is our entry wherever it ended up, and leaving it
+behind would mean `uninstall` did not do what this page says it does. Nothing
+else in that file is touched.
 
 The last thing it prints is which applications to close and reopen. None of them
 re-read their config while running.
@@ -142,8 +148,9 @@ so.
 nosyparker uninstall
 ```
 
-Takes its entry out of every client that has one and touches nothing else in
-those files. Running it twice is not an error.
+Takes its entry out of every client that has one, including the one Cursor's own
+command writes, and changes nothing else in those files. Running it twice is not
+an error.
 
 That removes the wiring, not the memories. Everything nosyparker keeps is in one
 folder:

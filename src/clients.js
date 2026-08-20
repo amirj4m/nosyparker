@@ -247,8 +247,14 @@ export function invocation() {
   // On Windows npm writes a `.cmd` wrapper that runs the script directly, so
   // argv[1] is the JS file and this falls through to the path form — correct,
   // if wordier, and the alternative would be guessing.
-  const started = path.basename(process.argv[1] ?? '');
-  if (started === 'nosyparker' || started === 'nosyparker.cmd') return 'nosyparker';
+  // Both separators, because `path.basename` follows the host's rules and a
+  // Windows shim path handed to a POSIX basename comes back whole. Checking
+  // only one of them made the `.cmd` branch unreachable everywhere it mattered
+  // — the same blindness this project had just fixed in the npx guard, in the
+  // function that fix's own comment cites as the precedent for handling it.
+  const argv = process.argv[1] ?? '';
+  const started = [path.basename(argv), path.win32.basename(argv)];
+  if (started.includes('nosyparker') || started.includes('nosyparker.cmd')) return 'nosyparker';
 
   return `node ${fileURLToPath(new URL('./cli.js', import.meta.url))}`;
 }
@@ -289,6 +295,29 @@ function validateTable(table) {
     if (!['A', 'B+', 'B', 'C'].includes(client.verify.tier)) {
       throw new Error(`"${client.id}" has verification tier "${client.verify.tier}".`);
     }
+    for (const surface of client.alsoRemoveFrom ?? []) {
+      for (const key of ['path', 'rootKey', 'format', 'why', 'measuredOn']) {
+        if (!(key in surface)) {
+          throw new Error(`"${client.id}" has a second surface with no "${key}".`);
+        }
+      }
+      for (const platform of ['linux', 'darwin', 'win32']) {
+        if (!(platform in surface.path)) {
+          throw new Error(
+            `"${client.id}" says nothing about ${platform} for ${surface.rootKey}. Say null if `
+            + 'it is unknown — a missing key reads as "not on this platform" and cleans nothing.',
+          );
+        }
+      }
+      if (!Array.isArray(surface.measuredOn) || surface.measuredOn.length === 0) {
+        throw new Error(
+          `"${client.id}" does not say which platform its second surface was measured on. One `
+          + 'machine runs Linux here; a path nobody has watched work is inference and has to '
+          + 'be labelled as such.',
+        );
+      }
+    }
+
     if (client.write.method === 'file' && client.entry === null) {
       throw new Error(`"${client.id}" is written by file and has no entry shape.`);
     }

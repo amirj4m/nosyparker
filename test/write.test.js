@@ -798,6 +798,15 @@ test('a primary config holding our name where the root key cannot reach it is a 
   const before = '{\n  "context_servers_TYPO": {\n    "nosyparker": { "command": "/usr/bin/node" }\n  }\n}\n';
   fs.writeFileSync(file, before);
 
+  // A manifest row, because this program only says its own table is wrong about
+  // a file it actually wrote to. A mention in a file we never touched proves
+  // nothing, and saying otherwise accused `~/.claude.json` of holding an entry
+  // it did not hold.
+  fs.mkdirSync(path.join(dir, 'backups'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'backups', 'manifest.json'), JSON.stringify({
+    'zed.settings.json': { path: file, backup: null, existed: true, client: 'zed' },
+  }, null, 2));
+
   const client = clientById('zed');
   const removed = removeFromClient(client, {
     name: 'nosyparker',
@@ -851,6 +860,11 @@ test('the same question is asked on the path a client removes through its own co
   const before = '{\n  "mcpServers_TYPO": {\n    "nosyparker": { "command": "/usr/bin/node" }\n  }\n}\n';
   fs.writeFileSync(file, before);
 
+  fs.mkdirSync(path.join(dir, 'backups'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'backups', 'manifest.json'), JSON.stringify({
+    'claude-code..claude.json': { path: file, backup: null, existed: true, client: 'claude-code' },
+  }, null, 2));
+
   const removed = removeFromClient(clientById('claude-code'), {
     name: 'nosyparker',
     command: '/usr/bin/node',
@@ -868,6 +882,68 @@ test('the same question is asked on the path a client removes through its own co
   });
 
   assert.equal(removed.outcome, FAILED);
-  assert.match(String(removed.error), /not where the client table says/u);
+  assert.match(String(removed.error), /the client table is wrong about where/u);
   assert.equal(fs.readFileSync(file, 'utf8'), before);
 });
+
+test('the reach check does not accuse a file of holding an entry it does not hold', (t) => {
+  // `usedAsKey` is a deliberately blunt regex, safe where it was born — inside
+  // `removeEntry`, after a splice, on a file we were about to edit. Moving it
+  // onto twenty primary configs made it accuse `~/.claude.json`, whose every
+  // sentence was then false.
+  //
+  // Three things must be true before this program says its own table is wrong.
+  // Each case below satisfies two of them and breaks one, so each holds its own
+  // conjunct: the first version of this test satisfied none of them in any case
+  // and passed three times over for reasons unrelated to what it claimed.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-accuse-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const backupDir = path.join(dir, 'backups');
+  fs.mkdirSync(backupDir, { recursive: true });
+
+  /** @param {string} name @param {string} text @param {boolean} recorded */
+  const removing = (name, text, recorded) => {
+    const file = path.join(dir, name);
+    fs.writeFileSync(file, text);
+    fs.writeFileSync(path.join(backupDir, 'manifest.json'), JSON.stringify(
+      recorded ? { row: { path: file, backup: null, existed: true, client: 'zed' } } : {}, null, 2));
+
+    return removeFromClient(clientById('zed'), {
+      name: 'nosyparker',
+      command: '/usr/bin/node',
+      serverPath: '/srv/mcp-server.js',
+      configPath: file,
+      clientCommand: null,
+      backupDir,
+      now: '2026-08-20T10:00:00.000Z',
+      log: noLog(),
+    });
+  };
+
+  // Comments stripped: we wrote here, the container is gone, and the only trace
+  // of our name is a comment somebody left.
+  assert.equal(
+    removing('comment.json', '{\n  // nosyparker: I took this out myself\n  "other": {}\n}\n', true).outcome,
+    ABSENT, 'a comment naming us was read as an entry');
+
+  // A manifest row is required: the container is gone and the name is a real
+  // key, but this is a file we never wrote to, so it proves nothing about us.
+  assert.equal(
+    removing('never.json', '{\n  "somewhere": { "nosyparker": {} }\n}\n', false).outcome,
+    ABSENT, 'a file we never wrote to was used as evidence against our own table');
+
+  // The container has to be missing: it is right there, our name is not under
+  // it, and a project-scoped entry elsewhere is somebody else's business.
+  assert.equal(
+    removing('scoped.json',
+      '{\n  "context_servers": {},\n  "projects": { "/w": { "nosyparker": {} } }\n}\n', true).outcome,
+    ABSENT, 'an entry outside our container was treated as ours');
+
+  // And all three true: we wrote here, the container is gone, the name is a key.
+  const real = removing('real.json', '{\n  "context_servers_TYPO": { "nosyparker": {} }\n}\n', true);
+  assert.equal(real.outcome, FAILED, 'the case this check exists for stopped firing');
+  assert.doesNotMatch(String(real.error), /by hand/u,
+    'it should not tell somebody to hand-edit a config we call a credential store');
+});
+

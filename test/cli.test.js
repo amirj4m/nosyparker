@@ -372,24 +372,33 @@ test('a mistake of ours is not dressed up as a refusal', (t) => {
   // would print as a sentence rather than a stack. It caught everything, so an
   // injected `ReferenceError` printed as `nope is not defined` with no stack
   // and nothing to say it was a bug — indistinguishable from a considered no.
-  // That is the shape this project keeps writing rules against, one level up
-  // from the one it had just fixed downstream.
   //
-  // Tested by breaking the program on purpose and running it, because the
-  // question is what a person sees, not what the source looks like.
-  const setup = fileURLToPath(new URL('../src/setup.js', import.meta.url));
-  const original = fs.readFileSync(setup, 'utf8');
-  t.after(() => fs.writeFileSync(setup, original));
+  // Broken in a *copy* of the tree, never in the working tree. The first
+  // version of this wrote a broken `src/setup.js` into the repository and put
+  // it back in an `after` hook: test files run eight ways in parallel, three
+  // others import that module, and killing the run mid-test left the checkout
+  // dirty and broken.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-oops-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-  fs.writeFileSync(setup, original.replace(
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  fs.cpSync(path.join(root, 'src'), path.join(dir, 'src'), { recursive: true });
+  fs.cpSync(path.join(root, 'package.json'), path.join(dir, 'package.json'));
+  fs.symlinkSync(path.join(root, 'node_modules'), path.join(dir, 'node_modules'));
+  for (const doc of ['README.md', 'CLIENTS.md', 'CONNECTING.md', 'DECISIONS.md']) {
+    fs.cpSync(path.join(root, doc), path.join(dir, doc));
+  }
+
+  const copy = path.join(dir, 'src', 'setup.js');
+  fs.writeFileSync(copy, fs.readFileSync(copy, 'utf8').replace(
     'export function install(io) {',
     'export function install(io) {\n  nope.notAThing();',
   ));
 
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-oops-'));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const home = path.join(dir, 'home');
+  fs.mkdirSync(home, { recursive: true });
 
-  const broken = spawnSync(process.execPath, [CLI, 'setup'], {
+  const broken = spawnSync(process.execPath, [path.join(dir, 'src', 'cli.js'), 'setup'], {
     encoding: 'utf8',
     env: { ...process.env, HOME: home, NOSYPARKER_STORE: path.join(home, 'memory.sqlite') },
   });
@@ -398,7 +407,10 @@ test('a mistake of ours is not dressed up as a refusal', (t) => {
   assert.match(said, /ReferenceError/u, 'a bug should say it is a bug');
   assert.match(said, /at .*setup\.js/u, 'a bug should come with the stack somebody would report');
 
+  // And the repository itself was never touched.
+  assert.doesNotMatch(fs.readFileSync(path.join(root, 'src', 'setup.js'), 'utf8'), /nope\.notAThing/u);
 });
+
 
 test('started through the shim, the sentences it prints name the command', (t) => {
   // `invocation()` grew a branch for the command a global install puts on PATH,

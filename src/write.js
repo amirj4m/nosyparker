@@ -191,7 +191,7 @@ export function removeFromClient(client, options) {
     }
 
     if (client.remove.method === 'cli' && options.clientCommand !== null) {
-      if (!hasEntry(before, request)) return absentOrOutOfReach(before, options, 'cli');
+      if (!hasEntry(before, request)) return absentOrOutOfReach(before, options, request, 'cli');
 
       const argv = fillArgv(client.remove.argv, client, options);
       const run = options.run ?? runCommand;
@@ -213,7 +213,7 @@ export function removeFromClient(client, options) {
       return result('cli', options.configPath, null, REMOVED, null);
     }
 
-    if (!hasEntry(before, request)) return absentOrOutOfReach(before, options);
+    if (!hasEntry(before, request)) return absentOrOutOfReach(before, options, request);
 
     // The fallback exists so an uninstall works on a machine where the client
     // has been deleted, upgraded or moved off PATH. For one client it cannot:
@@ -758,19 +758,38 @@ export function runCommand(argv) {
  *
  * @param {string} before
  * @param {any} options
+ * @param {import('./edit.js').EditRequest} request
  * @param {string} [method]
  * @returns {any}
  */
-function absentOrOutOfReach(before, options, method = 'file') {
-  if (!usedAsKey(before, options.name)) {
+function absentOrOutOfReach(before, options, request, method = 'file') {
+  // Comments first. The regex below is blunt on purpose, and a JSONC comment
+  // saying "nosyparker: I took this out myself" is not an entry — it read as
+  // one, and the whole accusation that followed was false.
+  const text = stripComments(before);
+
+  // Three things all have to be true before this program tells somebody its own
+  // table is wrong about their machine. It used to be one, and the one was a
+  // regex over the raw text of every primary config — including `~/.claude.json`,
+  // which holds project-scoped entries that are somebody else's and an OAuth
+  // token that is nobody's business.
+  //
+  //   we wrote here      a file we never touched proves nothing about our table
+  //   the container is missing   if the row's key is in the file and our name
+  //                              is not under it, we were removed properly
+  //   the name is a key  and not prose, a path, or a comment
+  const weWroteHere = manifestRowFor(options.configPath, options.backupDir) !== null;
+
+  if (!weWroteHere || hadRootKey(text, request) || !usedAsKey(text, options.name)) {
     return result(method, options.configPath, null, ABSENT, null);
   }
 
   return result(method, options.configPath, null, FAILED,
-    `"${options.name}" is in ${options.configPath} but not where the client table says this `
-    + 'client keeps its servers, so nothing was removed and the file is exactly as it was. '
-    + 'That is a bug in the table rather than in your file. Please report it, with the name of '
-    + 'this client, rather than editing it by hand.');
+    `This installed into ${options.configPath}, "${options.name}" is still somewhere in it, and `
+    + `there is no "${request.rootKey}" for it to be under — so nothing was removed and the file `
+    + 'is exactly as it was. That most likely means the client table is wrong about where this '
+    + 'client keeps its servers, which is ours to fix. Please report it with the name of this '
+    + 'client. Do not edit the file to work around it: some of these hold credentials.');
 }
 
 /**
