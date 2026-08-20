@@ -87,6 +87,26 @@ test('what is ours rather than theirs stays out of the package', () => {
   assert.equal(inside.has('tsconfig.json'), false);
 });
 
+test('a working document of ours does not ship to people who wanted a memory store', () => {
+  // WINDOWS.md is a brief for a session that will run on the other half of a
+  // dual-boot laptop. It names our commit, our unverified table columns and the
+  // things we have not measured yet — a note between the people building this,
+  // and noise on the disk of somebody who installed a memory store.
+  //
+  // Listed by exclusion rather than by name, so the next working document is
+  // covered on the day it is written rather than the day somebody remembers.
+  // `files` is a whitelist, so this holds by default: the point of the test is
+  // that widening `files` to a glob cannot quietly take our notes with it.
+  const shipped = [...packed()].filter((file) => file.endsWith('.md'));
+  const meantToShip = ['README.md', 'CLIENTS.md', 'CONNECTING.md', 'DECISIONS.md'];
+
+  assert.deepEqual(shipped.filter((file) => !meantToShip.includes(file)), [],
+    'a markdown file that is ours rather than theirs is in the package');
+
+  // And it is here to be excluded, rather than absent and trivially passing.
+  assert.ok(fs.existsSync(path.join(ROOT, 'WINDOWS.md')), 'WINDOWS.md is gone');
+});
+
 test('nothing in the package names the machine it was built on', () => {
   // A reviewer appended `const LEAK = '/home/amirjam/…'` to `src/config.js` and
   // nothing fired. Every absolute path this program uses is worked out at run
