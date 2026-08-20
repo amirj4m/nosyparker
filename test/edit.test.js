@@ -556,7 +556,7 @@ test('a file that begins with a byte order mark and holds one line can be writte
   assert.equal(hasEntry(after, JSON_REQUEST), true);
 });
 
-test('a remover that cannot find what it was asked to remove says so, rather than nothing', () => {
+test('the remover does not guess why it found nothing — that is asked where it can be answered', () => {
   // The defect this closes, found on a real machine: `cursor --add-mcp` writes
   // its entry under `mcp` → `servers`, and our table pointed at a different
   // file with a top-level root key. Asked to remove it, `removeEntry` looked
@@ -581,10 +581,23 @@ test('a remover that cannot find what it was asked to remove says so, rather tha
     '}',
   ].join('\n');
 
-  assert.throws(
-    () => removeEntry(nested, { name: 'nosyparker', rootKey: 'servers', format: 'json', entry: {} }),
-    /nosyparker/u,
-    'a nested entry it cannot reach should be an error, not a silent no-op',
+  // It used to answer that here, with a bare `usedAsKey` over raw text, and a
+  // third review measured what that cost. This function is handed a string and
+  // a key. It cannot know whether we ever wrote to the file, whether the
+  // container was already there, or whether the text is a comment — so on a
+  // `settings.json` holding an empty `"mcp": {"servers": {}}` it threw "report
+  // it" at somebody who had nothing to report, over their editor settings,
+  // because `cleanSecondSurfaces` calls it.
+  //
+  // So the question moved to the two callers that can answer it:
+  // `absentOrOutOfReach` in `write.js`, behind four conditions, for a primary
+  // config; and `cleanSecondSurfaces`, which treats an unchanged file as
+  // nothing to do. What this function owes is an unchanged string and no
+  // opinion.
+  assert.equal(
+    removeEntry(nested, { name: 'nosyparker', rootKey: 'servers', format: 'json', entry: {} }),
+    nested,
+    'the remover changed a file it could not find the entry in',
   );
 
   // And the ordinary case still has to be quiet: a file that genuinely does not

@@ -253,9 +253,19 @@ export function diagnose(io) {
     findings.push({ client: client.id, name: client.name, state, says });
   }
 
+  // Onto the client's own finding where it already has one, rather than beside
+  // it. A separate push carried the same `client.id` twice, so one Cursor wired
+  // in both of its files reported as two clients — "8 clients on this machine
+  // have been set up" with seven installed — and the count in the action log
+  // was inflated with it. A finding is a client here, not a file.
   for (const client of loadClients().clients) {
-    for (const line of secondSurfacesOf(client, io)) {
-      findings.push({ client: client.id, name: client.name, state: NOT_ASKABLE, says: [line] });
+    const lines = secondSurfacesOf(client, io);
+    if (lines.length === 0) continue;
+
+    const already = findings.find((finding) => finding.client === client.id);
+    if (already !== undefined) already.says.push(...lines);
+    else {
+      findings.push({ client: client.id, name: client.name, state: NOT_ASKABLE, says: lines });
     }
   }
 

@@ -473,6 +473,45 @@ test('a client whose own command writes a second file says so, and the entry can
   assert.doesNotThrow(() => JSON.parse(after));
 });
 
+test('a trap does not state one platform\'s path as if it were every platform\'s', () => {
+  // `setup --print-config` prints traps, on whatever machine it is run on. The
+  // Cursor trap named `~/.config/Cursor/User/settings.json` flatly — the Linux
+  // path, told to a Windows user as the file their own command writes. Every
+  // other path in this table is a per-OS map for exactly this reason; a trap is
+  // prose and cannot be one, so it has to name the platform instead.
+  //
+  // Structural rather than a reading of the prose: take the paths the row
+  // itself gives per platform, and if a trap quotes one of them, the trap must
+  // also name the platform it belongs to.
+  /** @type {string[]} */
+  const wrong = [];
+
+  for (const client of loadClients().clients) {
+    /** @type {Record<string, string>[]} */
+    const maps = [client.configPaths, ...(client.alsoRemoveFrom ?? []).map((/** @type {any} */ s) => s.path)];
+
+    for (const trap of client.traps) {
+      for (const map of maps) {
+        for (const [platform, value] of Object.entries(map)) {
+          if (typeof value !== 'string' || !trap.includes(value)) continue;
+
+          // Named by every platform alike — `~/.claude.json` is the same string
+          // on all three — so quoting it says nothing platform-specific.
+          const shared = Object.values(map).filter((other) => other === value).length;
+          if (shared > 1) continue;
+
+          const names = { linux: /linux/iu, darwin: /macos|mac os|darwin/iu, win32: /windows|win32/iu };
+          if (!names[/** @type {'linux'|'darwin'|'win32'} */ (platform)].test(trap)) {
+            wrong.push(`${client.id}: a trap quotes the ${platform} path and does not say ${platform}`);
+          }
+        }
+      }
+    }
+  }
+
+  assert.deepEqual(wrong, []);
+});
+
 test('a row does not promise output the program does not produce', (t) => {
   // I wrote the sentence this catches, in the same commit that made the path a
   // per-OS map. The row said the report "says which platform it could speak
@@ -488,14 +527,22 @@ test('a row does not promise output the program does not produce', (t) => {
   const surfaced = ['setup.js', 'doctor.js', 'write.js']
     .some((file) => fs.readFileSync(path.join(root, 'src', file), 'utf8').includes('measuredOn'));
 
-  const promises = /report says|output says|tells you which platform|says which platform/iu;
+  const promises = /report says which|output says which|says which it could speak for|tells you which platform|says which platform/iu;
   const claiming = loadClients().clients.flatMap((client) =>
     (client.alsoRemoveFrom ?? [])
       .filter((/** @type {any} */ surface) => promises.test(surface.why))
       .map((/** @type {any} */ surface) => `${client.id} / ${surface.rootKey}`));
 
-  assert.deepEqual(surfaced ? [] : claiming, [],
-    'a row says the program names the platform it was measured on, and nothing does');
+  // The documents, in the same breath. Removing the clause from `clients.json`
+  // and leaving it in `CLIENTS.md` is what happened: the guard scanned only
+  // `surface.why`, so it went on catching the copy nobody reads while missing
+  // the one that ships and that a person actually opens. Whatever a claim is
+  // written in, it is the same claim.
+  const documents = ['README.md', 'CLIENTS.md', 'CONNECTING.md', 'DECISIONS.md']
+    .filter((file) => promises.test(fs.readFileSync(path.join(root, file), 'utf8')));
+
+  assert.deepEqual(surfaced ? [] : [...claiming, ...documents], [],
+    'something says the program names the platform it was measured on, and nothing does');
 
   // The other half: a row measured on one platform out of three has to admit it
   // in the field somebody reads to decide whether to trust the other two.

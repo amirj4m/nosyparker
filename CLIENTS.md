@@ -13,6 +13,16 @@ Every entry was established by installing the application on a real machine and
 watching what it does, not from its documentation, except where it says
 otherwise.
 
+**On which machine: Linux.** That is the only operating system any of this has
+been watched on, and it is what this version is honest about. Where a row gives
+a macOS or Windows path — 14 and 12 of them respectively — that path is the
+standard location for that platform and **nobody here has seen it used**. It is
+inference, and the difference matters: a path that turns out wrong is not found,
+so nothing is written to it and nothing is removed from it, and the command says
+nothing about it in either direction. It cannot damage a file it never opens.
+Those two columns are being measured next, one platform at a time, and each
+version will say which ones it has actually watched.
+
 ---
 
 ## Confirmed — these answered us
@@ -81,8 +91,9 @@ and takes a copy of the second before touching it — on Linux, where that secon
 path was measured. On macOS and Windows it uses the standard VS Code layout
 Cursor inherits, which nobody here has watched work: cleaning only ever acts on
 a file that is there and holds our entry, so a path that turns out wrong misses
-rather than damages, and the report says which it could speak for. Cursor also has a per-server on/off switch in its own interface; if the entry is there
-but nothing happens, check it has not been switched off.
+rather than damages — it finds nothing and says nothing, in either direction.
+Cursor also has a per-server on/off switch in its own interface; if the entry is
+there but nothing happens, check it has not been switched off.
 
 **Devin Desktop**, formerly Windsurf. Renamed, but the old configuration folder
 name survives. It keeps **two** separate MCP configuration files, and setup uses

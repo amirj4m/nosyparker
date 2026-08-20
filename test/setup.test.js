@@ -15,6 +15,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { defaultIo, install, printConfig, refuseNpxCache, report, reportRemoval, uninstall } from '../src/setup.js';
+import { ABSENT, REMOVED } from '../src/write.js';
 
 /**
  * @param {import('node:test').TestContext} t
@@ -936,6 +937,74 @@ test('cleaning a second surface is backed up, recorded, and reported like every 
   const said = printed();
   assert.equal(said.includes('Nothing to remove'), false, 'it said it did nothing');
   assert.match(said, /settings\.json/u, 'the file it edited is not named in the output');
+});
+
+test('uninstall run twice is not an error, even when they pasted a copy by hand', (t) => {
+  // Measured by the third review, on a primary config rather than a second
+  // surface. `setup --print-config` prints an entry for somebody to paste, and
+  // pasting it at the wrong level is the mistake that invites. Install,
+  // uninstall, uninstall: the first run takes our entry and the container we
+  // made for it, and on the second all three conditions guarding the "our table
+  // is wrong" message are true again — we wrote here, there is no container,
+  // and the name is a key. The README says running it twice is not an error.
+  const { io, home } = machine(t, { files: ['.cursor/'] });
+  const theirs = path.join(home, '.cursor', 'mcp.json');
+
+  install(io);
+  assert.match(fs.readFileSync(theirs, 'utf8'), /nosyparker/u, 'setup wrote nothing to work with');
+
+  // Their copy, at a level we do not look at, exactly as pasted.
+  const withPaste = JSON.parse(fs.readFileSync(theirs, 'utf8'));
+  withPaste.projects = { '/w': { nosyparker: { command: '/usr/bin/node' } } };
+  fs.writeFileSync(theirs, JSON.stringify(withPaste, null, 2));
+
+  const first = uninstall(io).find((o) => o.client.id === 'cursor');
+  assert.equal(first?.written?.outcome, REMOVED, 'the first uninstall did not remove our entry');
+
+  const second = uninstall(io).find((o) => o.client.id === 'cursor');
+  assert.equal(second?.written?.outcome, ABSENT,
+    `the second uninstall said "${second?.written?.error}"`);
+
+  // And their paste is still theirs.
+  assert.match(fs.readFileSync(theirs, 'utf8'), /projects/u, 'their own entry was touched');
+});
+
+test('an empty container in their settings is nothing to do, not an accusation', (t) => {
+  // Measured by the third review. `removeEntry` carried its own copy of the
+  // guess that fix #1 gated at the other end of the program — `usedAsKey` over
+  // raw text, no comment stripping, no manifest, no root-key check — and
+  // `cleanSecondSurfaces` is its caller, so it ran over somebody's editor
+  // settings. A `settings.json` holding an empty `"mcp": {"servers": {}}`
+  // produced "nosyparker is in this file but not under mcp.servers... a bug in
+  // the table... report it". There is nothing to report and nothing to do.
+  //
+  // The first version of this listed an empty container with our name nowhere in
+  // the file, which could not have accused anything under any implementation —
+  // `usedAsKey` had nothing to match. It passed with the defect restored. The
+  // cases below each put the name somewhere that is not under the container,
+  // which is the only way to reach the code being tested, plus the plain no-op
+  // to prove silence is not coming from the name being absent.
+  for (const [what, before] of [
+    ['an empty container, our name at another level',
+      '{\n\t"editor.fontSize": 13,\n\t"mcp": {\n\t\t"servers": {}\n\t},\n'
+      + '\t"other": {\n\t\t"nosyparker": {}\n\t}\n}'],
+    ['a comment',
+      '{\n\t// nosyparker: I took this out myself\n\t"mcp": {\n\t\t"servers": {}\n\t}\n}'],
+    ['an empty container and nothing of ours at all',
+      '{\n\t"editor.fontSize": 13,\n\t"mcp": {\n\t\t"servers": {}\n\t}\n}'],
+  ]) {
+    const { io, home, printed } = machine(t, { files: ['.config/Cursor/User/', '.cursor/'] });
+    const theirs = path.join(home, '.config', 'Cursor', 'User', 'settings.json');
+    fs.writeFileSync(theirs, before);
+
+    reportRemoval(io, uninstall(io));
+
+    assert.equal(fs.readFileSync(theirs, 'utf8'), before, `${what}: their file was changed`);
+    const said = printed();
+    assert.doesNotMatch(said, /bug in the (client )?table/u, `${what}: it accused the table`);
+    assert.doesNotMatch(said, /Report it/u, `${what}: it asked them to report a non-problem`);
+    assert.doesNotMatch(said, /settings\.json/u, `${what}: it named a file it did not touch`);
+  }
 });
 
 test('a second surface is looked for where that platform keeps it', (t) => {

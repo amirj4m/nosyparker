@@ -49,7 +49,7 @@ import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 
 import { fillArgv, fillTokens, invocation } from './clients.js';
-import { manifestRowFor, recordFirstTouch } from './backup.js';
+import { manifestRowFor, recordFirstTouch, recordRemoval } from './backup.js';
 import { anyRunning } from './detect.js';
 import { noLog } from './log.js';
 import {
@@ -248,6 +248,11 @@ export function removeFromClient(client, options) {
       return result('file', options.configPath, null, FAILED,
         'The file changed between being written and being read back.');
     }
+
+    // It came out, and it worked. Written down because the second `uninstall`
+    // cannot otherwise tell an ordinary repeat from a table that names the
+    // wrong file — see `recordRemoval`.
+    recordRemoval(options.configPath, options.backupDir);
     if (hasEntry(readBack, request)) {
       return result('file', options.configPath, null, FAILED,
         'The entry is still in the file after being removed from it.');
@@ -775,12 +780,24 @@ function absentOrOutOfReach(before, options, request, method = 'file') {
   // token that is nobody's business.
   //
   //   we wrote here      a file we never touched proves nothing about our table
+  //   we have not already taken it out of here successfully — because then the
+  //                      table was right, and this is the ordinary second run
   //   the container is missing   if the row's key is in the file and our name
   //                              is not under it, we were removed properly
   //   the name is a key  and not prose, a path, or a comment
-  const weWroteHere = manifestRowFor(options.configPath, options.backupDir) !== null;
+  //
+  // The second condition arrived last, from a third review that measured what
+  // three were not enough for. Install into `~/.cursor/mcp.json`, paste a copy
+  // of the entry at the wrong level by hand — which is what the output of
+  // `setup --print-config` invites — then uninstall twice. The first run takes
+  // our entry and the container we made for it; on the second all three of the
+  // others are true and the program accuses its own table, while the README
+  // says running it twice is not an error.
+  const row = manifestRowFor(options.configPath, options.backupDir);
+  const weWroteHere = row !== null;
 
-  if (!weWroteHere || hadRootKey(text, request) || !usedAsKey(text, options.name)) {
+  if (!weWroteHere || row.removedFrom
+    || hadRootKey(text, request) || !usedAsKey(text, options.name)) {
     return result(method, options.configPath, null, ABSENT, null);
   }
 

@@ -924,7 +924,7 @@
       },
       "blockers": [],
       "traps": [
-        "`cursor --add-mcp` writes `~/.config/Cursor/User/settings.json` under `mcp` -> `servers`, not the `~/.cursor/mcp.json` this row installs into. Setup writes the file itself; uninstall cleans both. This row used to say the flag wrote nothing, which was measured against the wrong file.",
+        "`cursor --add-mcp` writes Cursor's own user settings file under `mcp` -> `servers`, not the `~/.cursor/mcp.json` this row installs into. On Linux that is `~/.config/Cursor/User/settings.json`, which is where it was measured; the macOS and Windows locations are the standard VS Code ones and have not been watched. Setup writes the file itself; uninstall cleans both. This row used to say the flag wrote nothing, which was measured against the wrong file.",
         "The docs mark `type` as required in this file.",
         "`~/.cursor/` exists on a fresh install but `mcp.json` does not. Installed-with-no-config is the normal first case here, not an error."
       ],
