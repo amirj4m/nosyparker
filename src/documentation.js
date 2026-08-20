@@ -280,12 +280,27 @@ export function checkDocumentation(root = repositoryRoot()) {
         ...fs.readdirSync(path.join(root, 'scripts')).filter((file) => file.endsWith('.mjs'))
           .map((file) => `scripts/${file}`),
       ];
+      // The four that ship, plus any working document of ours that lives in the
+      // repository and not in the tarball. WINDOWS.md is a brief for a session
+      // on the other half of a dual-boot machine: a stranger who will follow it
+      // literally, on a platform none of us can watch, which is precisely the
+      // harm this check exists to prevent. Whether a document ships is not the
+      // question; whether somebody follows it is.
+      //
+      // Filtered by existence rather than listed outright, because it is not in
+      // the package on purpose. From an installed copy the file is simply not
+      // there, the list is the shipped four, and `doctor` never goes looking for
+      // something that was never sent — which is the ENOENT that
+      // `test/package.test.js` opens by describing.
+      const documents = [
+        'README.md', 'CLIENTS.md', 'CONNECTING.md', 'DECISIONS.md',
+        ...['WINDOWS.md'].filter((file) => fs.existsSync(path.join(root, file))),
+      ];
       const printing = [
         ...sources.filter((file) => names.test(withoutComments(read(file)))),
         // Documents have no comments to strip, and prose about the mistake is
         // the mistake here: a reader copies what a document shows them.
-        ...['README.md', 'CLIENTS.md', 'CONNECTING.md', 'DECISIONS.md']
-          .filter((file) => names.test(read(file))),
+        ...documents.filter((file) => names.test(read(file))),
       ];
 
       // What `invocation()` hands back has to be one of the two real shapes:
@@ -303,8 +318,7 @@ export function checkDocumentation(root = repositoryRoot()) {
       const oldForm = /node src\/cli\.js (add|search|list|log|forget|restore|setup|uninstall|doctor|export|undo-review)\b/u;
       const stale = [
         ...sources.filter((file) => oldForm.test(withoutComments(read(file)))),
-        ...['README.md', 'CLIENTS.md', 'CONNECTING.md', 'DECISIONS.md']
-          .filter((file) => oldForm.test(read(file))),
+        ...documents.filter((file) => oldForm.test(read(file))),
       ];
 
       return [

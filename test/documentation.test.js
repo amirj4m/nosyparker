@@ -192,6 +192,22 @@ test('both arms of the stale-path guard are held, and both directions of the com
   assert.ok(noticedIn('src/cli-main.js'), 'the sources arm of the stale-path guard is not held');
   fs.writeFileSync(cli, cliWas);
 
+  // WINDOWS.md, which does not ship. It is a brief for a session on the other
+  // half of a dual-boot machine, written for somebody who will follow it
+  // literally on a platform none of us can watch — the exact reader this check
+  // protects. The fixture starts without it, so this also proves the file is
+  // read because it is there rather than because it is listed.
+  const windows = path.join(root, 'WINDOWS.md');
+  assert.equal(noticedIn('WINDOWS.md'), false, 'a file that is not there was reported on');
+
+  fs.writeFileSync(windows, 'Run `node src/cli.js setup` on the Windows side.\n');
+  assert.ok(noticedIn('WINDOWS.md'), 'the stale-path guard does not read WINDOWS.md');
+
+  fs.writeFileSync(windows, 'It is wired with `nosyparker setup`.\n');
+  assert.equal(noticedIn('WINDOWS.md'), false,
+    'the current command form was reported as stale');
+  fs.rmSync(windows);
+
   // And a script, because `scripts/` is in that arm too and nothing reached it.
   const purge = path.join(root, 'scripts', 'purge-main.mjs');
   const purgeWas = fs.readFileSync(purge, 'utf8');
