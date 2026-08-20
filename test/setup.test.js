@@ -837,3 +837,53 @@ test('an ordinary path is not mistaken for an npx cache', (t) => {
     assert.doesNotThrow(() => install(io), `${good} should be allowed`);
   }
 });
+
+test('a second surface that cannot be cleaned does not stop the rest of the uninstall', (t) => {
+  // Found by sweeping this branch's own new code for the shape that produced
+  // the last three defects: something that claims to have done a thing without
+  // checking. `cleanSecondSurfaces` wrote and logged "removed" without reading
+  // the file back, and any failure in it came straight out of `uninstall` — so
+  // one unwritable directory aborted the whole command and left every other
+  // client's entry in place. Worse than the orphan it was added to remove.
+  const { io, home } = machine(t, { files: ['.cursor/', '.config/Cursor/User/'] });
+
+  const ours = path.join(home, '.cursor', 'mcp.json');
+  const theirs = path.join(home, '.config', 'Cursor', 'User', 'settings.json');
+
+  fs.writeFileSync(ours, JSON.stringify({
+    mcpServers: { nosyparker: { command: '/usr/bin/node' } },
+  }, null, 2));
+  fs.writeFileSync(theirs, '{\n\t"mcp": {\n\t\t"servers": {\n\t\t\t"nosyparker": {}\n\t\t}\n\t}\n}');
+
+  fs.chmodSync(path.dirname(theirs), 0o500);
+  try {
+    assert.doesNotThrow(() => uninstall(io), 'one unwritable surface must not abort the command');
+    assert.equal(fs.readFileSync(ours, 'utf8').includes('nosyparker'), false,
+      'the client we can clean must still be cleaned');
+  } finally {
+    // Restored here rather than in an `after` hook: the hook that removes the
+    // whole temporary home runs first, and chmod on a deleted path throws.
+    fs.chmodSync(path.dirname(theirs), 0o700);
+  }
+});
+
+test('a second surface the person marked read-only is left alone, like every other config', (t) => {
+  // The primary path refuses to touch a read-only config on purpose — an atomic
+  // write would replace it anyway and leave the permissions looking untouched,
+  // so read-only is taken to mean what it says. The second-surface path went
+  // round that and rewrote the file.
+  const { io, home } = machine(t, { files: ['.config/Cursor/User/'] });
+
+  const theirs = path.join(home, '.config', 'Cursor', 'User', 'settings.json');
+  const before = '{\n\t"mcp": {\n\t\t"servers": {\n\t\t\t"nosyparker": {}\n\t\t}\n\t}\n}';
+  fs.writeFileSync(theirs, before);
+  fs.chmodSync(theirs, 0o444);
+
+  try {
+    uninstall(io);
+    assert.equal(fs.readFileSync(theirs, 'utf8'), before,
+      'a read-only file must be left exactly as it was');
+  } finally {
+    fs.chmodSync(theirs, 0o644);
+  }
+});

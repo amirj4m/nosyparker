@@ -27,6 +27,7 @@
  * is an entry nothing has read.
  */
 
+import fs from 'node:fs';
 import {
   clientById,
   configPathFor,
@@ -283,20 +284,61 @@ function cleanSecondSurfaces(client, io) {
     const file = expandPath(surface.path, io.machine);
     if (!io.machine.exists(file)) continue;
 
-    const before = readOrEmpty(file);
-    if (before === '') continue;
+    try {
+      const before = readOrEmpty(file);
+      if (before === '') continue;
 
-    const after = removeEntry(before, {
-      name: io.name,
-      rootKey: surface.rootKey,
-      format: surface.format,
-      entry: {},
-    });
+      const after = removeEntry(before, {
+        name: io.name,
+        rootKey: surface.rootKey,
+        format: surface.format,
+        entry: {},
+      });
 
-    if (after === before) continue;
+      if (after === before) continue;
 
-    writePreservingMode(file, after);
-    io.log.record('removed', { client: client.id, path: file, by: 'second surface' });
+      // Read-only means what it says here too. The primary path refuses such a
+      // file on purpose — an atomic write would replace it and leave the
+      // permissions looking untouched — and this path went round that rule
+      // until the sweep found it.
+      let mode;
+      try {
+        mode = fs.statSync(file).mode;
+      } catch {
+        continue;
+      }
+      if ((mode & 0o200) === 0) {
+        io.log.record('skipped', { client: client.id, path: file, why: 'read-only' });
+        continue;
+      }
+
+      writePreservingMode(file, after);
+
+      // Every other write in this project reads back before claiming anything,
+      // and this one did not. A log line saying "removed" is a claim.
+      if (removeEntry(readOrEmpty(file), {
+        name: io.name, rootKey: surface.rootKey, format: surface.format, entry: {},
+      }) !== readOrEmpty(file)) {
+        io.log.record('failed', { client: client.id, path: file, why: 'entry survived the write' });
+        continue;
+      }
+
+      io.log.record('removed', { client: client.id, path: file, by: 'second surface' });
+    } catch (error) {
+      // One second surface that cannot be cleaned must not stop the other
+      // nineteen clients being unwired. It is recorded and the command carries
+      // on.
+      //
+      // Only failures that came from the filesystem, though. The first version
+      // of this caught everything, and the first thing it caught was a
+      // ReferenceError from a missing import — swallowed and logged as if it
+      // were somebody's permissions. A catch that hides our own mistakes is the
+      // silent-success shape this whole sweep was looking for, one level up.
+      const code = /** @type {NodeJS.ErrnoException} */ (error).code;
+      if (typeof code !== 'string') throw error;
+
+      io.log.record('failed', { client: client.id, path: file, why: code });
+    }
   }
 }
 
@@ -323,12 +365,22 @@ export function uninstall(io) {
   for (const client of loadClients().clients) {
     const found = detect(client, io.machine);
 
+    // Before the detection gate, deliberately. `detect` returns a null
+    // configPath for a client that is not on this machine, and a leftover file
+    // is a leftover file whether or not the application that made it is still
+    // installed — somebody who removes Cursor and then runs uninstall should
+    // not be left with our entry in a file nothing will ever read again.
+    //
+    // This was the other way round for a day, which also made the read-only
+    // test vacuous: it built a home where the second surface existed and Cursor
+    // did not, so nothing ran and the test passed for a reason that had nothing
+    // to do with what it claimed to check.
+    cleanSecondSurfaces(client, io);
+
     if (found.configPath === null) {
       outcomes.push({ client, found, written: null, verified: null });
       continue;
     }
-
-    cleanSecondSurfaces(client, io);
 
     const removed = removeFromClient(client, {
       name: io.name,
