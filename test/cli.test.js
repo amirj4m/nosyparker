@@ -399,3 +399,24 @@ test('a mistake of ours is not dressed up as a refusal', (t) => {
   assert.match(said, /at .*setup\.js/u, 'a bug should come with the stack somebody would report');
 
 });
+
+test('started through the shim, the sentences it prints name the command', (t) => {
+  // `invocation()` grew a branch for the command a global install puts on PATH,
+  // and nothing held it: deleting the branch changed no test, so every usage
+  // string could have gone back to naming a path without anybody noticing.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-shim-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  // npm's shim is a symlink named after the command; node reports it as argv[1].
+  const shim = path.join(dir, 'nosyparker');
+  fs.symlinkSync(CLI, shim);
+
+  const said = spawnSync(process.execPath, [shim, 'add'], {
+    encoding: 'utf8',
+    env: { ...process.env, HOME: dir, NOSYPARKER_STORE: path.join(dir, 'memory.sqlite') },
+  });
+
+  const out = `${said.stdout}${said.stderr}`;
+  assert.match(out, /nosyparker add "<text>"/u, 'it should name the command it was started as');
+  assert.doesNotMatch(out, /node .*src\/cli\.js add/u, 'it named a path instead');
+});

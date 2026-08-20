@@ -968,3 +968,31 @@ test('the npx guard knows a Windows cache path too', () => {
     assert.doesNotThrow(() => refuseNpxCache(fine), `${fine} should be allowed`);
   }
 });
+
+test('a write that leaves the entry behind is caught, not reported as removed', (t) => {
+  // The read-back after writing a second surface was held by nothing: deleting
+  // it changed no test. Forced here with a file that names our server twice
+  // under the same key — which JSON permits textually and a hand-edited config
+  // can easily contain. `removeMemberFrom` takes the first, the second stays,
+  // and without the read-back the command would report a clean removal.
+  const { io, home, printed } = machine(t, { files: ['.config/Cursor/User/', '.cursor/'] });
+
+  const theirs = path.join(home, '.config', 'Cursor', 'User', 'settings.json');
+  fs.writeFileSync(theirs, [
+    '{',
+    '\t"mcp": {',
+    '\t\t"servers": {',
+    '\t\t\t"nosyparker": { "command": "/one" },',
+    '\t\t\t"nosyparker": { "command": "/two" }',
+    '\t\t}',
+    '\t}',
+    '}',
+  ].join('\n'));
+
+  reportRemoval(io, uninstall(io));
+
+  assert.match(fs.readFileSync(theirs, 'utf8'), /nosyparker/u, 'one copy is still in the file');
+  assert.doesNotMatch(printed(), /also removed from a file its own command wrote/u,
+    'it reported a clean removal while the entry was still there');
+  assert.match(printed(), /could not clean/u, 'the failure was not reported');
+});
