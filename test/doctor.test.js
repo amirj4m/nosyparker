@@ -662,3 +662,30 @@ test('when there are more reviews than it will show, it says how many it left ou
   assert.match(said, /agent 7/u);
   assert.doesNotMatch(said, /agent 1"/u);
 });
+
+test('doctor sees an entry in a file the client wrote for itself', (t) => {
+  // `alsoRemoveFrom` is new in this branch, and `doctor` was never taught about
+  // it. So with a live entry in `~/.config/Cursor/User/settings.json`, doctor
+  // said "No client on this machine has an entry for nosyparker" and exited 0
+  // while uninstall removed one from that very file. Two commands reading the
+  // same table and contradicting each other, in the one whose whole job is
+  // telling the truth about the machine.
+  const { io, home, printed } = machine(t);
+
+  const theirs = path.join(home, '.config', 'Cursor', 'User', 'settings.json');
+  fs.mkdirSync(path.dirname(theirs), { recursive: true });
+  fs.mkdirSync(path.join(home, '.cursor'), { recursive: true });
+  fs.writeFileSync(theirs, '{\n\t"mcp": { "servers": { "nosyparker": { "command": "/usr/bin/node" } } }\n}\n');
+
+  const found = diagnose(io);
+  reportDiagnosis(io, found);
+
+  const said = printed();
+  assert.doesNotMatch(said, /No client on this machine has an entry/u,
+    'it said nothing is set up while an entry was sitting there');
+  assert.match(said, /settings\.json/u, 'the file holding the entry is not named');
+  assert.match(said, /Cursor/u);
+
+  // Read-only, like the rest of the command.
+  assert.match(fs.readFileSync(theirs, 'utf8'), /nosyparker/u, 'doctor changed something');
+});

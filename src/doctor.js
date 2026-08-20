@@ -66,7 +66,7 @@
 
 import fs from 'node:fs';
 
-import { configPathFor, fillTokens, invocation, loadClients } from './clients.js';
+import { configPathFor, expandPath, fillTokens, invocation, loadClients } from './clients.js';
 import { detect, NOT_INSTALLED } from './detect.js';
 import { hasEntry, insertEntry, stripComments, withoutBom, withoutTrailingCommas } from './edit.js';
 import { checkDocumentation } from './documentation.js';
@@ -253,6 +253,12 @@ export function diagnose(io) {
     findings.push({ client: client.id, name: client.name, state, says });
   }
 
+  for (const client of loadClients().clients) {
+    for (const line of secondSurfacesOf(client, io)) {
+      findings.push({ client: client.id, name: client.name, state: NOT_ASKABLE, says: [line] });
+    }
+  }
+
   const documents = checkDocumentation();
   const store = checkStore(io);
 
@@ -264,6 +270,48 @@ export function diagnose(io) {
   });
 
   return { findings, documents, store };
+}
+
+/**
+ * Entries in a file a client's own command wrote for itself.
+ *
+ * `alsoRemoveFrom` is new, `uninstall` cleans those files, and this command was
+ * never taught to look at them — so with a live entry in Cursor's settings this
+ * said "No client on this machine has an entry" and exited 0 while uninstall
+ * removed one from that very file. Two commands reading one table and
+ * contradicting each other, in the one whose whole job is saying what is true
+ * of the machine.
+ *
+ * Not called broken. An entry there is a working entry; it is simply somewhere
+ * we do not install and most people would never look.
+ *
+ * @param {any} client
+ * @param {import('./setup.js').Io} io
+ * @returns {string[]}
+ */
+function secondSurfacesOf(client, io) {
+  /** @type {string[]} */
+  const says = [];
+
+  for (const surface of client.alsoRemoveFrom ?? []) {
+    const wanted = surface.path[io.machine.platform] ?? null;
+    if (wanted === null) continue;
+
+    const file = expandPath(wanted, io.machine);
+    if (!io.machine.exists(file)) continue;
+
+    const text = readOrEmpty(file);
+    if (text === '' || !hasEntry(text, {
+      name: io.name, rootKey: surface.rootKey, format: surface.format, entry: {},
+    })) continue;
+
+    says.push(
+      `${client.name} also has an entry in ${file}, which its own command writes rather than `
+      + `this one. It works, and \`${invocation()} uninstall\` takes it out along with ours.`,
+    );
+  }
+
+  return says;
 }
 
 /**
