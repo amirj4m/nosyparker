@@ -14,7 +14,7 @@ import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 
-import { runWatched } from './helpers.js';
+import { runWatched, sandboxEnv } from './helpers.js';
 import { beginReview, closeReview, review } from '../src/gate.js';
 import { LOCAL_OWNER, systemClock } from '../src/config.js';
 import { openStore } from '../src/store.js';
@@ -263,6 +263,85 @@ test('a search too long to run is refused at the terminal, in a sentence', async
 });
 
 
+test('no test hands a child process a home without handing it the Windows one', () => {
+  // A rule people remember is not a guard. `HOME` alone sandboxes a child on
+  // Linux and macOS and does nothing on Windows, where `os.homedir()` reads
+  // `USERPROFILE` and ignores `HOME` — so a test that looked airtight here
+  // would, tomorrow, write a memory into somebody's real profile.
+  //
+  // The fifth reviewer tripped exactly this against its own home while hunting
+  // for it. That is the argument for making the slip impossible rather than
+  // catchable: `sandboxEnv` sets home, the Windows home, `%APPDATA%` and the
+  // store together, and this fails if any test file builds one by hand.
+  const dir = fileURLToPath(new URL('.', import.meta.url));
+
+  /** @type {string[]} */
+  const rolled = [];
+
+  for (const file of fs.readdirSync(dir).filter((name) => name.endsWith('.js'))) {
+    if (file === 'helpers.js') continue; // where the helper itself lives
+
+    const text = fs.readFileSync(path.join(dir, file), 'utf8');
+    text.split('\n').forEach((line, index) => {
+      // A home going into an environment object, not through the helper.
+      if (/\b(HOME|USERPROFILE)\s*:/u.test(line) && !line.includes('sandboxEnv')) {
+        rolled.push(`${file}:${index + 1}`);
+      }
+    });
+  }
+
+  assert.deepEqual(rolled, [],
+    'a child process is being given a home by hand — use sandboxEnv() from helpers.js');
+
+  // And the helper sets all four, so going through it is actually worth
+  // something. Asserted on the value rather than on the source text.
+  const made = sandboxEnv('/tmp/somewhere');
+  assert.equal(made.HOME, '/tmp/somewhere');
+  assert.equal(made.USERPROFILE, '/tmp/somewhere', 'os.homedir() reads this one on Windows');
+  assert.match(String(made.APPDATA), /somewhere/u, 'four client rows expand %APPDATA%');
+  assert.match(String(made.NOSYPARKER_STORE), /somewhere/u);
+});
+
+test('asking what is stored does not create the thing that stores it', (t) => {
+  // The rule is already written down, twice, in `doctor.js`: "creating the file
+  // to find that out would make asking the question change the answer." The
+  // four commands that only read never had it applied to them. `list` printed
+  // "Nothing stored yet." and made the file on the way to saying so; `export`
+  // created an empty store and exported its emptiness.
+  //
+  // Same defect as `--help`, one level down, and the answer is the same: the
+  // program should not put a file on somebody's machine as a side effect of
+  // being asked a question.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-read-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+
+  const store = path.join(home, '.nosyparker', 'memory.sqlite');
+
+  /** @param {string[]} args */
+  const run = (args) => spawnSync(process.execPath, [CLI, ...args], {
+    encoding: 'utf8', env: sandboxEnv(home, { NOSYPARKER_STORE: '' }),
+  });
+
+  for (const argv of [['list'], ['log'], ['search', 'anything'], ['export']]) {
+    const said = run(argv);
+
+    assert.equal(said.status, 0, `${argv[0]} failed: ${said.stderr}`);
+    assert.equal(fs.existsSync(store), false,
+      `${argv[0]} created ${store} on the way to reporting that nothing is stored`);
+
+    // And it still answers, rather than answering by refusing.
+    assert.notEqual(`${said.stdout}${said.stderr}`.trim(), '', `${argv[0]} said nothing at all`);
+  }
+
+  // Storing something is different, and still makes the store — that is what it
+  // was asked to do.
+  assert.equal(run(['add', 'the recycling goes out on Tuesday']).status, 0);
+  assert.equal(fs.existsSync(store), true, 'add no longer creates the store');
+
+  // And once it is there, the read commands read it.
+  assert.match(run(['list']).stdout, /recycling/u);
+});
+
 test('a command it does not have creates nothing on the way to saying so', (t) => {
   // Found by an independent review as three files in the owner's home on a
   // machine we had wiped and called clean, then traced to the minute: at
@@ -289,7 +368,10 @@ test('a command it does not have creates nothing on the way to saying so', (t) =
     encoding: 'utf8',
     // A home of its own, and no NOSYPARKER_STORE, so the default path is what
     // gets exercised — which is the path that was written to for real.
-    env: { ...process.env, HOME: home, NOSYPARKER_STORE: '' },
+    // The default store path, on purpose — this is the only test that
+    // exercises it, and `sandboxEnv` is what makes "default" mean inside
+    // the sandbox on every platform rather than only on this one.
+    env: sandboxEnv(home, { NOSYPARKER_STORE: '' }),
   });
 
   for (const argv of [['--help'], ['sertup'], ['-h'], ['help'], []]) {
@@ -467,7 +549,7 @@ test('a mistake of ours is not dressed up as a refusal', (t) => {
 
   const broken = spawnSync(process.execPath, [path.join(dir, 'src', 'cli.js'), 'setup'], {
     encoding: 'utf8',
-    env: { ...process.env, HOME: home, NOSYPARKER_STORE: path.join(home, 'memory.sqlite') },
+    env: sandboxEnv(home),
   });
 
   const said = `${broken.stdout}${broken.stderr}`;
@@ -492,7 +574,7 @@ test('started through the shim, the sentences it prints name the command', (t) =
 
   const said = spawnSync(process.execPath, [shim, 'add'], {
     encoding: 'utf8',
-    env: { ...process.env, HOME: dir, NOSYPARKER_STORE: path.join(dir, 'memory.sqlite') },
+    env: sandboxEnv(dir),
   });
 
   const out = `${said.stdout}${said.stderr}`;

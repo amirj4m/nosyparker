@@ -17,6 +17,8 @@
  * fix for somebody who hits it is the launcher that exists.
  */
 
+import fs from 'node:fs';
+
 import { defaultStorePath, LOCAL_OWNER, systemClock } from './config.js';
 import { exportAll, writeExport } from './export.js';
 import { forget, restore, screenQuery, submit, undoReview } from './gate.js';
@@ -35,6 +37,22 @@ import { listDecisions, listMemories, openStore, searchMemories } from './store.
 const STORE_COMMANDS = [
   'add', 'search', 'list', 'log', 'forget', 'restore', 'undo-review', 'export',
 ];
+
+/**
+ * The ones that only ever read.
+ *
+ * `doctor` has said since Phase 4 that "creating the file to find that out
+ * would make asking the question change the answer", and these four were never
+ * held to it: `list` printed "Nothing stored yet." and made the file on the way
+ * to saying so, and `export` created an empty store and exported its emptiness.
+ *
+ * On a machine with no store they are answered from an empty one held in
+ * memory, so the answers are exactly what an empty store gives and nothing
+ * lands on the disk. The commands that change something — `add`, and the three
+ * that take an id — still open the file, because being asked to change
+ * something is being asked to have somewhere to change it.
+ */
+const READ_ONLY_COMMANDS = ['search', 'list', 'log', 'export'];
 
 main(process.argv.slice(2));
 
@@ -83,7 +101,14 @@ function main(argv) {
   /** @type {import('./store.js').Store} */
   let store;
   try {
-    store = openStore({ file: defaultStorePath(), now: systemClock });
+    // `:memory:` when there is nothing to read and the command would only have
+    // read it. SQLite makes the same empty schema in memory that it would have
+    // made on disk, so every answer below is the one an empty store gives —
+    // without a file appearing because somebody asked a question.
+    const file = defaultStorePath();
+    const absent = !fs.existsSync(file) && READ_ONLY_COMMANDS.includes(command);
+
+    store = openStore({ file: absent ? ':memory:' : file, now: systemClock });
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));
   }
