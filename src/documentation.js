@@ -36,9 +36,14 @@ function repositoryRoot() {
 
 /**
  * @param {string} [root]
+ * @param {string[]} [workingNotes] documents of ours that are in the repository
+ *   and deliberately not in the package. Empty for `doctor`, which is a shipped
+ *   command and should not change its behaviour because of a note we keep for
+ *   ourselves; the suite passes them, because the reason for checking them is
+ *   real and belongs where the checking happens.
  * @returns {Check[]}
  */
-export function checkDocumentation(root = repositoryRoot()) {
+export function checkDocumentation(root = repositoryRoot(), workingNotes = []) {
   /** @type {(name: string) => string} */
   const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
 
@@ -280,21 +285,22 @@ export function checkDocumentation(root = repositoryRoot()) {
         ...fs.readdirSync(path.join(root, 'scripts')).filter((file) => file.endsWith('.mjs'))
           .map((file) => `scripts/${file}`),
       ];
-      // The four that ship, plus any working document of ours that lives in the
-      // repository and not in the tarball. WINDOWS.md is a brief for a session
-      // on the other half of a dual-boot machine: a stranger who will follow it
-      // literally, on a platform none of us can watch, which is precisely the
-      // harm this check exists to prevent. Whether a document ships is not the
-      // question; whether somebody follows it is.
+      // The four that ship, plus whatever the caller says it also wants read.
       //
-      // Filtered by existence rather than listed outright, because it is not in
-      // the package on purpose. From an installed copy the file is simply not
-      // there, the list is the shipped four, and `doctor` never goes looking for
-      // something that was never sent — which is the ENOENT that
+      // WINDOWS.md is a brief for a session on the other half of a dual-boot
+      // machine — a stranger who will follow it literally, on a platform none of
+      // us can watch — so a stale instruction in it is exactly the harm this
+      // check exists to prevent, and the suite passes it in for that reason.
+      //
+      // It is not passed in by `doctor`. A third review called that creep and
+      // was right: `doctor` is a shipped command, and making what it reports
+      // depend on a note we keep for ourselves is a coupling with no upside for
+      // the person running it. Filtered by existence as well, so a name that is
+      // not there is skipped rather than read — which is the ENOENT that
       // `test/package.test.js` opens by describing.
       const documents = [
         'README.md', 'CLIENTS.md', 'CONNECTING.md', 'DECISIONS.md',
-        ...['WINDOWS.md'].filter((file) => fs.existsSync(path.join(root, file))),
+        ...workingNotes.filter((file) => fs.existsSync(path.join(root, file))),
       ];
       const printing = [
         ...sources.filter((file) => names.test(withoutComments(read(file)))),

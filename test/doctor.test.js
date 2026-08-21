@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { BROKEN, diagnose, interpreterIn, NOT_ASKABLE, reportDiagnosis, SOUND } from '../src/doctor.js';
 import { DatabaseSync } from 'node:sqlite';
@@ -677,6 +678,14 @@ test('doctor sees an entry in a file the client wrote for itself', (t) => {
   fs.mkdirSync(path.join(home, '.cursor'), { recursive: true });
   fs.writeFileSync(theirs, '{\n\t"mcp": { "servers": { "nosyparker": { "command": "/usr/bin/node" } } }\n}\n');
 
+  // Wired in its primary file too, which is the ordinary case and the one the
+  // first version of this fixture left out. With only the second surface there
+  // was exactly one finding, so counting it twice and counting it once looked
+  // identical and the double-count below was invisible from here.
+  const primary = path.join(home, '.cursor', 'mcp.json');
+  fs.writeFileSync(primary,
+    '{\n  "mcpServers": { "nosyparker": { "command": "/usr/bin/node" } }\n}\n');
+
   const found = diagnose(io);
   reportDiagnosis(io, found);
 
@@ -686,6 +695,70 @@ test('doctor sees an entry in a file the client wrote for itself', (t) => {
   assert.match(said, /settings\.json/u, 'the file holding the entry is not named');
   assert.match(said, /Cursor/u);
 
+  // One client, wired in two of its files, is one client. It was two findings
+  // under the same id, so the headline said eight clients were set up on a
+  // machine with seven, and `log.record('done', {checked})` was inflated with
+  // it.
+  assert.equal(found.findings.filter((finding) => finding.client === 'cursor').length, 1,
+    'Cursor is reported twice because it is wired in two of its own files');
+  assert.match(said, /settings\.json/u);
+  assert.equal((said.match(/^ {2}Cursor$/gmu) ?? []).length, 1,
+    'Cursor is listed more than once in the report');
+
   // Read-only, like the rest of the command.
   assert.match(fs.readFileSync(theirs, 'utf8'), /nosyparker/u, 'doctor changed something');
+});
+
+test('doctor does not read a working note of ours', (t) => {
+  // A third review called this creep and was right. `doctor` is a shipped
+  // command; making what it reports depend on WINDOWS.md — a note that is
+  // deliberately not in the package — means it behaves one way from a clone and
+  // another from an install, for a reason the person running it cannot see.
+  //
+  // The rule the check exists for is kept, and the suite is what passes the
+  // file in. Written as "doctor is unmoved by it" rather than "the argument
+  // defaults to empty", so it holds whatever the wiring looks like later.
+  const note = path.join(fileURLToPath(new URL('..', import.meta.url)), 'WINDOWS.md');
+  const was = fs.readFileSync(note, 'utf8');
+  t.after(() => fs.writeFileSync(note, was));
+
+  // Each fake machine gets its own temporary home, and doctor prints paths, so
+  // the two runs differ in the one way that has nothing to do with the note.
+  /** @param {string} text @param {string} home */
+  const scrub = (text, home) => text.replaceAll(home, '<home>');
+
+  const first = machine(t);
+  reportDiagnosis(first.io, diagnose(first.io));
+  const clean = scrub(first.printed(), first.home);
+
+  fs.writeFileSync(note, `${was}\nRun \`node src/cli.js doctor\` on the Windows side.\n`);
+
+  const second = machine(t);
+  reportDiagnosis(second.io, diagnose(second.io));
+  const after = scrub(second.printed(), second.home);
+
+  assert.doesNotMatch(after, /WINDOWS\.md/u, 'doctor reported on a note we keep for ourselves');
+  assert.equal(after, clean, 'doctor said something different because of a file it does not ship');
+});
+
+test('doctor does not tell somebody their settings hold an entry that is not there', (t) => {
+  // Round two, finding four, reproduced inside the code written to close round
+  // two, finding eleven. Deleting the `hasEntry` check from `secondSurfacesOf`
+  // left all 455 tests green, and with it gone doctor tells every Cursor user
+  // that `settings.json` has our entry in it when it holds a font size.
+  //
+  // The same shape as the line in `cleanSecondSurfaces` that guards uninstall
+  // against rewriting that file: the surface exists, and that is not the same
+  // as our entry being in it.
+  const { io, home, printed } = machine(t);
+
+  const theirs = path.join(home, '.config', 'Cursor', 'User', 'settings.json');
+  fs.mkdirSync(path.dirname(theirs), { recursive: true });
+  fs.mkdirSync(path.join(home, '.cursor'), { recursive: true });
+  fs.writeFileSync(theirs, '{\n\t"editor.fontSize": 13\n}\n');
+
+  reportDiagnosis(io, diagnose(io));
+
+  assert.doesNotMatch(printed(), /settings\.json/u,
+    'doctor named a file of theirs that holds nothing of ours');
 });

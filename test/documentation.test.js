@@ -172,7 +172,7 @@ test('both arms of the stale-path guard are held, and both directions of the com
   }
 
   /** @param {string} file */
-  const noticedIn = (file) => checkDocumentation(root)
+  const noticedIn = (file) => checkDocumentation(root, ['WINDOWS.md'])
     .filter((check) => !check.ok)
     .flatMap((check) => check.wrong)
     .some((wrong) => wrong.includes(file));
@@ -196,7 +196,12 @@ test('both arms of the stale-path guard are held, and both directions of the com
   // half of a dual-boot machine, written for somebody who will follow it
   // literally on a platform none of us can watch — the exact reader this check
   // protects. The fixture starts without it, so this also proves the file is
-  // read because it is there rather than because it is listed.
+  // read because it is there rather than because it is named.
+  //
+  // Passed in here rather than known to the check, and never passed in by
+  // `doctor`: a shipped command should not report differently because of a note
+  // we keep for ourselves. The reason for reading it is real; the coupling was
+  // not.
   const windows = path.join(root, 'WINDOWS.md');
   assert.equal(noticedIn('WINDOWS.md'), false, 'a file that is not there was reported on');
 

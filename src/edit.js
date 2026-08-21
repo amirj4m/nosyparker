@@ -103,24 +103,24 @@ export function removeEntry(text, request) {
   // the entry is not in this file — ordinary, because `uninstall` is run twice
   // and the second run has nothing to do — or it is in this file somewhere we
   // did not look, which means the table is wrong about where this client keeps
-  // its servers.
+  // its servers. The second was silent for three days.
   //
-  // The second was silent for three days. `cursor --add-mcp` writes under `mcp`
-  // → `servers`; our row named a different file and a top-level key, so the
-  // remover looked, found nothing, and reported success while the entry sat on
-  // the machine pointing at a path a reinstall would have made stale.
+  // That question is not answerable from here. This function is handed a string
+  // and a key; it does not know whether we ever wrote to the file, whether the
+  // container was already there, or whether the text it is looking at is a
+  // comment. It used to guess, with a bare `usedAsKey` over raw text, and an
+  // independent review measured what that guess costs: a settings.json holding
+  // an empty `"mcp": {"servers": {}}` and nothing else made this throw
+  // "nosyparker is in this file but not under mcp.servers... report it", when
+  // the correct answer is that there is nothing to do. A JSONC comment did the
+  // same. It ran over somebody's editor settings, because `cleanSecondSurfaces`
+  // calls it.
   //
-  // So a no-op has to prove it was the harmless kind. If the name is still in
-  // the text as a key, it was not.
-  if (usedAsKey(text, request.name)) {
-    throw new Error(
-      `"${request.name}" is in this file but not under "${request.rootKey}", so nothing was ` +
-        'removed and the file has been left exactly as it was. That means this client keeps ' +
-        'its servers somewhere the client table does not know about, which is a bug in the ' +
-        'table rather than in the file. Report it rather than editing by hand.',
-    );
-  }
-
+  // The same guess was made once at the other end of the program and gated
+  // there — three conditions in `absentOrOutOfReach`, none of which are
+  // available in this file. So the question is asked where it can be answered:
+  // `write.js` for a primary config, and `cleanSecondSurfaces`, which treats an
+  // unchanged file as nothing to do, which it is.
   return text;
 }
 

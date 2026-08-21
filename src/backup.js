@@ -164,7 +164,8 @@ export function recordFirstTouch({ file, clientId, backupDir, now, weEdit, rootK
  *
  * @param {string} file
  * @param {string} backupDir
- * @returns {{existed: boolean, created: string[], rootKeyExisted: boolean, target: string|null}|null}
+ * @returns {{existed: boolean, created: string[], rootKeyExisted: boolean, target: string|null,
+ *   removedFrom: boolean}|null}
  */
 export function manifestRowFor(file, backupDir) {
   const row = Object.values(readManifest(path.join(backupDir, MANIFEST_NAME)))
@@ -177,7 +178,40 @@ export function manifestRowFor(file, backupDir) {
     // already there", which is the answer that changes nothing.
     rootKeyExisted: row.rootKeyExisted ?? true,
     target: row.target ?? null,
+    // Have we ever taken our entry out of this file and had it work.
+    removedFrom: row.removedFrom ?? false,
   };
+}
+
+/**
+ * Write down that our entry came out of this file, and that it worked.
+ *
+ * One fact, and it settles a question nothing else can answer. `uninstall` run
+ * twice is not an error — the README says so — but on the second run the file
+ * no longer holds our entry, and if the container went with it (because we were
+ * the ones who made it) the three conditions guarding the "our table is wrong"
+ * message are all true again. An independent review measured that: a
+ * `~/.cursor/mcp.json` where somebody had pasted the entry at the wrong level,
+ * installed, uninstalled, uninstalled — and the second run accused the table.
+ *
+ * The accusation exists for a table that names the wrong place, and one
+ * successful removal is proof that this one does not. Deliberately permanent
+ * rather than per-run: reinstalling and removing again does not make the table
+ * newly suspect, and a row that has worked once has earned silence.
+ *
+ * @param {string} file
+ * @param {string} backupDir
+ * @returns {void}
+ */
+export function recordRemoval(file, backupDir) {
+  const manifestPath = path.join(backupDir, MANIFEST_NAME);
+  const manifest = readManifest(manifestPath);
+
+  const name = Object.keys(manifest).find((key) => manifest[key].path === file);
+  if (name === undefined) return;
+
+  manifest[name] = { ...manifest[name], removedFrom: true };
+  writeManifest(manifestPath, manifest);
 }
 
 /**
@@ -221,7 +255,7 @@ function missingAncestors(file) {
 
 /**
  * @param {string} manifestPath
- * @returns {Record<string, {path: string, backup: string|null, existed: boolean, takenAt: string, client: string, created?: string[], whyNoBackup?: string, rootKeyExisted?: boolean, target?: string}>}
+ * @returns {Record<string, {path: string, backup: string|null, existed: boolean, takenAt: string, client: string, created?: string[], whyNoBackup?: string, rootKeyExisted?: boolean, target?: string, removedFrom?: boolean}>}
  */
 export function readManifest(manifestPath) {
   try {
