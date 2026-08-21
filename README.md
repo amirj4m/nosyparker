@@ -152,6 +152,13 @@ Takes its entry out of every client that has one, including the one Cursor's own
 command writes, and changes nothing else in those files. Running it twice is not
 an error.
 
+One thing it does delete, and it belongs here rather than in the engineering
+notes: a configuration file that existed **only** because setup created it, and
+that is empty once our entry is gone, is removed — along with any directories
+that had to be made to hold it. A file that was already on the machine is never
+deleted, and neither is one with anything else left in it. The test is on the
+contents, not on our say-so.
+
 That removes the wiring, not the memories. Everything nosyparker keeps is in one
 folder:
 

@@ -263,6 +263,73 @@ test('a search too long to run is refused at the terminal, in a sentence', async
 });
 
 
+test('a command it does not have creates nothing on the way to saying so', (t) => {
+  // Found by an independent review as three files in the owner's home on a
+  // machine we had wiped and called clean, then traced to the minute: at
+  // 17:27:37.270Z this session ran `--help` to find out what the commands were,
+  // and 77 milliseconds later `~/.nosyparker/memory.sqlite` existed. The
+  // program had made a memory store before telling anybody there is no such
+  // command.
+  //
+  // The intent was already written in `cli-main.js` — setup, uninstall and
+  // doctor are answered before the store is opened, "so that setting nosyparker
+  // up does not create a memory file as a side effect". A name that is not a
+  // command at all was never added to that reasoning, so it fell past the guard
+  // into `openStore` and only then reached the `default:` that refuses it.
+  //
+  // A person typing `nosyparker --help`, or misspelling a command, should be
+  // told and left with nothing on their disk. It is the same rule the rest of
+  // this program keeps about other people's files, applied to the first file it
+  // makes of its own.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-typo-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+
+  /** @param {string[]} args */
+  const run = (args) => spawnSync(process.execPath, [CLI, ...args], {
+    encoding: 'utf8',
+    // A home of its own, and no NOSYPARKER_STORE, so the default path is what
+    // gets exercised — which is the path that was written to for real.
+    env: { ...process.env, HOME: home, NOSYPARKER_STORE: '' },
+  });
+
+  for (const argv of [['--help'], ['sertup'], ['-h'], ['help'], []]) {
+    const said = run(argv);
+    assert.equal(said.status, 1, `${JSON.stringify(argv)} should have failed`);
+
+    assert.equal(fs.existsSync(path.join(home, '.nosyparker')), false,
+      `${JSON.stringify(argv)} created ${path.join(home, '.nosyparker')} before refusing`);
+  }
+
+  // And the refusal still names what was typed, so the fix is not "say less".
+  assert.match(run(['sertup']).stderr, /sertup/u);
+
+  // The commands it does have are unaffected: this one makes a store, on
+  // purpose, because it was asked to store something.
+  assert.equal(run(['add', 'the boiler is serviced every October']).status, 0);
+  assert.equal(fs.existsSync(path.join(home, '.nosyparker', 'memory.sqlite')), true,
+    'a real command no longer makes a store');
+});
+
+test('the list that decides whether to open the store matches the switch that uses it', () => {
+  // Two copies of one fact, which is the shape that has gone wrong twice in
+  // this project already. If a command is added to the switch and not to the
+  // list, the program refuses a command it has; the other way round, it opens a
+  // store for a command that does not exist. Both are silent.
+  //
+  // Read out of the source rather than written here, so a ninth command is
+  // covered on the day it is added.
+  const source = fs.readFileSync(new URL('../src/cli-main.js', import.meta.url), 'utf8');
+
+  const listed = /const STORE_COMMANDS = \[([^\]]*)\]/u.exec(source);
+  assert.ok(listed, 'STORE_COMMANDS is not in cli-main.js under that name');
+
+  const names = [...listed[1].matchAll(/'([^']+)'/gu)].map((match) => match[1]);
+  const cases = [...source.matchAll(/^ {6}case '([^']+)':/gmu)].map((match) => match[1]);
+
+  assert.ok(cases.length >= 8, `only ${cases.length} switch cases were found — the regex has drifted`);
+  assert.deepEqual([...names].sort(), [...cases].sort());
+});
+
 test('a store this code cannot read is refused in a sentence, not a stack trace', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-cli-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
