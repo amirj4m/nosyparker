@@ -1007,6 +1007,42 @@ test('an empty container in their settings is nothing to do, not an accusation',
   }
 });
 
+test('a client that was uninstalled still gets our entry out of the file it left behind', (t) => {
+  // The order of two statements, and nothing held it. `cleanSecondSurfaces` is
+  // called above the "is this client on the machine" gate on purpose: somebody
+  // who removes Cursor and then runs uninstall should not be left with our
+  // entry in a file nothing will read again. Moving the call below the gate
+  // left all 460 tests green, because every other second-surface test builds a
+  // home where Cursor *is* installed.
+  //
+  // What that regression does is the worst thing in this program's vocabulary:
+  // it prints success and leaves us wired, permanently, in somebody's editor
+  // settings. So the fixture here is the one nothing else builds — the settings
+  // file is there and the client is not.
+  const { io, home, printed } = machine(t, { files: ['.config/Cursor/User/'] });
+
+  const theirs = path.join(home, '.config', 'Cursor', 'User', 'settings.json');
+  fs.writeFileSync(theirs,
+    '{\n\t"editor.fontSize": 13,\n\t"mcp": {\n\t\t"servers": {\n\t\t\t"nosyparker": {}\n\t\t}\n\t}\n}');
+
+  // No `.cursor/`, so Cursor is genuinely not on this machine and falls down
+  // the not-installed branch — which is the whole point of the case.
+  assert.equal(fs.existsSync(path.join(home, '.cursor')), false, 'the fixture installed Cursor');
+
+  reportRemoval(io, uninstall(io));
+
+  assert.equal(fs.readFileSync(theirs, 'utf8').includes('nosyparker'), false,
+    'our entry was left in the settings of a client that is gone');
+
+  // And it is not left there quietly while the command claims to be done.
+  const said = printed();
+  assert.doesNotMatch(said, /Nothing to remove/u, 'it said it had nothing to do');
+  assert.match(said, /settings\.json/u, 'the file it cleaned is not named');
+
+  // Their own setting is untouched, as everywhere else.
+  assert.match(fs.readFileSync(theirs, 'utf8'), /"editor\.fontSize": 13/u);
+});
+
 test('a second surface is looked for where that platform keeps it', (t) => {
   // The path is a three-platform map, and the code indexes it by the platform
   // it is running on. Every other test here runs on the Linux entry, so a

@@ -25,6 +25,17 @@ import { diagnose, reportDiagnosis } from './doctor.js';
 import { defaultIo, install, ioWithLog, printConfig, Refusal, report, reportRemoval, uninstall } from './setup.js';
 import { listDecisions, listMemories, openStore, searchMemories } from './store.js';
 
+/**
+ * The commands that need the store open.
+ *
+ * Written out rather than inferred from the switch below, and a test asserts
+ * the two agree — a list that drifts from the thing it guards is worse than no
+ * list, because it refuses a command the program has.
+ */
+const STORE_COMMANDS = [
+  'add', 'search', 'list', 'log', 'forget', 'restore', 'undo-review', 'export',
+];
+
 main(process.argv.slice(2));
 
 /**
@@ -43,6 +54,23 @@ function main(argv) {
   if (command === 'setup' || command === 'uninstall' || command === 'doctor') {
     runSetup(command, rest);
     return;
+  }
+
+  // And a name that is not a command at all, before the store is opened rather
+  // than after. The reasoning above was written for the three commands that
+  // have nothing to do with the store, and something that is not a command has
+  // even less to do with it — but it fell past that check into `openStore` and
+  // only met the `default:` below once a memory file existed.
+  //
+  // Which is how three files turned up in the owner's home on a machine that
+  // had been wiped and called clean: `--help`, asked by somebody finding out
+  // what the commands were, made a store 77 milliseconds before printing that
+  // there is no such command. A typo did the same. This program spends twenty
+  // client rows being careful with other people's files; the first file it
+  // makes of its own should not appear on a machine because somebody misspelled
+  // something.
+  if (!STORE_COMMANDS.includes(command)) {
+    fail(`There is no command called "${command}".`);
   }
 
   // Opening can fail, and the one way it is meant to is worth catching: a
