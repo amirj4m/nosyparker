@@ -18,6 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { checkDocumentation } from '../src/documentation.js';
 
 import { BROKEN, diagnose, interpreterIn, NOT_ASKABLE, reportDiagnosis, SOUND } from '../src/doctor.js';
 import { DatabaseSync } from 'node:sqlite';
@@ -715,32 +716,57 @@ test('doctor does not read a working note of ours', (t) => {
   // deliberately not in the package — means it behaves one way from a clone and
   // another from an install, for a reason the person running it cannot see.
   //
-  // The rule the check exists for is kept, and the suite is what passes the
-  // file in. Written as "doctor is unmoved by it" rather than "the argument
-  // defaults to empty", so it holds whatever the wiring looks like later.
-  const note = path.join(fileURLToPath(new URL('..', import.meta.url)), 'WINDOWS.md');
-  const was = fs.readFileSync(note, 'utf8');
-  t.after(() => fs.writeFileSync(note, was));
+  // This edited the tracked WINDOWS.md and put it back in an `after` hook, and
+  // a fifth review pulled that forward as a tomorrow problem: that file is the
+  // run sheet a Windows session follows literally, on the platform where a
+  // mid-run kill is most likely, and a suite that dies between the write and
+  // the hook leaves a corrupted brief in the working tree of the session
+  // reading it. The line it appended was itself a stale `node src/cli.js`
+  // instruction — the exact wording we swept the documents of.
+  //
+  // So it runs on a copy. The question is the same one: with the note present
+  // and stale, does the check read it when nobody asked it to?
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-note-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
 
-  // Each fake machine gets its own temporary home, and doctor prints paths, so
-  // the two runs differ in the one way that has nothing to do with the note.
-  /** @param {string} text @param {string} home */
-  const scrub = (text, home) => text.replaceAll(home, '<home>');
+  const real = fileURLToPath(new URL('..', import.meta.url));
+  for (const name of ['CLIENTS.md', 'README.md', 'CONNECTING.md', 'DECISIONS.md', 'package.json']) {
+    fs.copyFileSync(path.join(real, name), path.join(root, name));
+  }
+  for (const dir of ['src', 'scripts']) {
+    fs.cpSync(path.join(real, dir), path.join(root, dir), { recursive: true });
+  }
 
-  const first = machine(t);
-  reportDiagnosis(first.io, diagnose(first.io));
-  const clean = scrub(first.printed(), first.home);
+  fs.writeFileSync(path.join(root, 'WINDOWS.md'),
+    'Run `node src/cli.js doctor` on the Windows side.\n');
 
-  fs.writeFileSync(note, `${was}\nRun \`node src/cli.js doctor\` on the Windows side.\n`);
+  /** @param {string[]} [notes] */
+  const noticed = (notes) => checkDocumentation(root, notes)
+    .filter((check) => !check.ok)
+    .flatMap((check) => check.wrong)
+    .filter((wrong) => wrong.includes('WINDOWS.md'));
 
-  const second = machine(t);
-  reportDiagnosis(second.io, diagnose(second.io));
-  const after = scrub(second.printed(), second.home);
+  // What doctor passes: nothing. The note is right there, and stale, and no
+  // check goes near it.
+  assert.deepEqual(noticed(), [],
+    'the checks read a working note when the caller did not ask for it');
 
-  assert.doesNotMatch(after, /WINDOWS\.md/u, 'doctor reported on a note we keep for ourselves');
-  assert.equal(after, clean, 'doctor said something different because of a file it does not ship');
+  // And the suite still gets what it asks for, so the rule is kept rather than
+  // deleted — this is the half that would make the assertion above vacuous.
+  assert.equal(noticed(['WINDOWS.md']).length, 1,
+    'passing the note in no longer reads it, so the check above proves nothing');
+
+  // Read-only against the real repository: whatever is in the working tree,
+  // doctor never names it.
+  const { io, printed } = machine(t);
+  reportDiagnosis(io, diagnose(io));
+  assert.doesNotMatch(printed(), /WINDOWS\.md/u, 'doctor named a note we keep for ourselves');
+
+  // Nothing of ours was written outside the copy.
+  assert.equal(
+    fs.readFileSync(path.join(real, 'WINDOWS.md'), 'utf8').includes('on the Windows side'), false,
+    'the test wrote into the tracked run sheet');
 });
-
 test('doctor does not tell somebody their settings hold an entry that is not there', (t) => {
   // Round two, finding four, reproduced inside the code written to close round
   // two, finding eleven. Deleting the `hasEntry` check from `secondSurfacesOf`

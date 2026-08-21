@@ -70,6 +70,42 @@ export function watchResident(pid, limitMB) {
 }
 
 /**
+ * The environment a child process gets when it must not touch this machine.
+ *
+ * `HOME` alone is a sandbox on Linux and macOS and nothing at all on Windows,
+ * where `os.homedir()` reads `USERPROFILE` and ignores `HOME` outright. Every
+ * path this program derives from home goes with it: the store, the backup
+ * directory, `actions.log` — and `%APPDATA%`, which four client rows expand
+ * into and which `setup` writes to.
+ *
+ * So a test that spawned the CLI with `{ HOME: temp }` and let it find its own
+ * store would, on Windows, write a memory into the real profile and then fail
+ * looking for it in the temp directory. That is not hypothetical: the fifth
+ * reviewer tripped this exact defect against its own home while hunting for it,
+ * through a quoting slip that left a child with no fake home at all.
+ *
+ * Which is the argument for a helper rather than a rule people remember. There
+ * is one way to build a child's environment here, it sets all four together,
+ * and a test in `cli.test.js` fails if any test file hand-rolls one instead.
+ *
+ * @param {string} home a directory this test owns and will delete
+ * @param {Record<string, string>} [extra] overrides — pass
+ *   `{ NOSYPARKER_STORE: '' }` to exercise the default store path *inside* the
+ *   sandbox, which is the only reason to unset it
+ * @returns {Record<string, string|undefined>}
+ */
+export function sandboxEnv(home, extra = {}) {
+  return {
+    ...process.env,
+    HOME: home,
+    USERPROFILE: home,
+    APPDATA: path.join(home, 'AppData', 'Roaming'),
+    NOSYPARKER_STORE: path.join(home, 'memory.sqlite'),
+    ...extra,
+  };
+}
+
+/**
  * Run node on something, and do not let it grow past a ceiling.
  *
  * Anything that feeds an over-long input to the search has to run out of

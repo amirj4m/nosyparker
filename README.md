@@ -170,3 +170,16 @@ folder:
 
 Delete the folder and all of it is gone. `NOSYPARKER_STORE` moves the memories
 elsewhere; the other two stay here.
+
+**What creates `memory.sqlite`, if you are wondering where it came from.** Two
+things, and only two. Storing something — `nosyparker add`, or an agent calling
+`remember` — makes it, which is what you asked for. And an agent's client
+connecting to the server makes it at connection time, before any tool is called:
+wiring a client to a memory server is a statement of intent, and the file being
+there is what lets several agents share it.
+
+Nothing else does. `list`, `log`, `search` and `export` answer from an empty
+store held in memory when there is no file, so asking what is stored never
+creates the thing that stores it. Neither does a command it does not have —
+`nosyparker --help` will tell you there is no such command and leave nothing
+behind.

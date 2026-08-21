@@ -376,6 +376,38 @@ export function checkDocumentation(root = repositoryRoot(), workingNotes = []) {
       return wrong;
     })()),
 
+    check('the README names the commands that do not create a memory store', (() => {
+      // A fifth review asked that "what created this file" be answerable
+      // without reading source. The README answers it — and this keeps the
+      // answer true, by taking the list out of `cli-main.js` rather than
+      // trusting the paragraph to be updated alongside it.
+      const source = read('src/cli-main.js');
+      const listed = /const READ_ONLY_COMMANDS = \[([^\]]*)\]/u.exec(source);
+      if (listed === null) return ['cli-main.js has no READ_ONLY_COMMANDS to check the README against'];
+
+      // Scoped to the paragraph that makes the claim, not the whole document.
+      // The first version asked whether the README contained the word "list"
+      // anywhere — which it does, in the list of tools an agent has — so adding
+      // a command to the source list and not to the paragraph passed. That is
+      // the third time a check here has been satisfied by unrelated text, and
+      // the answer is the same each time: ask about the thing, not about
+      // something near it.
+      const marker = readme.indexOf('What creates `memory.sqlite`');
+      if (marker === -1) return ['the README does not say what creates the memory store'];
+
+      // To the end of that section, because the answer runs to a second
+      // paragraph — and stopping at the first blank line found the sentence
+      // that says what *does* create the file while missing the one that lists
+      // what does not, which is the half being checked.
+      const ends = readme.indexOf('\n## ', marker);
+      const paragraph = readme.slice(marker, ends === -1 ? undefined : ends);
+
+      return [...listed[1].matchAll(/'([^']+)'/gu)]
+        .map((match) => match[1])
+        .filter((command) => !paragraph.replaceAll(/\s+/gu, ' ').includes(`\`${command}\``))
+        .map((command) => `the README does not say \`${command}\` leaves no store behind`);
+    })()),
+
     check('every section of DECISIONS.md is pointed at from the code, or marked a record', (() => {
       // The file's own opening says this, and nothing was checking it — so a
       // retrospective written in the future tense to a phase that had finished
