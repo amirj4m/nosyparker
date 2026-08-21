@@ -98,7 +98,8 @@ there but nothing happens, check it has not been switched off.
 
 **Devin Desktop**, formerly Windsurf. Renamed, but the old configuration folder
 name survives. It keeps **two** separate MCP configuration files, and setup uses
-its own `devin-desktop --add-mcp`, which writes `~/.config/Devin/User/mcp.json`.
+its own `devin-desktop --add-mcp`, which on Linux writes
+`~/.config/Devin/User/mcp.json`.
 The other one, `~/.codeium/windsurf/mcp_config.json`, is the file every published
 document describes; it belongs to Cascade, which is switched off by default in
 current versions. Close Devin before running setup: it rewrites its
@@ -106,7 +107,8 @@ configuration from memory and will overwrite changes made while it is open.
 
 **Kiro.** Amazon's agentic editor, and the second VS Code fork here to carry two
 MCP configuration files. Setup uses its own `kiro --add-mcp`, which writes the
-file Kiro inherited from VS Code, `~/.config/Kiro/User/mcp.json`. Kiro's own
+file Kiro inherited from VS Code — on Linux `~/.config/Kiro/User/mcp.json`.
+Kiro's own
 agent also reads `~/.kiro/settings/mcp.json`, and whether it reads the inherited
 one was never established — so if the server does not appear in Kiro, that is
 the file to add it to by hand. `nosyparker setup --print-config kiro` prints

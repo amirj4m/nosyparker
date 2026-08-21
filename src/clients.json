@@ -168,7 +168,7 @@
           "check": "json-key-absent",
           "file": "~/.gemini/trustedFolders.json",
           "key": "{{cwd}}",
-          "says": "Gemini disables every MCP server, including ones configured for your whole account, in a folder it does not trust. Start gemini in {{cwd}} and run `/permissions trust`, or add \"{{cwd}}\": \"TRUST_FOLDER\" to ~/.gemini/trustedFolders.json."
+          "says": "Gemini disables every MCP server, including ones configured for your whole account, in a folder it does not trust. Start `{{clientCommand}}` in {{cwd}} and run `/permissions trust`, or add \"{{cwd}}\": \"TRUST_FOLDER\" to ~/.gemini/trustedFolders.json."
         }
       ],
       "traps": [
@@ -176,7 +176,7 @@
         "~/.gemini/ is created on first run but settings.json is not written until something writes it.",
         "Folder trust is not announced on startup: gemini opens normally and only mentions it in passing. Both routes out of it were run on a real installation — the `/permissions trust` slash command writes ~/.gemini/trustedFolders.json itself, and writing that file by hand has exactly the same effect. `--skip-trust` is not accepted by the `mcp` subcommand."
       ],
-      "restart": "Start a new gemini session.",
+      "restart": "Start a new `{{clientCommand}}` session.",
       "lastVerified": {
         "configPaths": "2026-08-17",
         "write": "2026-08-17",
@@ -254,7 +254,7 @@
         "`enabled = false` in the TOML disables a server without deleting it.",
         "Project-scoped .codex/config.toml is gated behind a trust record in the global config and did not take effect when tested."
       ],
-      "restart": "Start a new codex session.",
+      "restart": "Start a new `{{clientCommand}}` session.",
       "lastVerified": {
         "configPaths": "2026-08-17",
         "write": "2026-08-18",
@@ -331,7 +331,7 @@
         "`goose doctor` needs a configured provider and exits with an error without one. `goose info -v` does not.",
         "The check used to match the name line alone, which meant two things: a line reporting a problem with our extension confirmed our extension, and the sentence claiming it was `enabled` was never checked against the enable flag it named. It now requires `enabled: true` among that entry's own indented lines, so an entry switched off is a failure and a sibling's flag cannot be read as ours."
       ],
-      "restart": "Start a new goose session.",
+      "restart": "Start a new `{{clientCommand}}` session.",
       "lastVerified": {
         "configPaths": "2026-08-17",
         "write": "2026-08-17",
@@ -400,7 +400,7 @@
         "The official examples write \"type\": \"local\" rather than \"stdio\", though the documentation says both are accepted. We write what the vendor's own examples write.",
         "This client is not in the community clients.json at all, so the drift watcher can say nothing about it. What is listed there is the Copilot coding agent, which is a web connector with no local config file and a different product."
       ],
-      "restart": "Start a new copilot session.",
+      "restart": "Start a new `{{clientCommand}}` session.",
       "lastVerified": {
         "configPaths": "2026-08-17",
         "write": "2026-08-17",
@@ -479,7 +479,7 @@
         "This is the client that proved a bare `node` is not enough: it does not inherit the shell environment, and an entry naming `node` fails with `Connection closed` and nothing else.",
         "The config file allows comments and trailing commas, and its own schema says so."
       ],
-      "restart": "Start a new opencode session.",
+      "restart": "Start a new `{{clientCommand}}` session.",
       "lastVerified": {
         "configPaths": "2026-08-17",
         "write": "2026-08-17",
@@ -757,7 +757,7 @@
         "The configuration path has never been observed on disk: no file was created during testing because every command refused. It is documentation only, inside a row that is otherwise measured.",
         "Every MCP subcommand requires an AWS sign-in, so nothing about this client can be checked without an account."
       ],
-      "restart": "Start a new q chat session.",
+      "restart": "Start a new `{{clientCommand}}` chat session.",
       "lastVerified": {
         "configPaths": "2026-08-17",
         "write": "2026-08-17",

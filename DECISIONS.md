@@ -635,9 +635,17 @@ warning, because it is a cache, npm promises nothing about it, and twenty
 configs pointing into one is not a thing to do quietly.
 
 `invocation()` now returns `nosyparker` when it was started through the shim and
-the script path otherwise. On Windows npm writes a `.cmd` wrapper that runs the
-script directly, so that platform gets the path form — correct, if wordier, and
-the alternative would be guessing again.
+the script path otherwise. It matches the basename under both POSIX and Windows
+rules, so the `.cmd` name a Windows shim carries is recognised rather than
+missed by a separator.
+
+**What Windows actually does here has not been measured, and this paragraph
+used to imply it had.** It said npm writes a `.cmd` wrapper that runs the script
+directly, so that platform gets the path form — stated in the same settled
+register as everything else in this section, six lines above a lesson about
+exactly that. Nobody has run a global install on Windows and printed
+`process.argv[1]`. It is the first thing on the list for the Windows round, and
+until then the honest word is unknown.
 
 **What this cost, and the lesson worth keeping.** The claim sat in this document
 for a day, was read back by the person who wrote it as though it were evidence,
@@ -651,7 +659,8 @@ back — and if it cannot, it is a guess wearing the clothes of a finding.**
 The README said, from Phase 3 until 0.0.2, that setup "never removes anything it
 did not add". That was the whole of the promise it made about other people's
 files, and `cleanSecondSurfaces` broke it: `cursor --add-mcp` writes the entry
-into `~/.config/Cursor/User/settings.json`, and uninstall takes it out.
+into Cursor's user settings file — on Linux
+`~/.config/Cursor/User/settings.json` — and uninstall takes it out.
 
 The promise is now narrower and the behaviour stays, which is the right way
 round for one reason. **The purpose of `uninstall` is that nothing of ours is

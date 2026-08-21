@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { invocation, loadClients, provenance } from './clients.js';
+import { invocation, loadClients, provenance, surfacePath } from './clients.js';
 import { OLDEST_SUPPORTED } from './node-version.js';
 
 /**
@@ -406,6 +406,54 @@ export function checkDocumentation(root = repositoryRoot(), workingNotes = []) {
         .map((match) => match[1])
         .filter((command) => !paragraph.replaceAll(/\s+/gu, ' ').includes(`\`${command}\``))
         .map((command) => `the README does not say \`${command}\` leaves no store behind`);
+    })()),
+
+    check('no document states one platform\'s path as if it were everyone\'s', (() => {
+      // Third time for this exact claim. The Cursor settings path was corrected
+      // in `clients.json`'s trap, then in CLIENTS.md, and the README went on
+      // naming the Linux path flatly — which is what the first person to read
+      // these as a user rather than as their author noticed.
+      //
+      // Structural, not a reading of the prose: take the paths the table gives
+      // for one platform and no other, and if a document quotes one, the
+      // paragraph around it has to name the platform it belongs to. A document
+      // that says nothing about paths cannot fail this, and a paragraph that
+      // says "on Linux" passes without anybody matching English against a
+      // pattern.
+      const names = { linux: /\blinux\b/iu, darwin: /\bmac ?os\b|\bdarwin\b/iu, win32: /\bwindows\b|\bwin32\b/iu };
+
+      /** @type {string[]} */
+      const wrong = [];
+
+      for (const client of clients) {
+        /** @type {Record<string, string|null>[]} */
+        const maps = [
+          client.configPaths,
+          ...(client.alsoRemoveFrom ?? []).map((/** @type {any} */ surface) => Object.fromEntries(
+            Object.keys(names).map((platform) => [platform, surfacePath(surface, platform)]))),
+        ];
+
+        for (const map of maps) {
+          for (const [platform, value] of Object.entries(map)) {
+            if (typeof value !== 'string') continue;
+            // Named the same on every platform — `~/.claude.json` — so quoting
+            // it claims nothing about any one of them.
+            if (Object.values(map).filter((other) => other === value).length > 1) continue;
+
+            for (const file of ['README.md', 'CLIENTS.md', 'CONNECTING.md', 'DECISIONS.md']) {
+              for (const paragraph of read(file).split('\n\n')) {
+                const flat = paragraph.replaceAll(/\s*\n\s*/gu, '');
+                if (!flat.includes(value.replaceAll(/\s/gu, ''))) continue;
+                if (names[/** @type {'linux'} */ (platform)].test(paragraph)) continue;
+
+                wrong.push(`${file} gives ${client.id}'s ${platform} path without saying ${platform}`);
+              }
+            }
+          }
+        }
+      }
+
+      return [...new Set(wrong)];
     })()),
 
     check('every section of DECISIONS.md is pointed at from the code, or marked a record', (() => {
