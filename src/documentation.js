@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { invocation, loadClients } from './clients.js';
+import { invocation, loadClients, provenance } from './clients.js';
 import { OLDEST_SUPPORTED } from './node-version.js';
 
 /**
@@ -338,6 +338,42 @@ export function checkDocumentation(root = repositoryRoot(), workingNotes = []) {
         ...(hasCommand && !/```\nnosyparker doctor\n```/u.test(readme)
           ? ['the README does not put doctor in a block somebody can copy'] : []),
       ];
+    })()),
+
+    check('CLIENTS.md says which of a second surface\'s paths anybody has watched', (() => {
+      // The sentence, generated from the flags on the paths themselves, and the
+      // document required to carry it word for word.
+      //
+      // This is the third instrument tried on one claim. The first was a
+      // hand-written clause in the row's `why`; the second was a regex asking
+      // whether that clause looked like an admission, which passed three times
+      // for reasons unrelated to what it checked — the last time on the phrase
+      // "on a machine we have never looked at", which is about the output, not
+      // the paths. The lesson was not that the pattern needed work. It was that
+      // every one of those checks stood at one remove from the thing it claimed
+      // to verify.
+      //
+      // So there is no prose in the middle any more. The admission is a boolean
+      // beside each path, `validateTable` refuses a boolean that disagrees with
+      // `measuredOn`, and what a person reads is built from those booleans and
+      // compared here by exact string. Nothing a person can add to the
+      // paragraph around it satisfies this, and removing the admission means
+      // removing a flag, which fails the table at load rather than one test.
+      //
+      // What it still cannot do: tell whether `measuredOn` is true. That is a
+      // measurement, not a check.
+      const wrong = [];
+
+      for (const client of clients) {
+        for (const surface of client.alsoRemoveFrom ?? []) {
+          const said = provenance(surface);
+          if (!clientsMd.replaceAll(/\s+/gu, ' ').includes(said)) {
+            wrong.push(`CLIENTS.md does not say the ${client.id} second surface is ${said}`);
+          }
+        }
+      }
+
+      return wrong;
     })()),
 
     check('every section of DECISIONS.md is pointed at from the code, or marked a record', (() => {

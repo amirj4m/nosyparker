@@ -66,7 +66,7 @@
 
 import fs from 'node:fs';
 
-import { configPathFor, expandPath, fillTokens, invocation, loadClients } from './clients.js';
+import { configPathFor, expandPath, fillTokens, invocation, loadClients, surfacePath } from './clients.js';
 import { detect, NOT_INSTALLED } from './detect.js';
 import { hasEntry, insertEntry, stripComments, withoutBom, withoutTrailingCommas } from './edit.js';
 import { checkDocumentation } from './documentation.js';
@@ -304,7 +304,7 @@ function secondSurfacesOf(client, io) {
   const says = [];
 
   for (const surface of client.alsoRemoveFrom ?? []) {
-    const wanted = surface.path[io.machine.platform] ?? null;
+    const wanted = surfacePath(surface, io.machine.platform);
     if (wanted === null) continue;
 
     const file = expandPath(wanted, io.machine);

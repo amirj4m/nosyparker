@@ -249,8 +249,10 @@ unknown path, wrong answer for the person.
 ### 6.3 Second surfaces and extra paths
 
 - **Cursor's second surface** — `alsoRemoveFrom[0].path.win32` is
-  `%APPDATA%/Cursor/User/settings.json`, root key `mcp.servers`, `measuredOn:
-  ["linux"]`. Inferred from where the Linux build keeps user settings. Unverified.
+  `{ at: "%APPDATA%/Cursor/User/settings.json", inferred: true }`, root key
+  `mcp.servers`, `measuredOn: ["linux"]`. That `inferred: true` is the table
+  saying, in the only form a test can check, that nobody has watched this path
+  work. Measuring it is what turns the flag over.
 - **`kiro.extraConfigPaths`** — `~/.kiro/settings/mcp.json`. A single string with
   no per-OS map at all, so it resolves under `%USERPROFILE%` on Windows whether
   that is right or not.
@@ -471,8 +473,16 @@ A path is not "verified" because somebody looked at it. Folding results in means
 - `lastVerified.configPaths` (and `.write`, `.verify`, `.traps` as applicable) set
   to the date of the measurement, in `YYYY-MM-DD`.
 - `alsoRemoveFrom[].measuredOn` extended to `["linux", "win32"]` **only for a
-  surface actually watched on Windows**. `validateTable` refuses an empty
-  `measuredOn`; it cannot refuse a dishonest one.
+  surface actually watched on Windows** — and the matching path's `inferred`
+  flag set to `false` in the same edit. Those two must agree: `validateTable`
+  refuses a table where they do not, in either direction, so a half-done edit
+  fails at load rather than shipping. What it cannot refuse is a dishonest
+  `measuredOn`. Writing `["linux", "win32"]` without having gone to Windows
+  passes every check in the repository. You are the measurement.
+- The sentence in `CLIENTS.md` about which platforms were watched is
+  **generated** from those flags and compared word for word. Do not hand-edit
+  it to match; change the flags and take the sentence the check asks for. The
+  same claim written in two places is what went out of step last time.
 - `CLIENTS.md` updated in the same commit if the finding changes what a person is
   told — it is the living document, and `PHASE3-RESEARCH.md` is frozen.
 - A test that fails without the change, as for everything else here.

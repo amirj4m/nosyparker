@@ -87,11 +87,12 @@ file" — which was wrong. It does write, to `~/.config/Cursor/User/settings.jso
 under `mcp` → `servers`, the VS Code surface Cursor inherited. The earlier claim
 came from checking `~/.cursor/mcp.json`, which that command genuinely leaves
 alone. Re-measured in a clean home on 2026-08-20. Uninstall cleans both files
-and takes a copy of the second before touching it — on Linux, where that second
-path was measured. On macOS and Windows it uses the standard VS Code layout
-Cursor inherits, which nobody here has watched work: cleaning only ever acts on
-a file that is there and holds our entry, so a path that turns out wrong misses
-rather than damages — it finds nothing and says nothing, in either direction.
+and takes a copy of the second before touching it. That second path is
+measured on Linux, and inferred on macOS and Windows — the standard VS Code
+layout Cursor inherits, which nobody here has watched work. Cleaning only ever
+acts on a file that is there and holds our entry, so a path that turns out wrong
+misses rather than damages: it finds nothing and says nothing, in either
+direction.
 Cursor also has a per-server on/off switch in its own interface; if the entry is
 there but nothing happens, check it has not been switched off.
 
