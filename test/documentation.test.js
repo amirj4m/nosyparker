@@ -39,7 +39,7 @@ test('there are eighteen of them, and each says what it is checking', () => {
   // somebody trying to work out what is wrong.
   const checks = checkDocumentation();
 
-  assert.equal(checks.length, 18);
+  assert.equal(checks.length, 19);
   for (const check of checks) assert.ok(check.what.length > 10, `a check with no sentence: ${check.what}`);
 });
 

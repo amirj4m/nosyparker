@@ -27,6 +27,9 @@ import {
   loadClients,
   serverCommand,
   invocation,
+  PLATFORMS,
+  provenance,
+  surfacePath,
 } from '../src/clients.js';
 
 const VALUES = { name: 'nosyparker', command: '/usr/bin/node', serverPath: '/srv/mcp-server.js' };
@@ -446,7 +449,8 @@ test('a client whose own command writes a second file says so, and the entry can
   // --add-mcp` creates exactly that file, and `code --add-mcp` creates
   // `~/.config/Code/User/mcp.json`, which is what the vscode row already says.
   const cursor = clientById('cursor');
-  const second = (cursor.alsoRemoveFrom ?? []).find((/** @type {any} */ s) => s.path.linux.includes('Cursor/User/settings.json'));
+  const second = (cursor.alsoRemoveFrom ?? []).find(
+    (/** @type {any} */ s) => surfacePath(s, 'linux')?.includes('Cursor/User/settings.json'));
 
   assert.ok(second, 'the cursor row should name the file its own --add-mcp writes');
   assert.equal(second.rootKey, 'mcp.servers');
@@ -488,7 +492,9 @@ test('a trap does not state one platform\'s path as if it were every platform\'s
 
   for (const client of loadClients().clients) {
     /** @type {Record<string, string>[]} */
-    const maps = [client.configPaths, ...(client.alsoRemoveFrom ?? []).map((/** @type {any} */ s) => s.path)];
+    const maps = [client.configPaths, ...(client.alsoRemoveFrom ?? []).map(
+      (/** @type {any} */ s) => Object.fromEntries(
+        PLATFORMS.map((platform) => [platform, surfacePath(s, platform)])))];
 
     for (const trap of client.traps) {
       for (const map of maps) {
@@ -512,63 +518,69 @@ test('a trap does not state one platform\'s path as if it were every platform\'s
   assert.deepEqual(wrong, []);
 });
 
-test('a row does not promise output the program does not produce', (t) => {
-  // I wrote the sentence this catches, in the same commit that made the path a
-  // per-OS map. The row said the report "says which platform it could speak
-  // for". `measuredOn` is validated on load and read by nothing else — it
-  // reaches no output at all. So the honest part of the row, the part admitting
-  // two of its three paths were never seen, ended in a promise that was not
-  // kept, in the field somebody reads to decide whether to trust the other two.
+test('what has been watched is data, and the sentence people read is built from it', (t) => {
+  // The third instrument tried on one claim, and the first that is not standing
+  // at one remove from it.
   //
-  // The generalisation, rather than the one sentence: a row may not claim the
-  // program tells anybody about `measuredOn` while nothing in the program reads
-  // it. Either the claim goes or the output does.
-  const root = fileURLToPath(new URL('..', import.meta.url));
-  const surfaced = ['setup.js', 'doctor.js', 'write.js']
-    .some((file) => fs.readFileSync(path.join(root, 'src', file), 'utf8').includes('measuredOn'));
-
-  const promises = /report says which|output says which|says which it could speak for|tells you which platform|says which platform/iu;
-  const claiming = loadClients().clients.flatMap((client) =>
-    (client.alsoRemoveFrom ?? [])
-      .filter((/** @type {any} */ surface) => promises.test(surface.why))
-      .map((/** @type {any} */ surface) => `${client.id} / ${surface.rootKey}`));
-
-  // The documents, in the same breath. Removing the clause from `clients.json`
-  // and leaving it in `CLIENTS.md` is what happened: the guard scanned only
-  // `surface.why`, so it went on catching the copy nobody reads while missing
-  // the one that ships and that a person actually opens. Whatever a claim is
-  // written in, it is the same claim.
-  const documents = ['README.md', 'CLIENTS.md', 'CONNECTING.md', 'DECISIONS.md']
-    .filter((file) => promises.test(fs.readFileSync(path.join(root, file), 'utf8')));
-
-  assert.deepEqual(surfaced ? [] : [...claiming, ...documents], [],
-    'something says the program names the platform it was measured on, and nothing does');
-
-  // The other half: a row measured on one platform out of three has to admit it
-  // in the field somebody reads to decide whether to trust the other two.
+  // First it was a clause somebody typed into the row's `why`. Then a regex
+  // asking whether that clause looked like an admission — which passed three
+  // times for reasons unrelated to what it checked, twice inside a test written
+  // to close it, the last time on the phrase "on a machine we have never looked
+  // at", which is about the output and not about the paths. A reviewer stripped
+  // every real admission from the row and 455 tests stayed green.
   //
-  // Stated as a rule and then run against a row built to break it, rather than
-  // asserted over the shipped table alone. The first version did the latter, and
-  // deleting the admission from the real row did not fail it — the sentence
-  // added three lines above happens to contain "never looked", so the check
-  // passed on prose that was no longer making the admission. Twice this round a
-  // test has been satisfied by something other than the thing it names.
-  const admits = (/** @type {any} */ surface) =>
-    surface.measuredOn.length === 3
-    || /inferred|not seen|never looked|not measured/iu.test(surface.why);
+  // A regex over prose cannot express "this sentence admits the thing it needs
+  // to admit". So the admission is a boolean next to each path, and the words a
+  // person reads are generated from it.
+  const table = loadClients();
+  const surfaces = table.clients.flatMap((/** @type {any} */ client) =>
+    (client.alsoRemoveFrom ?? []).map((/** @type {any} */ surface) => [client.id, surface]));
 
-  const silent = loadClients().clients.flatMap((client) =>
-    (client.alsoRemoveFrom ?? []).filter((/** @type {any} */ surface) => !admits(surface))
-      .map((/** @type {any} */ surface) => `${client.id} / ${surface.rootKey}`));
+  assert.ok(surfaces.length > 0, 'there is no second surface left to check');
 
-  assert.deepEqual(silent, [],
-    'a second surface was measured on one platform and its "why" does not say so');
+  for (const [id, surface] of surfaces) {
+    for (const platform of PLATFORMS) {
+      const where = surface.path[platform];
+      if (where === null) continue;
 
-  assert.equal(
-    admits({ measuredOn: ['linux'], why: 'Written by `cursor --add-mcp`, not by us.' }), false,
-    'a row that admits nothing about its unmeasured platforms passes this rule');
-  assert.equal(admits({ measuredOn: ['linux', 'darwin', 'win32'], why: 'Measured.' }), true,
-    'a row measured everywhere is being asked for an admission it does not owe');
+      assert.equal(typeof where.at, 'string', `${id}: the ${platform} path is not a string`);
+      assert.equal(where.inferred, !surface.measuredOn.includes(platform),
+        `${id}: the ${platform} flag and measuredOn disagree`);
+    }
+  }
+
+  // Both directions refused at the door, so the disagreement cannot exist in a
+  // table this program will load.
+  const url = new URL(`${t.name.replaceAll(/\W/gu, '-')}.json`, import.meta.url);
+  t.after(() => fs.rmSync(url, { force: true }));
+
+  /** @param {(surface: any) => void} damage */
+  const refused = (damage) => {
+    const broken = structuredClone(table);
+    const client = broken.clients.find((/** @type {any} */ c) => c.alsoRemoveFrom?.length);
+    damage(client.alsoRemoveFrom[0]);
+    fs.writeFileSync(url, JSON.stringify(broken));
+    return () => loadClients(url);
+  };
+
+  // An unmeasured platform presented as fact — the exact edit the reviewer made.
+  assert.throws(refused((surface) => { surface.path.darwin.inferred = false; }), /disagree/u);
+  // And a measured one hidden as a guess, which is the same fault backwards.
+  assert.throws(refused((surface) => { surface.path.linux.inferred = true; }), /disagree/u);
+  // A path with no admission attached to it at all.
+  assert.throws(refused((surface) => { surface.path.win32 = '~/somewhere'; }), /at, inferred/u);
+
+  // The sentence is generated, and it says what the flags say.
+  const [, cursor] = surfaces.find(([id]) => id === 'cursor') ?? [];
+  assert.equal(provenance(cursor), 'measured on Linux, and inferred on macOS and Windows');
+
+  // And the row does not write that claim down a second time in prose beside
+  // it. Two copies of one fact is how the last one drifted: the clause was
+  // taken out of the table and left standing in CLIENTS.md, which ships.
+  for (const [id, surface] of surfaces) {
+    assert.doesNotMatch(surface.why, /measured on|inferred on|nobody has watched|never looked/iu,
+      `${id}: the row says in prose what its flags already say`);
+  }
 });
 
 test('a table with an incomplete second surface is refused on load', (t) => {
@@ -614,11 +626,12 @@ test('a second surface is a per-OS path like every other path in the table', () 
       `${platform} is not in alsoRemoveFrom.path — a path we do not know must be null, not absent`);
   }
 
-  assert.equal(second.path.linux, '~/.config/Cursor/User/settings.json');
+  assert.equal(surfacePath(second, 'linux'), '~/.config/Cursor/User/settings.json');
 
-  // And it has to say which of those was measured rather than inferred. We have
-  // one machine and it runs Linux; presenting the other two as fact is what
-  // this finding cost.
+  // And it has to say which of those was measured rather than inferred. That
+  // now lives on each path as a boolean rather than in the prose beside it —
+  // see the test that replaced the regex which kept passing for the wrong
+  // reason.
   assert.deepEqual(second.measuredOn, ['linux']);
 });
 

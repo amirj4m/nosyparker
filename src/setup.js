@@ -37,6 +37,7 @@ import {
   fillTokens,
   loadClients,
   serverCommand,
+  surfacePath,
 } from './clients.js';
 import {
   detect,
@@ -298,7 +299,7 @@ function cleanSecondSurfaces(client, io) {
   const done = [];
 
   for (const surface of client.alsoRemoveFrom ?? []) {
-    const wanted = surface.path[io.machine.platform] ?? null;
+    const wanted = surfacePath(surface, io.machine.platform);
     if (wanted === null) continue;
 
     const file = expandPath(wanted, io.machine);

@@ -112,6 +112,50 @@ export function expandPath(raw, env) {
   return raw;
 }
 
+/** The three this table speaks about, in the order sentences name them. */
+export const PLATFORMS = /** @type {const} */ (['linux', 'darwin', 'win32']);
+
+/** What a person calls each of them. */
+const PLATFORM_NAMES = { linux: 'Linux', darwin: 'macOS', win32: 'Windows' };
+
+/**
+ * Where a second surface lives on this platform, or null.
+ *
+ * @param {any} surface
+ * @param {string} platform
+ * @returns {string|null}
+ */
+export function surfacePath(surface, platform) {
+  return surface.path[platform]?.at ?? null;
+}
+
+/**
+ * One sentence saying which of a surface's paths anybody has actually watched.
+ *
+ * Generated rather than written, and this is the point of it. The claim used to
+ * exist three times — as `measuredOn`, as English in the row's `why`, and again
+ * in CLIENTS.md — and the copies went out of step inside a day: a clause was
+ * removed from the table and left standing in the document that ships. A
+ * sentence built from the flags has one source, so removing the admission means
+ * removing the flag, and removing the flag fails the table at load.
+ *
+ * @param {any} surface
+ * @returns {string}
+ */
+export function provenance(surface) {
+  const named = (/** @type {string[]} */ list) => list
+    .map((platform) => PLATFORM_NAMES[/** @type {'linux'} */ (platform)])
+    .join(' and ');
+
+  const present = PLATFORMS.filter((platform) => surfacePath(surface, platform) !== null);
+  const watched = present.filter((platform) => surface.path[platform].inferred === false);
+  const guessed = present.filter((platform) => surface.path[platform].inferred === true);
+
+  if (guessed.length === 0) return `measured on ${named(watched)}`;
+  if (watched.length === 0) return `inferred on ${named(guessed)}, and watched on none of them`;
+  return `measured on ${named(watched)}, and inferred on ${named(guessed)}`;
+}
+
 /**
  * Fill the tokens in a row's entry.
  *
@@ -301,20 +345,51 @@ function validateTable(table) {
           throw new Error(`"${client.id}" has a second surface with no "${key}".`);
         }
       }
-      for (const platform of ['linux', 'darwin', 'win32']) {
+      if (!Array.isArray(surface.measuredOn) || surface.measuredOn.length === 0) {
+        throw new Error(
+          `"${client.id}" does not say which platform its second surface was measured on. A path `
+          + 'nobody has watched work is inference and has to be labelled as such.',
+        );
+      }
+      for (const platform of PLATFORMS) {
         if (!(platform in surface.path)) {
           throw new Error(
             `"${client.id}" says nothing about ${platform} for ${surface.rootKey}. Say null if `
             + 'it is unknown — a missing key reads as "not on this platform" and cleans nothing.',
           );
         }
-      }
-      if (!Array.isArray(surface.measuredOn) || surface.measuredOn.length === 0) {
-        throw new Error(
-          `"${client.id}" does not say which platform its second surface was measured on. One `
-          + 'machine runs Linux here; a path nobody has watched work is inference and has to '
-          + 'be labelled as such.',
-        );
+
+        const where = surface.path[platform];
+        if (where === null) continue;
+
+        if (typeof where.at !== 'string' || typeof where.inferred !== 'boolean') {
+          throw new Error(
+            `"${client.id}" gives a ${platform} second-surface path that is not `
+            + '{ at, inferred }. A path carries whether anybody has watched it work, next to '
+            + 'itself, so that the two cannot be updated separately.',
+          );
+        }
+
+        // The admission and the list have to agree, in both directions. This is
+        // the whole of the mechanism: the claim "nobody has watched this" stops
+        // being a sentence somebody wrote in `why` and becomes a boolean, which
+        // is the only form a test can check without standing at one remove from
+        // it. Three times a regex over that prose passed for a reason unrelated
+        // to what it claimed to check.
+        //
+        // What this cannot do, and nothing here can: tell whether `measuredOn`
+        // is *true*. Writing ["linux", "win32"] without going to Windows passes
+        // every check in this file. That is a claim about the world and only a
+        // measurement settles it — which is what the next two days are for.
+        // Read this as internal consistency, not as proof.
+        const claimed = !surface.measuredOn.includes(platform);
+        if (where.inferred !== claimed) {
+          throw new Error(
+            `"${client.id}" says its second surface was measured on `
+            + `[${surface.measuredOn.join(', ')}] and marks the ${platform} path `
+            + `inferred: ${where.inferred}. Those disagree.`,
+          );
+        }
       }
     }
 
