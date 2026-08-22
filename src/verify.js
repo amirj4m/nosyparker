@@ -52,6 +52,8 @@
  * check, and the table records that per client rather than assuming it.
  */
 
+import path from 'node:path';
+
 import { expandPath, fillTokens } from './clients.js';
 import { hasEntry, stripComments, withoutBom } from './edit.js';
 import { readOrEmpty, runCommand } from './write.js';
@@ -285,6 +287,43 @@ function fromFile(client, options, blockers) {
 }
 
 /**
+ * What to tell somebody to type to start this client.
+ *
+ * We resolve a client's command properly — `detect.js` tries the bare name on
+ * PATH and then falls back to the places it is known to be installed, and
+ * `verify` runs the absolute path it got back. Then the advice we print names
+ * the bare command anyway, and on this project's own machine five of the twelve
+ * detected clients resolve somewhere that is not on the person's interactive
+ * PATH: Claude Code inside its own version directory, Gemini under an
+ * `~/.npm-global` prefix, Kiro, LM Studio, Devin.
+ *
+ * The owner read "Start gemini in ~ and run `/permissions trust`", typed
+ * `gemini`, and got `command not found` — from a program that had just run the
+ * thing successfully and knew exactly where it was.
+ *
+ * It is the same mistake as writing `node` into a config instead of
+ * `process.execPath`, which this project refuses to make in the entry it writes
+ * and made anyway in the sentence it printed. So: the bare name where the bare
+ * name works, and the path we actually used where it does not.
+ *
+ * @param {string|null} command the resolved absolute path, or null
+ * @param {any} client
+ * @param {import('./detect.js').Machine} machine
+ * @returns {string}
+ */
+export function typeable(command, client, machine) {
+  const bare = client.detect?.commands?.[0] ?? client.id;
+  if (command === null) return bare;
+
+  // Reachable by name from a shell means the name is the friendlier answer.
+  // Compared against the directories a shell would search rather than against
+  // the string, because `/usr/bin/code` and a `code` on PATH are one thing.
+  const onPath = (machine.pathDirs ?? []).includes(path.dirname(command));
+
+  return onPath ? bare : command;
+}
+
+/**
  * Settings that would stop a good entry loading.
  *
  * These are read from disk and are therefore only half the story: VS Code's
@@ -314,7 +353,8 @@ export function findBlockers(client, options) {
     // can name the person's own folder rather than describing one.
     const says = blocker.says
       .replaceAll('{{name}}', options.name)
-      .replaceAll('{{cwd}}', options.machine.cwd ?? '');
+      .replaceAll('{{cwd}}', options.machine.cwd ?? '')
+      .replaceAll('{{clientCommand}}', typeable(options.clientCommand, client, options.machine));
 
     if (settings === null) {
       if (blocker.check === 'json-key-absent') found.push(says);

@@ -23,6 +23,7 @@ import {
   IN_FILE,
   UNVERIFIABLE,
   VERIFY_FAILED,
+  findBlockers,
   verifyClient,
   withoutColour,
 } from '../src/verify.js';
@@ -518,7 +519,71 @@ test('the Gemini instruction names the folder the person is actually in', (t) =>
 
   const said = checked.blockers.join(' ');
 
-  assert.match(said, /Start gemini in \/home\/p\/my project and run `\/permissions trust`/u);
+  assert.match(said, /Start `\/usr\/bin\/thing` in \/home\/p\/my project and run `\/permissions trust`/u);
   assert.match(said, /"\/home\/p\/my project": "TRUST_FOLDER"/u);
   assert.doesNotMatch(said, /\{\{cwd\}\}/u, 'the token is filled in, not printed');
+});
+
+test('advice names a command the person can actually type', (t) => {
+  // The owner read "Start gemini in ~ and run `/permissions trust`", typed
+  // `gemini`, and got `command not found` — from a program that had just run
+  // the thing successfully and knew the absolute path it used. `detect.js`
+  // falls back to where a client is known to be installed, `verify` runs what
+  // it got back, and then the sentence named the bare command anyway.
+  //
+  // Five of twelve detected clients on the owner's machine resolved somewhere
+  // not on his interactive PATH. It is the same mistake as writing `node` into
+  // a config instead of `process.execPath`, which this project refuses to make
+  // in the entry it writes and made in the sentence it printed.
+  const gemini = clientById('gemini-cli');
+
+  /** @param {string} command @param {string[]} pathDirs */
+  const advice = (command, pathDirs) => findBlockers(gemini, {
+    name: 'nosyparker',
+    configPath: '',
+    clientCommand: command,
+    machine: { home: '/home/x', platform: 'linux', cwd: '/home/x', pathDirs, exists: () => false, readdir: () => [], processes: () => null },
+    editRequest: {},
+  })[0] ?? '';
+
+  // Off PATH: the path we used, because the name would not work.
+  assert.match(
+    advice('/home/x/.npm-global/bin/gemini', ['/usr/bin']),
+    /Start `\/home\/x\/\.npm-global\/bin\/gemini`/u,
+    'it told somebody to type a name their shell cannot find');
+
+  // On PATH: the name, because the path would be noise.
+  assert.match(
+    advice('/usr/bin/gemini', ['/usr/bin']), /Start `gemini`/u,
+    'it printed a full path where the bare name works');
+
+  // Nothing resolved at all: the name is the only thing we have.
+  assert.match(advice(/** @type {any} */ (null), []), /Start `gemini`/u);
+});
+
+test('no printed advice hardcodes a command name the row resolves for itself', () => {
+  // The general form, so the next row added does not reintroduce it. A blocker
+  // or a restart instruction is something a person types; if it names a
+  // client's own command it has to use the token that gets substituted for
+  // whatever we actually found, not the bare word.
+  /** @type {string[]} */
+  const wrong = [];
+
+  for (const client of loadClients().clients) {
+    for (const name of client.detect?.commands ?? []) {
+      const bare = new RegExp(`(^|[\\s\`"])${name}([\\s\`"]|$)`, 'u');
+
+      for (const blocker of client.blockers ?? []) {
+        if (bare.test(blocker.says.replaceAll('{{clientCommand}}', ''))) {
+          wrong.push(`${client.id}: a blocker names \`${name}\` instead of {{clientCommand}}`);
+        }
+      }
+      const restart = typeof client.restart === 'string' ? client.restart : '';
+      if (bare.test(restart.replaceAll('{{clientCommand}}', ''))) {
+        wrong.push(`${client.id}: its restart line names \`${name}\` instead of {{clientCommand}}`);
+      }
+    }
+  }
+
+  assert.deepEqual(wrong, []);
 });

@@ -44,6 +44,7 @@ import {
   INSTALLED_PATH_UNKNOWN,
   NOT_INSTALLED,
   thisMachine,
+  resolveCommand,
 } from './detect.js';
 import {
   ABSENT,
@@ -70,6 +71,7 @@ import {
   UNCHECKED,
   UNVERIFIABLE,
   verifyClient,
+  typeable,
 } from './verify.js';
 
 /**
@@ -568,7 +570,7 @@ export function printConfig(io, clientId) {
     io.out('\n');
   }
 
-  io.out(`${client.restart}\n`);
+  io.out(`${restartLine(client, resolveCommand(client, io.machine), io.machine)}\n`);
   return true;
 }
 
@@ -739,7 +741,7 @@ export function report(io, outcomes) {
 
   io.out('Before any of this takes effect, close and reopen these:\n\n');
   for (const outcome of restarts) {
-    io.out(`  ${outcome.client.name}\n    ${outcome.client.restart}\n`);
+    io.out(`  ${outcome.client.name}\n    ${restartLine(outcome.client, outcome.found.command, io.machine)}\n`);
   }
   io.out('\n');
 }
@@ -884,6 +886,24 @@ export function reportRemoval(io, outcomes) {
     for (const outcome of removed) io.out(`  ${outcome.client.name}\n`);
     io.out('\n');
   }
+}
+
+/**
+ * A restart instruction, naming a command the person can type.
+ *
+ * "Start a new gemini session" is only useful if `gemini` starts one. Five of
+ * the twelve clients detected on this project's own machine resolve somewhere
+ * that is not on the person's interactive PATH, so the row carries a token and
+ * `typeable` decides between the bare name and the path we actually used.
+ *
+ * @param {any} client
+ * @param {string|null} command
+ * @param {import('./detect.js').Machine} machine
+ * @returns {string}
+ */
+function restartLine(client, command, machine) {
+  return String(client.restart)
+    .replaceAll('{{clientCommand}}', typeable(command, client, machine));
 }
 
 /**

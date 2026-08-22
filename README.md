@@ -112,11 +112,16 @@ It only ever adds or removes its own entry, and where it edits a config file it
 keeps a copy in `~/.nosyparker/backups/` first, never replaced.
 
 One thing it does that is worth knowing: Cursor's own `--add-mcp` writes its
-server into `~/.config/Cursor/User/settings.json`, which is where Cursor also
-keeps your editor settings. If that entry is there, `uninstall` takes it out —
-after copying the file. It is our entry wherever it ended up, and leaving it
-behind would mean `uninstall` did not do what this page says it does. Nothing
-else in that file is touched.
+server into Cursor's user settings file — on Linux `~/.config/Cursor/User/
+settings.json` — which is where Cursor also keeps your editor settings. If that
+entry is there, `uninstall` takes it out, after copying the file. It is our
+entry wherever it ended up, and leaving it behind would mean `uninstall` did not
+do what this page says it does. Nothing else in that file is touched.
+
+Linux is the only platform any of this has been watched on. The macOS and
+Windows locations are the standard ones those builds use and have not been
+seen working here, so on those two `uninstall` looks for a file it has never
+been shown, finds nothing, and says nothing either way.
 
 The last thing it prints is which applications to close and reopen. None of them
 re-read their config while running.
