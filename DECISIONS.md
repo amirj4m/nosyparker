@@ -842,9 +842,14 @@ is unchanged. Do not weaken it to a privacy footnote and do not qualify it into
 "local-first" — it is what the thing is.
 
 **One future direction, so nobody designs against it.** The owner wants his own
-devices sharing one memory, and that will be designed after this ships and after
-a week of real use. It is written here only so that nothing in the meantime
-makes it harder.
+devices sharing one memory. Written here first as a direction; it has since
+become a requirement, including the phone — see *Two requirements, settled*
+below, which also carries the constraint that no file-based approach ever
+reaches a phone.
+
+What waits is the work, not the decision. A week of real use produces evidence
+about *how* it should be built; it is not a period in which he might conclude he
+does not want it.
 
 Nothing is built for it and nothing in the documents claims it — the product
 today is one file on one machine, and any sentence that could be read as "this
@@ -863,3 +868,293 @@ So the shape to keep is the one that exists: decisions in one place, adapters
 above it, and the owner carried rather than assumed. The thing that would make
 this hard later is a rule that lives in an adapter — which is the defect this
 project has already paid for four times.
+
+## 22 August 2026: what was measured  [record]
+
+A long day of measurement, written down because most of it existed only in a
+conversation. Numbers where there are numbers; "unknown" where there are not.
+
+**npx and `@latest`.** This project refused npx, and the reason recorded in
+*There is a command, and what the reasoning cost* was measured against a pinned
+spec rather than against `@latest`. `_npx` is keyed on the exact spec string, so
+`@latest` never changes and resolves to **one** directory that is updated in
+place; a pinned spec makes a second directory and both persist. So the refusal
+was right about pinned specs and over-broad about the form the whole ecosystem
+actually uses.
+
+Measured against a local registry with two versions: an update arrives on the
+next launch with the config untouched, costing 9.7–10.3 s once; steady state is
+~495 ms against ~140 ms for a global install, so **npx costs ~355 ms per launch,
+per client, per session**. `npm cache clean --force` empties `_cacache` and
+leaves `_npx` alone; deleting `_npx` outright costs a 30.7 s refetch and then
+works again.
+
+The real cost is offline. With npm's defaults and the registry unreachable, a
+warm-cache launch took **70.6 s, reproduced three times** — it succeeds from
+cache only after exhausting the retry backoff. Claude Code gives an MCP server
+**30 s**, so in practice the client gives up first and shows a broken server.
+`--fetch-retries=0` gives 0.5 s offline *and* still takes updates;
+`prefer-offline` and `--offline` are equally fast and stop updating altogether.
+The flag can go in `args` — `npx -y --fetch-retries=0 <pkg>@latest` was verified
+to update and to survive the registry being down.
+
+And a prerequisite nobody expected: our `bin` is the CLI, so `npx
+nosyparker@latest` would run the wrong program. The convention needs a bin that
+*is* the server. Windows is unmeasured; `npx` there is a `.cmd` shim.
+
+**Dist-tags.** Verified end to end against a local registry that accepts
+publishes. `npm publish --tag beta` does not move `latest`; the beta is
+invisible to an ordinary install and fetched by `@beta`. Promotion with `npm
+dist-tag add` moves a pointer — one PUT, **no tarball upload**, shasum
+unchanged. What was tested is byte-identically what a stranger later gets.
+
+**npm credentials.** A fresh `npm login` buys a window in which `npm publish`
+works with no second security-key ceremony. That window closes: a token written
+at 12:29 on 21 August published a minute later and was refused with 401 about 26
+hours on. Where between those points it lapsed is **not knowable from the
+machine** — the token list on npmjs.com would say, and reading that needs a
+login.
+
+**Bitwarden, and why it was rejected.** `bw unlock` returns a session key that
+lives in one shell's environment. Scanning every readable process on his
+machine: **0 of 183 held `BW_SESSION`** — not the agents, not the shells, not
+even the terminal, because environment is inherited at launch and never updated.
+Without the key `bw` reports the vault locked and a read **prompts on stdin**,
+which for a stdio MCP server means hanging the JSON-RPC channel or eating
+protocol traffic as a password attempt. A clean error would have been
+recoverable; a prompt is not.
+
+One useful side finding: the unlock regression tracked as bitwarden/clients
+#20703, confirmed for 2026.3.0 and 2026.4.1 with no public report either way for
+2026.5 through 2026.8, is **not present in 2026.8.0** — established on his
+machine, and it existed nowhere public.
+
+**The OS keychain, and why it beat Bitwarden.** `gnome-keyring-daemon` runs and
+owns `org.freedesktop.secrets`; the login keyring is unlocked. `secret-tool` is
+**not installed**, but libsecret, the `Secret-1` typelib and PyGObject all are,
+so the capability needs no install. A store, read-back and delete round-trip
+works.
+
+The decisive difference from Bitwarden is that there is no key to carry: the
+keyring is unlocked once at desktop login and any process that can reach the
+session bus can read. Agents under `cursor` and under the `claude` CLI can.
+A **direct child of `claude-desktop` cannot** — that process carries neither
+`DBUS_SESSION_BUS_ADDRESS` nor `XDG_RUNTIME_DIR`, and with both absent the
+connection fails. Losing only the first is survivable, because D-Bus falls back
+to `$XDG_RUNTIME_DIR/bus`. Critically it **fails with an error, not a prompt**.
+
+Two limits. There is **no per-app isolation on Linux**: any process running as
+him reads everything in the keyring, so an application tag is housekeeping and
+not a boundary. And the **locked case is unmeasured** — the keyring was unlocked
+and locking his login keyring while he was working would have taken out wifi and
+application credentials. Whether a locked read errors or waits is the question,
+and it is open.
+
+**The duplicate-normalisation trap.** The digit fold itself works. But
+`text_normalised` is a persisted, indexed column — the duplicate key and the
+substring-search index — not a value computed per call. Changing the rule leaves
+every existing row keyed under the old one. On his live store that is **105 of
+151 memories**, because he writes Persian digits. Measured: a row stored before
+the change stops being found by the Persian query that found it yesterday, 1 hit
+becoming 0. That is loss of access to his own memories, which is worse than the
+gap being closed, and it is why the fold waits for 0.0.4 and its migration.
+
+**Over-refusal in the card check.** Any unbroken digit run is tested against
+Luhn at every offset and every length from 13 to 19, so long runs are refused
+almost always. Measured over 20,000 random runs per length: **10% at 13 digits,
+47% at 15, 79% at 17, 97% at 20, 99.9% at 25, 100% at 30 and above.** Greek,
+German and Iranian IBANs are all refused, as is a 17-digit case reference, and
+the message names a payment card that it is not. His ΑΦΜ and ΑΜΚΑ are safe as
+normally written, being under the 13-digit floor. This is the refusing-too-much
+shape and it is the injury he actually carries.
+
+## 22 August 2026: what was decided  [record]
+
+**0.0.3 is the credential fix alone.** A written safety promise that is false is
+different in kind from a rough edge, and a release that fixes one should not
+carry three unrelated changes. The auto-update work, the Windows items, the
+duplicate fold and the `DECISIONS.md` records were all kept out of it.
+
+**Releases go out under `beta` first.** He runs one for a day or two, then the
+tag is promoted rather than republished, so what he exercised is byte-identically
+what a stranger gets. This is the standing pattern now, and the mechanism was
+measured rather than assumed.
+
+**A false claim is narrowed, not restated.** The README said digits count as
+digits in any script. They do not in a handful of rare blocks, and the claim
+collapsed entirely the moment an invisible character sat inside a number. It now
+names the seven scripts that were verified and says outright that it is a screen
+and not a guarantee. **A second sentence that is false in a subtler way is worse
+than the first**, because a reader cannot reason about where it fails.
+
+**The invisible-character fix reads the text twice rather than banning the
+characters.** `U+200C` is ordinary Persian orthography — `کتاب‌ها` and `می‌روم`
+both contain one — and this store's owner writes Persian. Refusing text that
+contains them would turn away his ordinary sentences to catch a rare secret. The
+screen looks at the text as written and again with the invisibles stripped;
+nothing is refused for containing them and nothing is rewritten. The wrong fix
+is pinned by a test: adding `U+200C` to the refused set turns the Persian
+control red.
+
+**Auto-update: agreed in principle, scheduled after Windows.** npx on Windows is
+unmeasured, and a stranger's first experience of this program should not rest on
+our guess.
+
+**`nosyparker status`: deliberately not decided.** This one really is open.
+During his week he notes anything he wanted to know that `doctor` could not tell
+him. If that list is empty the command is not needed, and a command nobody
+needed is worse than an absent one.
+
+It is worth naming the difference, because the two below are not like this. Here
+the week decides *whether*. For multi-device and for storing sensitive values the
+week decides only *how* — those are settled.
+
+### Two requirements, settled
+
+These are not options and not things a week of use might change his mind about.
+They are written here as requirements so that when the same ideas are proposed
+again the answer is "we considered that, here is what we concluded" rather than
+a discussion starting from nothing.
+
+**Multi-device, including the phone, is a requirement.** Stated plainly, and it
+has already decided something: it is why the OS-keychain secrets design was put
+on hold rather than built, because a keychain does not travel between machines.
+Every design from here has to answer for it.
+
+The constraint that goes with it, so nobody rediscovers it: **no file-based
+approach ever reaches a phone.** No phone agent reads a local file. A synced
+folder, a replicated SQLite file, a git repository — each is a perfectly good
+answer for two laptops and none of them is an answer for the phone. Whatever is
+built either has a route to the phone or says plainly that the phone is out of
+scope for that route.
+
+**Storing sensitive values is a goal.** The gate refusing them outright is a
+limitation to be removed, not a principle to be defended. He hit the real cost of
+it — out of the house, unable to retrieve the code for his own medical results,
+from a memory store whose whole purpose is to hold what he needs to know. What is
+open is *where such values go and how they are protected*. Whether to hold them
+at all is not open.
+
+**And the argument that makes it more than a preference — his, and the strongest
+anyone made today.** If detection *routes* a secret instead of refusing it, the
+cost of a false positive disappears. A wrongly-flagged IBAN still ends up
+somewhere he can get it back from; nothing is lost, he is only mildly
+inconvenienced. That means the screen can be made far more aggressive than it
+dares to be today, because today an over-eager rule destroys a fact and tomorrow
+it merely files it in a safer place.
+
+This turns a trade-off this project has been stuck on since Phase 1 — catch more
+and refuse honest text, or catch less and let secrets through — into a much
+easier one. The over-refusal numbers above are the measure of the current cost;
+routing removes it rather than tuning it.
+
+### Sync: the leading candidate, and what has to be answered first
+
+**Sync and secrets are one decision, not two.** Where a secret can live is
+downstream of where the store lives, so sync is decided first and the secrets
+answer follows from it.
+
+**A server cannot be the only answer.** Many people will not have one and some
+specifically want nothing leaving the machine. So the design treats "where
+memories come from" as a list rather than a place: a local-only person points at
+synced files, a server person points at a server, and there is one read path
+behind both.
+
+**The leading candidate is change-log replication**, proposed by a third party
+and better than the Syncthing recommendation it replaced. Credited as theirs.
+The shape:
+
+- Replicate an **append-only log of changes**. Never sync the SQLite file.
+- A **global uid** per memory alongside the integer id, so two devices cannot
+  mint the same identity.
+- A **Lamport clock** for ordering, so nothing depends on two machines' clocks
+  agreeing.
+- **Protocol first, then code.** This is the instruction most likely to be
+  skipped by whoever picks it up, and it is the one that matters: the questions
+  below are answerable on paper and expensive to discover in an implementation.
+
+**The unresolved objection, which the protocol has to answer rather than the
+implementation discover: it breaks `purge`.** Memory text would live in the
+change log and would already have been sent to other devices. "The bytes are
+gone" stops being true, the raw-file grep that proves a purge worked proves
+nothing, and the gate would have to screen two paths rather than one. It also
+breaks the schema freeze. None of that makes the design wrong; all of it has to
+be settled before any code exists.
+
+**One measurement gates the whole project:** how many of the sixteen clients can
+reach a *remote* MCP server at all. An afternoon's work, and it decides whether
+this is worth starting — because if the answer is "three", the phone requirement
+and the sync design need a different shape entirely.
+
+## 22 August 2026: how the defects got through  [record]
+
+Four lessons, kept because each one is about the method rather than the code.
+
+**Five reviews tested in English.** The credential screen read `\d`, which is
+ASCII even under the `u` flag, so a payment card written in Persian digits was
+not made of digits and went into a plaintext store. Five independent reviews had
+been through this project and every one of them tested in English — in a
+codebase that chose a trigram tokenizer *precisely because* `unicode61` returned
+nothing for Chinese and Japanese. We knew at the schema level that this is not an
+English-only tool and then wrote guards that were. The blind spot was the
+tester's language, not the diff.
+
+**The suite starts from an empty store, so it cannot ask what a change does to
+data that already exists.** That is a structural gap, not an oversight: 471
+passing tests said the digit fold was safe, and it would have taken 105 of 151
+memories out of reach. The question "what does this do to a store that is
+already full" has to be asked by hand, every time a stored or derived value
+changes.
+
+**A claim in three places gets fixed in one.** The Cursor settings path, and the
+"the report says which platform it could speak for" promise, each existed in
+`clients.json`, `CLIENTS.md` and the README. Each was corrected once and left
+standing elsewhere — three times, in three separate rounds. The answer is not
+more care: it is one source. Where a claim is checkable, the sentence people read
+is now generated from the data and compared word for word, and a documentation
+check refuses a document that quotes one platform's path without naming the
+platform.
+
+**A regex over prose cannot express "this sentence admits what it needs to
+admit".** The `measuredOn` honesty check was satisfied by an accident three
+times, twice inside a test written to close it — most recently by the phrase "on
+a machine we have never looked at", which is about the output and not about the
+paths. Patching the pattern would have produced a fourth. The instrument was
+replaced instead: the admission is a boolean beside each path, refused at load
+when it disagrees with `measuredOn`, and the prose is generated from it. The
+general form of the lesson is that every one of those checks stood **at one
+remove** from the thing it claimed to verify.
+
+**And one that is not a lesson but a fact worth keeping.** `purge` deliberately
+does not scrub `input_excerpt`, so that somebody can always see what was removed.
+That is the owner's decision and it is right — but it rests on the gate never
+having let a credential through. On 22 August the gate did, and after the memory
+was purged the card was still in the decision log and had to be removed
+separately. A design that is safe only while another part is perfect should say
+so where it is written down.
+
+## What 0.0.4 carries  [record]
+
+Recorded so none of it is rediscovered as a finding.
+
+- **`digitValue` walks into the neighbouring block.** Five blocks decode as all
+  nines — Myanmar Extended-C Eastern Pwo Karen and four of the mathematical
+  alphanumerics. Sixteen nines fails Luhn, so such a card is stored; and because
+  `text_normalised` is NFKC and NFKC folds those forms, **it lands on disk as a
+  plain ASCII card**. The nine-step bound in the comment does not prevent this,
+  because Unicode has adjacent `Nd` blocks. A generated table of the 77 block
+  zeros closes it.
+- **The separator list is five characters** and misses tab and newline — a card
+  pasted from a spreadsheet column — and `U+066B` and `U+066C`, the Arabic
+  decimal and thousands separators, which is the same blind spot this release
+  exists to remove.
+- Digit-like characters outside `Nd` (circled, superscript, parenthesised), a
+  lone low surrogate, and full-width vendor keys.
+- **The duplicate fold and its migration**, under the policy already written
+  here: never in place, `VACUUM INTO` a copy, migrate the copy, verify it, swap,
+  and the original stays as the backup for him to delete.
+- **A decision on the IBAN over-refusal** — not a patch. The numbers are above.
+- The long-opaque-token rule stays ASCII on purpose: widening it to `\p{Nd}`
+  required dropping its `\b` anchors, and on the one megabyte query that once
+  took this machine down the widened form never finished. The reach gained was
+  theoretical, the guard lost was real.
