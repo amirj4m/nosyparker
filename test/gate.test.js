@@ -161,6 +161,52 @@ test('a space that is not a space does not hide a card', (t) => {
   assert.equal(listMemories(store, OWNER).length, 0);
 });
 
+test('a labelled secret is labelled in more than one language', (t) => {
+  // The other half of the same defect. The word list that spots "password: x"
+  // was English, in a store whose owner writes Persian, so `رمز عبور: hunter2`
+  // went in as plain text. Same blindness as the card, wearing different
+  // clothes: guards written by English speakers, tested in English.
+  //
+  // The list is still a list and cannot be complete — every language not in it
+  // is a hole, which is why the rules that carry the weight here are about the
+  // shape of a secret rather than the word beside it. This test holds the
+  // languages we claim, not a claim to have finished.
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  for (const [language, text] of /** @type {[string, string][]} */ ([
+    ['English', 'password: hunter2goeshere'],
+    ['Persian', 'رمز عبور: hunter2goeshere'],
+    ['Arabic', 'كلمة المرور: hunter2goeshere'],
+    ['Hindi', 'पासवर्ड: hunter2goeshere'],
+    ['Urdu', 'پاس ورڈ: hunter2goeshere'],
+    ['Chinese', '密码: hunter2goeshere'],
+    ['Japanese', 'パスワード: hunter2goeshere'],
+    ['Korean', '비밀번호: hunter2goeshere'],
+    ['Spanish', 'contraseña: hunter2goeshere'],
+    ['French', 'mot de passe : hunter2goeshere'],
+    ['German', 'Passwort: hunter2goeshere'],
+    ['Russian', 'пароль: hunter2goeshere'],
+    ['Turkish', 'şifre: hunter2goeshere'],
+  ])) {
+    assert.equal(submit(store, { owner: OWNER, text }).rule, 'credential',
+      `a secret labelled in ${language} was stored`);
+  }
+
+  // And a sentence that talks about a password without carrying one is still a
+  // fact, in every one of those scripts. A rule that refuses these is worse
+  // than no rule, because people learn to route around it.
+  for (const [language, text] of /** @type {[string, string][]} */ ([
+    ['English', 'I keep my password in a password manager'],
+    ['Persian', 'رمز عبور من در برنامه مدیریت رمز است'],
+    ['Chinese', '我把密码存在密码管理器里'],
+    ['English again', 'the secret to good bread is time'],
+  ])) {
+    assert.equal(submit(store, { owner: OWNER, text }).rule, 'keep',
+      `an ordinary sentence in ${language} was refused`);
+  }
+});
+
 test('rule 1 leaves ordinary sentences about secrets alone', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());

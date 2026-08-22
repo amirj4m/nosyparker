@@ -34,7 +34,8 @@ can do:
 Refusing is half of it, and a refusal is an answer rather than an error.
 Anything shaped like a password, a key or a card number is not stored, and is
 not written into the record either — offering one leaves the fact and never the
-text. Empty text is refused, so is something you have already said word for
+text. Digits count as digits in any script: a card written ۴۱۱۱ ۱۱۱۱ ۱۱۱۱ ۱۱۱۱
+is the same card as one written 4111 1111 1111 1111, and both are refused. Empty text is refused, so is something you have already said word for
 word, and so is a file: paste an agent a log and it is told to keep the fact and
 leave the file. Every one is written down with the rule that decided it.
 
