@@ -87,6 +87,80 @@ test('rule 1 catches a card number with another number beside it', (t) => {
   assert.equal(listMemories(store, OWNER).length, 0);
 });
 
+test('a card is a card in every script it can be written in', (t) => {
+  // The worst finding of this project, and it was found by somebody storing his
+  // own card by accident. `remember` was called with the number in
+  // Persian-Indic digits and answered "Stored." — no refusal and no record of
+  // one. The number sat in the plaintext store, and in the decision log's
+  // excerpt, until it was taken out by hand.
+  //
+  // One character class caused it. `containsPaymentCard` matched `\d`, which in
+  // JavaScript means ASCII `[0-9]` even under the `u` flag, so ۵۱۶۷ was not a
+  // digit as far as the screen was concerned and there was nothing to checksum.
+  //
+  // This sits in a project that chose a trigram tokenizer because `unicode61`
+  // returned nothing for Chinese and Japanese. We knew at the schema level that
+  // this is not an English-only tool, and then wrote a guard that was.
+  //
+  // Each form is generated from the standard test card rather than typed out,
+  // so it is a real string in that script and not a transliteration.
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const inScript = (/** @type {string} */ text, /** @type {number} */ zero) =>
+    text.replace(/[0-9]/gu, (d) => String.fromCodePoint(zero + Number(d)));
+
+  const card = '4111 1111 1111 1111';
+
+  for (const [script, zero] of /** @type {[string, number][]} */ ([
+    ['Persian', 0x06F0],
+    ['Arabic-Indic', 0x0660],
+    ['Devanagari', 0x0966],
+    ['Bengali', 0x09E6],
+    ['full-width', 0xFF10],
+  ])) {
+    const text = inScript(card, zero);
+    assert.equal(submit(store, { owner: OWNER, text }).rule, 'credential',
+      `a card in ${script} digits was stored`);
+  }
+
+  // Half in one script and half in another, which is what somebody actually
+  // types when a keyboard layout changes partway through a number.
+  assert.equal(
+    submit(store, { owner: OWNER, text: `4111 1111 ${inScript('1111 1111', 0x06F0)}` }).rule,
+    'credential', 'a card written half in ASCII and half in Persian was stored');
+
+  // NFKC was the proposed one-line fix and this is the line that says it is
+  // not one: it folds full-width digits to ASCII and leaves Persian,
+  // Arabic-Indic, Devanagari and Bengali untouched, so it would have closed one
+  // hole out of five.
+  assert.equal(inScript(card, 0x06F0).normalize('NFKC'), inScript(card, 0x06F0),
+    'NFKC now changes Persian digits, so this fix can be reconsidered');
+
+  assert.equal(listMemories(store, OWNER).length, 0);
+});
+
+test('a space that is not a space does not hide a card', (t) => {
+  // Found in the same survey and nothing to do with scripts: the digits are
+  // ordinary ASCII and only the separator is unusual. A non-breaking space is
+  // what a paste out of a PDF, a bank statement or a web page carries, so this
+  // is the ordinary case for anybody who copies rather than types.
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  for (const [name, gap] of /** @type {[string, string][]} */ ([
+    ['non-breaking space', '\u00A0'],
+    ['narrow non-breaking space', '\u202F'],
+    ['figure space', '\u2007'],
+  ])) {
+    const text = '4111 1111 1111 1111'.replaceAll(' ', gap);
+    assert.equal(submit(store, { owner: OWNER, text }).rule, 'credential',
+      `a card separated by a ${name} was stored`);
+  }
+
+  assert.equal(listMemories(store, OWNER).length, 0);
+});
+
 test('rule 1 leaves ordinary sentences about secrets alone', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());

@@ -80,11 +80,59 @@ export function detectCredential(text) {
   return null;
 }
 
+/** Any Unicode decimal digit, rather than the ASCII ten. */
+const DIGIT = /\p{Nd}/u;
+
+/**
+ * A run of digits, separated the way people and clipboards separate them.
+ *
+ * The separators are a single space, a hyphen, and the space characters that
+ * look like a space and are not one: no-break, narrow no-break, and figure
+ * space. Those arrive by paste rather than by typing and are common in anything
+ * copied out of a statement.
+ */
+const RUN_OF_DIGITS = /\p{Nd}(?:[ \u00A0\u202F\u2007-]?\p{Nd})*/gu;
+
+/**
+ * What a digit is worth, whatever script it is written in.
+ *
+ * Every Unicode decimal block is ten consecutive code points beginning at its
+ * own zero, so the value is the distance back to that zero. The walk is bounded
+ * at nine steps, so a block sitting immediately after another in code space
+ * cannot be walked into.
+ *
+ * @param {string} character
+ * @returns {string} the same digit, in ASCII
+ */
+function digitValue(character) {
+  const point = /** @type {number} */ (character.codePointAt(0));
+
+  let zero = point;
+  while (zero > point - 9 && DIGIT.test(String.fromCodePoint(zero - 1))) zero -= 1;
+
+  return String(point - zero);
+}
+
 /**
  * Is there a 13 to 19 digit sequence anywhere that passes the Luhn check?
  *
  * Digits may be separated by single spaces or hyphens, the way people write
- * card numbers down.
+ * card numbers down — and by the spaces a paste carries rather than types, the
+ * non-breaking ones, which are what a bank statement or a web page puts on the
+ * clipboard. A card whose only oddity was a `\u00A0` between its groups was
+ * stored in plain text.
+ *
+ * Digits are any Unicode decimal digit, not `[0-9]`. `\d` in JavaScript is
+ * ASCII even under the `u` flag, so a card written ۵۱۶۷ ۳۲۰۴ ۴۳۷۸ ۰۷۳۹ — which
+ * is how a Persian, Arabic, Urdu or Hindi speaker writes one — was not made of
+ * digits as far as this function was concerned, and there was nothing for the
+ * checksum to look at. It answered "no card here" and the number went into the
+ * store in plain text. This is the worst defect this project has had, and it
+ * lived in one character class.
+ *
+ * NFKC is not the fix, which is worth writing down because it is the obvious
+ * guess: it folds full-width digits to ASCII and leaves Persian, Arabic-Indic,
+ * Devanagari and Bengali exactly as they are.
  *
  * Every window is looked at, not just whole runs. A card with anything else
  * numeric beside it — an order number, a reference, a stray digit — reads as
@@ -96,11 +144,11 @@ export function detectCredential(text) {
  * @returns {boolean}
  */
 function containsPaymentCard(text) {
-  const runs = text.match(/\d(?:[ -]?\d)*/gu);
+  const runs = text.match(RUN_OF_DIGITS);
   if (!runs) return false;
 
   for (const run of runs) {
-    const digits = run.replace(/[ -]/gu, '');
+    const digits = [...run].filter((c) => DIGIT.test(c)).map(digitValue).join('');
 
     for (let start = 0; start < digits.length; start += 1) {
       for (let length = 13; length <= 19; length += 1) {

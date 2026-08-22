@@ -150,3 +150,44 @@ function contains(bytes, text) {
     bytes.includes(Buffer.from(text, 'latin1'))
   );
 }
+
+test('a card in Persian digits never reaches the bytes either', (t) => {
+  // The check that already existed for an API key, pointed at the thing that
+  // actually got through. A card written in Persian-Indic digits was accepted
+  // and stored in plain text on a real machine; it was in `memories`, and its
+  // first characters were in the decision log's `input_excerpt` as well, which
+  // survived `purge` because that column is deliberately left alone.
+  //
+  // Asking the database would only prove no row has it. This reads the file and
+  // the write ahead log as bytes, in both scripts, because the refusal has to
+  // hold before anything is written rather than after.
+  const store = temporaryStore();
+  t.after(() => store.close());
+  const file = store.file;
+
+  const card = '4111 1111 1111 1111'
+    .replace(/[0-9]/gu, (d) => String.fromCodePoint(0x06F0 + Number(d)));
+
+  const result = submit(store, { owner: OWNER, text: `my card is ${card}` });
+  assert.equal(result.rule, 'credential', 'the card was not refused');
+  assert.equal(listMemories(store, OWNER).length, 0);
+
+  // The decision was recorded, and its excerpt must not be the card.
+  const decisions = listDecisions(store, OWNER);
+  assert.ok(decisions.length > 0, 'the refusal was not written down at all');
+
+  for (const name of [file, `${file}-wal`]) {
+    if (!fs.existsSync(name)) continue;
+    const bytes = fs.readFileSync(name);
+
+    for (const [script, needle] of /** @type {[string, string][]} */ ([
+      ['Persian', card],
+      ['Persian, unspaced', card.replaceAll(' ', '')],
+      ['ASCII', '4111 1111 1111 1111'],
+      ['ASCII, unspaced', '4111111111111111'],
+    ])) {
+      assert.equal(bytes.includes(Buffer.from(needle, 'utf8')), false,
+        `${name} holds the card in ${script}`);
+    }
+  }
+});
