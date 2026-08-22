@@ -161,6 +161,46 @@ test('a space that is not a space does not hide a card', (t) => {
   assert.equal(listMemories(store, OWNER).length, 0);
 });
 
+test('one invisible character does not walk a secret past every shape', (t) => {
+  // A scoped review broke every shape in `credentials.js` with a single
+  // character: `AKIA<U+200B>IOSFODNN7EXAMPLE` was stored, and so was a card
+  // with `U+200F` between its groups — which is what a bidi-aware paste
+  // carries. `CONTROL_CHARACTER` was C0 only, while the comment above it had
+  // argued for exactly this and stopped short of doing it.
+  //
+  // Note which way this is fixed. Refusing text that contains these is the
+  // obvious answer and it is wrong: `U+200C` is ordinary Persian orthography,
+  // and this store's owner writes Persian. The screen looks at the text twice
+  // instead — as written, and with the invisibles removed.
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const at = (/** @type {number} */ point) => String.fromCodePoint(point);
+
+  for (const point of [
+    0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF,
+    0x200E, 0x200F, 0x061C, 0x202B, 0x2066, 0x00AD,
+    0x0301, 0xFE0F, 0x0640,
+  ]) {
+    const name = `U+${point.toString(16).toUpperCase().padStart(4, '0')}`;
+
+    assert.equal(
+      submit(store, { owner: OWNER, text: `AKIA${at(point)}IOSFODNN7EXAMPLE` }).rule, 'credential',
+      `an access key survived ${name}`);
+
+    assert.equal(
+      submit(store, { owner: OWNER, text: `4111${at(point)} 1111 1111 1111` }).rule, 'credential',
+      `a card survived ${name}`);
+  }
+
+  // The half that matters more: ordinary words in the owner's own language
+  // contain these, and must go in exactly as written.
+  for (const sentence of ['کتاب‌ها را خواندم', 'می‌روم به خانه', 'نمی‌دانم چه بگویم']) {
+    assert.equal(submit(store, { owner: OWNER, text: sentence }).rule, 'keep',
+      `an ordinary Persian sentence was refused: ${sentence}`);
+  }
+});
+
 test('a labelled secret is labelled in more than one language', (t) => {
   // The other half of the same defect. The word list that spots "password: x"
   // was English, in a store whose owner writes Persian, so `رمز عبور: hunter2`
@@ -188,6 +228,8 @@ test('a labelled secret is labelled in more than one language', (t) => {
     ['German', 'Passwort: hunter2goeshere'],
     ['Russian', 'пароль: hunter2goeshere'],
     ['Turkish', 'şifre: hunter2goeshere'],
+    ['Greek', 'κωδικός: hunter2goeshere'],
+    ['Greek, another word', 'κλειδί: hunter2goeshere'],
   ])) {
     assert.equal(submit(store, { owner: OWNER, text }).rule, 'credential',
       `a secret labelled in ${language} was stored`);
@@ -201,6 +243,7 @@ test('a labelled secret is labelled in more than one language', (t) => {
     ['Persian', 'رمز عبور من در برنامه مدیریت رمز است'],
     ['Chinese', '我把密码存在密码管理器里'],
     ['English again', 'the secret to good bread is time'],
+    ['Greek', 'Ο κωδικός μου είναι στον διαχειριστή κωδικών'],
   ])) {
     assert.equal(submit(store, { owner: OWNER, text }).rule, 'keep',
       `an ordinary sentence in ${language} was refused`);

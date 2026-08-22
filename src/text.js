@@ -50,6 +50,38 @@ export function isBlank(text) {
 const CONTROL_CHARACTER = /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/u;
 
 /**
+ * The same text with everything invisible taken out of it.
+ *
+ * The comment above argues that any invisible character dropped into the middle
+ * of a secret breaks its shape, and says the whole list is refused for that
+ * reason. The list was C0 only, and a review walked every shape in
+ * `credentials.js` straight past the gate with one character:
+ * `AKIA<U+200B>IOSFODNN7EXAMPLE` was stored, and so was a card with a `U+200F`
+ * between its groups — which is what a bidi-aware paste carries.
+ *
+ * Refusing these outright is the obvious fix and it is wrong. `U+200C` is
+ * ordinary Persian orthography — `کتاب‌ها` and `می‌روم` both contain one — and
+ * this store's owner writes Persian. A rule that refused them would turn away
+ * his ordinary sentences to catch a rare one, which is the direction of failure
+ * this project is least willing to accept.
+ *
+ * So nothing is refused for containing these and nothing is rewritten. The
+ * screen simply looks at the text twice: once as it was written, and once with
+ * the invisible characters removed. A secret hidden by interleaving is visible
+ * in the second view, and a Persian word is unharmed in the first.
+ *
+ * `\p{Cf}` covers all eleven characters the review found. `\p{Mn}` and
+ * `\p{Me}` are the combining marks and variation selectors it also named, and
+ * `U+0640` is the Arabic tatweel, which pads a word the same way.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function stripInvisible(text) {
+  return text.replace(/[\p{Cf}\p{Mn}\p{Me}\u0640]/gu, '');
+}
+
+/**
  * The first character in the text that is not text, if there is one.
  *
  * Handed back as a code point so it can be named in the refusal. It cannot be
