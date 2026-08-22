@@ -9,6 +9,7 @@
  * The label each pattern carries is the only thing that survives into the
  * decision log. The text itself never does.
  */
+import { stripInvisible } from './text.js';
 
 /**
  * @typedef {object} CredentialMatch
@@ -35,6 +36,11 @@ const SECRET_WORDS = [
   'पासवर्ड', 'कुंजी',
   // Chinese, Japanese, Korean
   '密码', '密碼', 'パスワード', '秘密鍵', '비밀번호',
+  // Greek. Not a general widening of the list — this owner lives in Athens,
+  // writes his correspondence in Greek, and his bank, hospital and tax records
+  // are Greek, so its absence was not the list's known incompleteness but a
+  // gap in the one language he uses every day.
+  'κωδικός', 'κωδικό', 'συνθηματικό', 'μυστικό', 'κλειδί',
   // Spanish, French, German, Portuguese, Italian, Russian, Turkish
   'contraseña', 'clave', 'mot de passe', 'passwort', 'geheimnis',
   'senha', 'password di', 'пароль', 'ключ', 'şifre', 'parola',
@@ -125,9 +131,28 @@ function shape(label, pattern) {
  * @returns {CredentialMatch|null}
  */
 export function detectCredential(text) {
-  for (const { label, find } of SHAPES) {
-    if (find(text)) return { label };
+  // Twice: as it was written, and with the invisible characters taken out.
+  //
+  // Every shape in this file could be walked past with one character — a
+  // `U+200B` inside an AWS key, a `U+200F` between a card's groups, which is
+  // what a bidi-aware paste carries. `AKIA` and sixteen characters is an access
+  // key; `AKIA`, one zero-width space, and sixteen characters is not, to a
+  // regular expression.
+  //
+  // The stripped view is looked at rather than the text being refused or
+  // rewritten, because `U+200C` is ordinary Persian orthography and this
+  // store's owner writes Persian. Refusing it would turn away his sentences to
+  // catch a rare one. See `stripInvisible`.
+  const views = [text];
+  const bare = stripInvisible(text);
+  if (bare !== text) views.push(bare);
+
+  for (const view of views) {
+    for (const { label, find } of SHAPES) {
+      if (find(view)) return { label };
+    }
   }
+
   return null;
 }
 
