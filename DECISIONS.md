@@ -863,3 +863,88 @@ So the shape to keep is the one that exists: decisions in one place, adapters
 above it, and the owner carried rather than assumed. The thing that would make
 this hard later is a rule that lives in an adapter — which is the defect this
 project has already paid for four times.
+
+## An outside critique, and the three answers  [record]
+
+The owner commissioned a critique from outside the project. Most of what it
+proposed already exists here under other names. Three of its points are worth
+keeping: two are gaps we had not stated, and one is the idea that destroyed the
+data this project was built to replace.
+
+Nothing below is built, and nothing below should be built because it is written
+here. The two open questions are recorded so that the next person to look does
+not rediscover them as findings, and does not quietly start building them
+either. They are questions, deliberately unanswered.
+
+### Open: there are no permissions
+
+Any agent that can reach the store may write any memory and supersede any
+other. There is no proposing and approving, no reader that is not also a
+writer, and no way to say that this agent may add facts and that one may only
+read them.
+
+That was never decided. It is what falls out of the store being one file with
+one owner and every client pointed at it, and it went unexamined for as long as
+the number of clients was small enough not to make it obvious. Setup wires
+fifteen on this machine. Any one of them can retire a fact any other put there,
+and the record will say what was decided and why but not that the decision came
+from somewhere unexpected.
+
+What makes this a question rather than a defect is that the alternative is not
+obviously better. A memory nobody may write without approval is a memory that
+does not get written, and this project already knows what a gate that refuses
+too much costs — people route around it. Whether the answer is roles, a
+proposing state, or nothing at all is open.
+
+### Open: provenance is not captured on write
+
+`review_start` takes a `reviewer` and keeps it with the pass, so a review can be
+attributed and undone as a unit. `remember` has no equivalent. The store records
+that a fact was offered, what was decided about it, and which rule decided —
+and not which agent offered it.
+
+So the decision log answers "why is this here" and cannot answer "who said so".
+On one machine with one person those are close to the same question. With
+fifteen clients, several of them running models with different habits, they are
+not: "an agent decided you had moved house" and "*this* agent decided you had
+moved house" are different sentences, and only the weaker one can be said today.
+
+It is the same shape as the gap above and probably has the same answer, which
+is one reason both are written here rather than one.
+
+### Refused: expiry, and why it will be proposed again
+
+The critique proposed `valid_until` fields and expiry. **That is the rule that
+destroyed twenty days of the owner's memory in the previous product**, and it is
+refused here for the reason set out in *Time as evidence, never as a rule*
+above, which this section exists to point back at.
+
+Restated, because it is the one that keeps coming back: **no code in this
+project concludes anything from a date.** A timestamp is evidence shown to an
+agent, which reads the sentence and judges whether the moment it names has gone
+by. "Next week I am presenting" and "I live in Tehran" are different in content,
+not in age, and only reading tells them apart. A field that says when a memory
+stops being true is a field somebody has to fill in at the moment they know
+least about it, and a program that acts on that field deletes things nobody
+reconsidered.
+
+It is written down as refused rather than left unmentioned because a rejected
+idea with its reasoning is worth more in this file than an accepted one. This
+is the idea that arrives again every time somebody looks at the project fresh,
+sees memories accumulating, and reaches for the obvious fix. The obvious fix is
+the thing that already failed.
+
+### Not recorded as direction: numeric confidence
+
+The critique also proposed numeric confidence scores. These are noted here as
+having been proposed and **not** adopted as direction — but that is one
+person's judgement on the project's behalf rather than a decision the owner has
+made, and it is recorded as such.
+
+The objection, for whoever settles it: a review can already answer "I could not
+tell", which is honest about uncertainty rather than quantifying it. A number
+invites arithmetic on something that was never measured — comparing two
+memories' confidence, filtering below a threshold, watching a score decay — and
+every one of those is a rule concluding something from a value nobody
+calibrated. Whether a score survives contact with `could_not_tell` is the
+question to answer before any of it is built.
