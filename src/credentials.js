@@ -16,6 +16,31 @@
  */
 
 /**
+ * The words that announce a secret, in the languages this store meets.
+ *
+ * English only until a card written in Persian digits went into a plaintext
+ * store and made the point that this project's guards had all been written by
+ * English speakers testing in English. See the labelled-secret rule below for
+ * why a list is the weakest instrument here and what carries the real weight.
+ */
+const SECRET_WORDS = [
+  // English
+  '\\bpassword', '\\bpasswd', '\\bpwd', '\\bsecret', '\\bapi[\\s_-]?key',
+  '\\baccess[\\s_-]?key', '\\bsecret[\\s_-]?key', '\\bprivate[\\s_-]?key',
+  '\\bauth[\\s_-]?token', '\\btoken', '\\bcredentials?',
+  // Persian, Arabic, Urdu — no \b, because it is defined on ASCII word
+  // characters and does not fire between an Arabic letter and a space.
+  'رمز عبور', 'رمز', 'گذرواژه', 'كلمة المرور', 'كلمة السر', 'پاس ورڈ',
+  // Hindi
+  'पासवर्ड', 'कुंजी',
+  // Chinese, Japanese, Korean
+  '密码', '密碼', 'パスワード', '秘密鍵', '비밀번호',
+  // Spanish, French, German, Portuguese, Italian, Russian, Turkish
+  'contraseña', 'clave', 'mot de passe', 'passwort', 'geheimnis',
+  'senha', 'password di', 'пароль', 'ключ', 'şifre', 'parola',
+];
+
+/**
  * The shapes, in the order they are tried, each with a way of looking for it.
  *
  * The specific ones come before the general ones so that the refusal says "an
@@ -45,13 +70,39 @@ const SHAPES = [
   // A word that announces a secret, followed by something that looks like the
   // secret itself. "my deployment key is in 1Password" does not match, because
   // nothing follows a colon or an equals sign.
+  //
+  // The words are a list, and a list is the weakest kind of rule here: it is
+  // only ever as wide as the languages somebody thought of. It was English
+  // only, in a store whose owner writes Persian, so `رمز عبور: hunter2` was
+  // stored in plain text — the same defect as the card, wearing the other half
+  // of its clothes. The languages below are the ones this store actually sees
+  // and the largest few beyond them.
+  //
+  // What it cannot be is complete. Every language not listed is a hole, and no
+  // amount of adding closes the last one. That is why the rules that matter
+  // most here — the card checksum, the vendor key shapes, the entropy rule —
+  // are about the shape of the secret rather than about the word next to it.
+  // This rule catches the careless case; it is not a boundary.
   shape(
     'a labelled secret',
-    /\b(?:password|passwd|pwd|secret|api[\s_-]?key|access[\s_-]?key|secret[\s_-]?key|private[\s_-]?key|auth[\s_-]?token|token|credentials?)\b["']?\s*[:=]\s*["']?\S{6,}/iu,
+    new RegExp(
+      `(?:${SECRET_WORDS.join('|')})["']?\\s*[:=]\\s*["']?\\S{6,}`,
+      'iu',
+    ),
   ),
   { label: 'a payment card number', find: containsPaymentCard },
   // 32 characters or more of mixed case with at least one digit, in one
   // unbroken run. Ordinary prose does not contain a word like that.
+  //
+  // Deliberately still ASCII, and measured rather than assumed. Widening it to
+  // `\p{Nd}` meant dropping the `\b` anchors, and that anchor is what stops the
+  // match being attempted at every position: on the one megabyte query that
+  // once took this machine down, the widened form did not finish at all, while
+  // this one returns immediately. A token of this shape is base64 or hex by
+  // construction and does not carry Persian digits, so the reach gained was
+  // theoretical and the cost was the guard that `test/mcp.test.js` exists to
+  // hold. The card check is where non-ASCII digits actually turn up, and it is
+  // a scan rather than a backtracking match.
   shape(
     'a long opaque token',
     /\b(?=[A-Za-z0-9+/=_-]*[a-z])(?=[A-Za-z0-9+/=_-]*[A-Z])(?=[A-Za-z0-9+/=_-]*\d)[A-Za-z0-9+/=_-]{32,}\b/u,
@@ -80,11 +131,59 @@ export function detectCredential(text) {
   return null;
 }
 
+/** Any Unicode decimal digit, rather than the ASCII ten. */
+const DIGIT = /\p{Nd}/u;
+
+/**
+ * A run of digits, separated the way people and clipboards separate them.
+ *
+ * The separators are a single space, a hyphen, and the space characters that
+ * look like a space and are not one: no-break, narrow no-break, and figure
+ * space. Those arrive by paste rather than by typing and are common in anything
+ * copied out of a statement.
+ */
+const RUN_OF_DIGITS = /\p{Nd}(?:[ \u00A0\u202F\u2007-]?\p{Nd})*/gu;
+
+/**
+ * What a digit is worth, whatever script it is written in.
+ *
+ * Every Unicode decimal block is ten consecutive code points beginning at its
+ * own zero, so the value is the distance back to that zero. The walk is bounded
+ * at nine steps, so a block sitting immediately after another in code space
+ * cannot be walked into.
+ *
+ * @param {string} character
+ * @returns {string} the same digit, in ASCII
+ */
+function digitValue(character) {
+  const point = /** @type {number} */ (character.codePointAt(0));
+
+  let zero = point;
+  while (zero > point - 9 && DIGIT.test(String.fromCodePoint(zero - 1))) zero -= 1;
+
+  return String(point - zero);
+}
+
 /**
  * Is there a 13 to 19 digit sequence anywhere that passes the Luhn check?
  *
  * Digits may be separated by single spaces or hyphens, the way people write
- * card numbers down.
+ * card numbers down — and by the spaces a paste carries rather than types, the
+ * non-breaking ones, which are what a bank statement or a web page puts on the
+ * clipboard. A card whose only oddity was a `\u00A0` between its groups was
+ * stored in plain text.
+ *
+ * Digits are any Unicode decimal digit, not `[0-9]`. `\d` in JavaScript is
+ * ASCII even under the `u` flag, so a card written ۵۱۶۷ ۳۲۰۴ ۴۳۷۸ ۰۷۳۹ — which
+ * is how a Persian, Arabic, Urdu or Hindi speaker writes one — was not made of
+ * digits as far as this function was concerned, and there was nothing for the
+ * checksum to look at. It answered "no card here" and the number went into the
+ * store in plain text. This is the worst defect this project has had, and it
+ * lived in one character class.
+ *
+ * NFKC is not the fix, which is worth writing down because it is the obvious
+ * guess: it folds full-width digits to ASCII and leaves Persian, Arabic-Indic,
+ * Devanagari and Bengali exactly as they are.
  *
  * Every window is looked at, not just whole runs. A card with anything else
  * numeric beside it — an order number, a reference, a stray digit — reads as
@@ -96,11 +195,11 @@ export function detectCredential(text) {
  * @returns {boolean}
  */
 function containsPaymentCard(text) {
-  const runs = text.match(/\d(?:[ -]?\d)*/gu);
+  const runs = text.match(RUN_OF_DIGITS);
   if (!runs) return false;
 
   for (const run of runs) {
-    const digits = run.replace(/[ -]/gu, '');
+    const digits = [...run].filter((c) => DIGIT.test(c)).map(digitValue).join('');
 
     for (let start = 0; start < digits.length; start += 1) {
       for (let length = 13; length <= 19; length += 1) {
