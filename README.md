@@ -38,6 +38,25 @@ text. Empty text is refused, so is something you have already said word for
 word, and so is a file: paste an agent a log and it is told to keep the fact and
 leave the file. Every one is written down with the rule that decided it.
 
+### Where a secret goes instead
+
+This keeps facts, and a file that every agent on your machine can read is the
+wrong place for a password. So the refusal is not a gap to work around: keep the
+secret in a password manager, and keep here the sentence that says where it is.
+
+That sentence is the part people do not think to write down, so here is one:
+
+> The code for the clinic's results portal is in my password manager, saved
+> under "Meridian Health", and the login is the email ending 4412.
+
+An agent that reads that knows where to look and what to ask for, which is
+everything it needs and none of the secret. Any password manager with a command
+line will do; nosyparker does not integrate with one and does not need to.
+
+One limit, which is real and which nothing changes: at the moment an agent
+fetches a secret and reads it out to you, that secret is in the conversation.
+Keeping it in a vault decides where it rests, not what happens when it is used.
+
 ### Reviewing
 
 The last four are for tidying up. "Next week I am presenting at the all-hands"

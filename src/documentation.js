@@ -456,6 +456,28 @@ export function checkDocumentation(root = repositoryRoot(), workingNotes = []) {
       return [...new Set(wrong)];
     })()),
 
+    check('the refusal of a secret is followed by what to do instead', (() => {
+      // The gate refuses anything credential-shaped, correctly, and the README
+      // said so and stopped. A person offers a password, is turned down, and is
+      // told nothing about where it should go — which reads as the tool being
+      // broken rather than as it having an opinion.
+      //
+      // Deliberately a check on structure and not on the prose: whether an
+      // answer is *there*, next to the refusal, in that order. Three times in
+      // this project a check that asked whether English looked right passed for
+      // a reason unrelated to what it claimed. This one asks whether a heading
+      // exists and where it sits, which has one answer.
+      const refusal = readme.indexOf('### What it turns away');
+      const answer = readme.indexOf('### Where a secret goes instead');
+
+      if (refusal === -1) return ['the README no longer says what it turns away'];
+      if (answer === -1) {
+        return ['the README refuses secrets and does not say where one should go instead'];
+      }
+      return answer > refusal
+        ? [] : ['the README answers the refusal before making it'];
+    })()),
+
     check('every section of DECISIONS.md is pointed at from the code, or marked a record', (() => {
       // The file's own opening says this, and nothing was checking it — so a
       // retrospective written in the future tense to a phase that had finished

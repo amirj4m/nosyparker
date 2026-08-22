@@ -33,13 +33,13 @@ test('every document agrees with the program', () => {
   }
 });
 
-test('there are twenty-one of them, and each says what it is checking', () => {
+test('there are twenty-two of them, and each says what it is checking', () => {
   // Counted so that a check cannot be quietly dropped, and each one's sentence
   // is what `doctor` prints, so an empty one would be a blank line in front of
   // somebody trying to work out what is wrong.
   const checks = checkDocumentation();
 
-  assert.equal(checks.length, 21);
+  assert.equal(checks.length, 22);
   for (const check of checks) assert.ok(check.what.length > 10, `a check with no sentence: ${check.what}`);
 });
 
