@@ -1158,6 +1158,44 @@ Recorded so none of it is rediscovered as a finding.
   required dropping its `\b` anchors, and on the one megabyte query that once
   took this machine down the widened form never finished. The reach gained was
   theoretical, the guard lost was real.
+## The gate has never refused anything in real use  [record]
+
+Observed on 22 August, after the first day of real use, and it is about the
+method rather than the code.
+
+Across roughly 160 writes drawn from his real documents, **the gate has still
+never refused a credential**. Not because none were present — today's batch
+alone carried four: a family member's payment card with PAN, expiry and CVV2, an
+IBAN alongside it, his TAXISnet κλειδάριθμος, his own IBAN, and a bank customer
+code. Every one was caught by the agent doing the writing, upstream of the gate,
+and never reached it.
+
+That sounds like good news and is worth reading carefully. **A system meant to be
+safe by construction is in practice being kept safe by the diligence of whoever
+writes to it.** The agent is careful, so the gate is never exercised; the gate
+being never exercised is exactly why a defect in it can live for months. This is
+how the Persian-digit hole survived five independent reviews — nothing in
+ordinary use was ever going to reach the branch that was broken.
+
+Two things follow.
+
+**"No refusals in production" is not evidence the gate works.** It is evidence
+that something upstream is working, which is a different claim about a different
+component, and the two are easy to confuse precisely when the numbers look good.
+The only evidence the gate works is a test that hands it the thing it is supposed
+to refuse.
+
+**The order is the wrong way round and should not be relied on.** An upstream
+filter is a courtesy of whichever agent happens to be writing; it varies by
+model, by prompt, by version, and it will not be there on the day it matters. The
+gate is the part that is supposed to hold when nothing else does, so it has to be
+exercised deliberately rather than incidentally — which means adversarial tests
+and reviews that go looking, not usage statistics.
+
+It also sharpens the argument for routing rather than refusing, recorded above:
+if a secret that reaches the gate is filed somewhere retrievable instead of
+turned away, then the upstream agent's caution stops being load-bearing at all.
+
 ## An outside critique, and the three answers  [record]
 
 The owner commissioned a critique from outside the project. Most of what it
