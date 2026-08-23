@@ -1158,6 +1158,35 @@ Recorded so none of it is rediscovered as a finding.
   required dropping its `\b` anchors, and on the one megabyte query that once
   took this machine down the widened form never finished. The reach gained was
   theoretical, the guard lost was real.
+## 0.0.3, and the first release under a tag  [record]
+
+Published 22 August 2026 at 23:49 UTC as `nosyparker@0.0.3` under the **`beta`**
+tag. `latest` stayed at 0.0.2 throughout, so nobody installing normally received
+it and the owner's own week continued on the version he started it with. That is
+the pattern described above, used for real for the first time.
+
+`gitHead` on the published package is `251c339`, matching `main` at the moment
+of publish; 32 files, 559,810 bytes unpacked, shasum `07248ce9…`.
+
+**Verified as a stranger would receive it**, which had never been done against a
+published package before — only against a local tarball. Installed from the
+registry into a sandbox with a fake home: 32 files on disk matching the
+registry's own count, no path naming anybody's home directory, and none of the
+working documents present. Every command exercised. The battery this release
+exists for was run against that installed copy — a card in Persian,
+Arabic-Indic, Devanagari and full-width digits, a card with a zero-width
+non-joiner interleaved, and a labelled secret in Persian and in Greek, all
+refused; an invented tax number, insurance number, mobile number, a date, and
+ordinary Greek and Persian prose, all stored. A raw scan of the sandbox store and
+its log found none of the refused values, with a control phrase proving the scan
+could find something.
+
+**Promotion is a separate decision and stays with the owner.** It is a pointer
+move — `npm dist-tag add nosyparker@0.0.3 latest` — with no rebuild and no
+second upload, so what he exercised for a day or two is byte-identically what a
+stranger will get. Nothing about that step is automatic and nothing about it
+should become automatic.
+
 ## The gate has never refused anything in real use  [record]
 
 Observed on 22 August, after the first day of real use, and it is about the
