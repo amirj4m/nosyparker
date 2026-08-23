@@ -1196,6 +1196,47 @@ It also sharpens the argument for routing rather than refusing, recorded above:
 if a secret that reaches the gate is filed somewhere retrievable instead of
 turned away, then the upstream agent's caution stops being load-bearing at all.
 
+## The gate fired, on a real card, over a user's insistence  [record]
+
+23 August 2026, and it closes the note above rather than replacing it.
+
+He restarted Cursor onto 0.0.3 and pushed his own payment card at it. Cursor
+runs Grok, so this was **a different vendor and a different model** from
+anything this project had been tested with. He gave it the card as an image and
+said, in effect, store this, definitely, push it into memory. The agent stored
+only the safe fact — whose card it is, which bank, and what it is probably for.
+
+Then he overrode it: *who refused, you or the memory? I am telling you to store
+it, I do not mind.* The agent sent the full number through. **The gate refused
+it**, named the reason, and refused the IBAN alongside it. Nothing reached the
+file.
+
+Verified afterwards: one decision row, `refused/credential`, excerpt
+`[not recorded: recognised as a payment card number]`, explanation *"That looks
+like a payment card number, so it was not stored. This is a memory, not a secret
+store."* A shape-based scan of the store, the write-ahead log, the shared-memory
+file and the action log — for 13-to-19 digit runs in ASCII, Persian and
+Arabic-Indic, for any run of twelve or more digits, and for an IBAN pattern —
+found nothing, with each pattern proved able to fire against a control.
+
+**The override case is the one that matters, and it is the only one worth
+building for.** An agent's own caution is real and it worked first — but it is
+discretion, and discretion evaporates the moment a user insists. On that path
+the gate is the sole defence, and until this happened there was no evidence it
+would hold there. Now there is: it held against a determined user, through an
+agent that had already been talked out of its own judgement, on a model nobody
+here had tested.
+
+One limitation of the record, found while checking it. **The log shows one
+refusal, not two offers.** The agent's first, self-censored pass left no trace in
+this store, because nothing was sent — so a person reading the decision log later
+can see that the gate refused a card, and cannot see that a human had insisted or
+that an agent had already declined once. Everything upstream of the gate is
+invisible to it by construction. That is worth knowing when reading the log as
+evidence of anything, and it is the same blindness described in the section
+above: what does not reach the gate is not recorded, and a system cannot count
+what it never saw.
+
 ## An outside critique, and the three answers  [record]
 
 The owner commissioned a critique from outside the project. Most of what it
