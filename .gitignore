@@ -1,3 +1,7 @@
 node_modules/
 dist/
 notes/
+
+# A test store once landed here because a script was passed `--` as its
+# argument and created a directory of that name in the repository root.
+--/

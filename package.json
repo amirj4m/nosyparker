@@ -1,6 +1,6 @@
 {
   "name": "nosyparker",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "One memory for every AI agent on your machine: tell one, and the rest know. A gate, not a store — it decides what gets in, and why.",
   "license": "MIT",
   "type": "module",
@@ -30,6 +30,8 @@
     "src",
     "scripts/purge.mjs",
     "scripts/purge-main.mjs",
+    "scripts/migrate.mjs",
+    "scripts/migrate-main.mjs",
     "CLIENTS.md",
     "CONNECTING.md",
     "DECISIONS.md"
