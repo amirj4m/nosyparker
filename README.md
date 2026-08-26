@@ -201,6 +201,22 @@ folder:
 Delete the folder and all of it is gone. `NOSYPARKER_STORE` moves the memories
 elsewhere; the other two stay here.
 
+**Upgrading from 0.0.3 or earlier.** This version reads digits as digits in any
+script, which changes how memories are indexed — so a store written before it
+needs its index rebuilt once. Close your editors and assistants, then:
+
+```
+node "$(npm root -g)/nosyparker/scripts/migrate.mjs" --yes
+```
+
+It copies your store, rebuilds the copy, checks the copy against the original
+seven ways — including that every search which found something before still
+finds it — and only then puts the copy in place. Your store as it was is kept
+beside it as a backup. Nothing deletes that backup; you do, when you are
+satisfied. If you skip this, memories written earlier stay findable exactly as
+they are today; what you would miss is `۱۰` and `10` counting as the same
+number.
+
 **What creates `memory.sqlite`, if you are wondering where it came from.** Two
 things, and only two. Storing something — `nosyparker add`, or an agent calling
 `remember` — makes it, which is what you asked for. And an agent's client

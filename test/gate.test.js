@@ -15,6 +15,7 @@ import {
   REPETITION_LIMIT,
   repetitionOf,
 } from '../src/store.js';
+import { normaliseForComparison } from '../src/text.js';
 import { OWNER, temporaryStore } from './helpers.js';
 
 test('rule 1: a credential is refused', (t) => {
@@ -198,6 +199,81 @@ test('one invisible character does not walk a secret past every shape', (t) => {
   for (const sentence of ['کتاب‌ها را خواندم', 'می‌روم به خانه', 'نمی‌دانم چه بگویم']) {
     assert.equal(submit(store, { owner: OWNER, text: sentence }).rule, 'keep',
       `an ordinary Persian sentence was refused: ${sentence}`);
+  }
+});
+
+test('the same fact in two digit scripts is one memory, not two', (t) => {
+  // The same defect as the card, in the second place it lived: the code
+  // assumed a digit meant an ASCII digit. `۱۰` and `10` are the same number
+  // written by one person in two scripts, and the duplicate rule saw two
+  // memories. NFKC does not close it — it folds full-width and leaves Persian,
+  // Arabic-Indic, Devanagari and Bengali where they were.
+  //
+  // Generated from one sentence rather than typed per script, the way the card
+  // test does it, so each is a real string and not a transliteration.
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const inScript = (/** @type {string} */ text, /** @type {number} */ zero) =>
+    text.replace(/[0-9]/gu, (d) => String.fromCodePoint(zero + Number(d)));
+
+  const fact = 'my locker downstairs is number 10';
+  assert.equal(submit(store, { owner: OWNER, text: fact }).rule, 'keep');
+
+  for (const [script, zero] of /** @type {[string, number][]} */ ([
+    ['Persian', 0x06F0],
+    ['Arabic-Indic', 0x0660],
+    ['Devanagari', 0x0966],
+    ['Bengali', 0x09E6],
+    ['Tamil', 0x0BE6],
+    ['full-width', 0xFF10],
+  ])) {
+    assert.equal(submit(store, { owner: OWNER, text: inScript(fact, zero) }).rule, 'already-stored',
+      `the same fact in ${script} digits was stored a second time`);
+  }
+});
+
+
+test('folding digits does not merge facts that differ', (t) => {
+  // The direction that matters more here, and the opposite of the card's. A
+  // credential check that misses stores something it should not have. A
+  // duplicate rule that over-reaches *refuses* something it should have kept —
+  // which is nearer this owner's actual injury, since he lost twenty days of
+  // memory to a system that removed things without being asked.
+  //
+  // Identifiers are the sharp case: a tax number, a social insurance number, a
+  // case number and a card's last four all live in this store, and none of them
+  // may start colliding with each other or with prose.
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  for (const [what, text] of /** @type {[string, string][]} */ ([
+    ['a number in Persian', '۱۰ ساعت کار کردم'],
+    ['a different number, same script', '۱۱ ساعت کار کردم'],
+    ['the same number, a different thing', '۱۰ یورو دادم'],
+    ['ten hours in English', '10 hours of work'],
+    ['ten euros in English', '10 euros paid'],
+    ['a tax number', 'my tax number is 123456789'],
+    ['a social insurance number', 'my insurance number is 987654321'],
+    ['a case number', 'the case number is 4821'],
+    ['a card ending', 'the card ending 4821 is the blue one'],
+    ['a flat number', 'flat 10'],
+    ['a longer flat number', 'flat 100'],
+  ])) {
+    assert.equal(submit(store, { owner: OWNER, text }).rule, 'keep',
+      `${what} was refused as a duplicate of something else`);
+  }
+
+  // And the fold is identity on text with no digits in it at all, so nothing
+  // about this change reaches sentences that are not about numbers.
+  for (const text of [
+    'I live in Tehran', "Let's eat, grandma", 'ΟΔΟΣ ΕΡΜΟΥ', 'Привет мир',
+    '我把密码存在管理器里', 'ÖL and öl',
+  ]) {
+    assert.equal(
+      normaliseForComparison(text),
+      text.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLowerCase(),
+      `text without digits was changed: ${text}`);
   }
 });
 

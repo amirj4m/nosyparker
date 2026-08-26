@@ -1,18 +1,64 @@
 /**
  * The one rule for deciding whether two memories say the same thing.
  *
- * Normalise Unicode to NFKC, trim the ends, collapse runs of whitespace into
- * one space, lowercase. Nothing else. No punctuation stripping and no
- * stemming, because "Let's eat, grandma" and "Let's eat grandma" are different
- * statements and this tool has no business merging them.
+ * Normalise Unicode to NFKC, fold every decimal digit to its ASCII value, trim
+ * the ends, collapse runs of whitespace into one space, lowercase. Nothing
+ * else. No punctuation stripping and no stemming, because "Let's eat, grandma"
+ * and "Let's eat grandma" are different statements and this tool has no
+ * business merging them.
+ *
+ * The digit fold is the same defect the payment-card check had, in the second
+ * place it lived: the code assumed a digit meant an ASCII digit. `۱۰` and `10`
+ * are the same number written by the same person in two scripts, and without
+ * the fold they were two memories. NFKC does not do this — it folds full-width
+ * digits and leaves Persian, Arabic-Indic, Devanagari and Bengali exactly where
+ * they were, which is the same one-hole-of-five it was for the card.
+ *
+ * The risk here runs the opposite way to the card's. There, a miss meant
+ * something was stored that should not have been. Here, a miss means something
+ * is *refused* that should have been stored — which is nearer this owner's
+ * actual injury, so the tests weigh the over-reaching direction at least as
+ * heavily: different numbers, same number with different units, and the
+ * identifiers that live in this store must all stay distinct.
  */
+
+const DIGIT_ANYWHERE = /\p{Nd}/u;
 
 /**
  * @param {string} text
  * @returns {string}
  */
 export function normaliseForComparison(text) {
-  return text.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLowerCase();
+  return foldDigits(text.normalize('NFKC'))
+    .trim().replace(/\s+/gu, ' ').toLowerCase();
+}
+
+/**
+ * Every decimal digit rewritten as the ASCII digit of the same value.
+ *
+ * The value comes from walking back to the digit's own block zero, exactly as
+ * the card check does, rather than from a table of scripts somebody has to keep
+ * adding to. A character that is not a decimal digit is returned untouched, so
+ * text without digits comes out of here identical to what went in.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function foldDigits(text) {
+  return text.replace(/\p{Nd}/gu, (digit) => {
+    const point = /** @type {number} */ (digit.codePointAt(0));
+
+    // Walk back to this digit's own zero, the way `credentials.js` does: a
+    // decimal block is ten consecutive code points, so stepping back while the
+    // character before is still a digit lands on the zero. It stops at nine
+    // steps, so a block sitting immediately after another cannot be walked
+    // into. Deriving the value beats a table of scripts somebody has to
+    // remember to extend.
+    let zero = point;
+    while (zero > point - 9 && DIGIT_ANYWHERE.test(String.fromCodePoint(zero - 1))) zero -= 1;
+
+    return String(point - zero);
+  });
 }
 
 /**
