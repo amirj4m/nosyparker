@@ -174,7 +174,8 @@
       "traps": [
         "`gemini mcp add` reports success and writes nothing. Never use it to install.",
         "~/.gemini/ is created on first run but settings.json is not written until something writes it.",
-        "Folder trust is not announced on startup: gemini opens normally and only mentions it in passing. Both routes out of it were run on a real installation — the `/permissions trust` slash command writes ~/.gemini/trustedFolders.json itself, and writing that file by hand has exactly the same effect. `--skip-trust` is not accepted by the `mcp` subcommand."
+        "Folder trust is not announced on startup: gemini opens normally and only mentions it in passing. Both routes out of it were run on a real installation — the `/permissions trust` slash command writes ~/.gemini/trustedFolders.json itself, and writing that file by hand has exactly the same effect. `--skip-trust` is not accepted by the `mcp` subcommand.",
+        "Its documentation gives `httpUrl` for a remote server. Its own `gemini mcp add --transport http` writes `url` and `type` instead, measured against a real endpoint that received the connection. Nothing here writes a remote entry — this row is stdio and the shape above is what we write — so this changes nothing we do; it is recorded because the next person to reach for the documented key would be reaching for one the client does not produce, and because it is the sixth time in this table that a vendor's own tool has contradicted its own documentation."
       ],
       "restart": "Start a new `{{clientCommand}}` session.",
       "lastVerified": {
@@ -182,7 +183,7 @@
         "write": "2026-08-17",
         "verify": "2026-08-27",
         "blockers": "2026-08-18",
-        "traps": "2026-08-17"
+        "traps": "2026-08-27"
       },
       "upstreamId": "gemini-cli"
     },

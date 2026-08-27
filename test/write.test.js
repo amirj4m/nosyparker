@@ -953,3 +953,52 @@ test('the reach check does not accuse a file of holding an entry it does not hol
     'it should not tell somebody to hand-edit a config we call a credential store');
 });
 
+
+test('the Hermes row is one the installer can actually honour', (t) => {
+  // The row says `yaml-map` and carries `enabled: true`, which no other client
+  // has. Both are mechanisms this program already has — goose uses the same
+  // format and `edit.test.js` covers the shape — but a row is only worth having
+  // if the installer can write it, and nothing had driven this one end to end.
+  //
+  // It also pins `mcp_servers`, snake_case, which is what Hermes reads and is
+  // unlike every JSON client in the table.
+  const space = workspace(t);
+  const configPath = space.config('config.yaml');
+
+  fs.writeFileSync(configPath, [
+    '# a comment the person wrote',
+    'model: sonnet',
+    'mcp_servers:',
+    '  something_else:',
+    '    command: /usr/bin/true',
+    '    args: []',
+    '    enabled: true',
+    'telegram:',
+    '  token_env: HERMES_TELEGRAM_TOKEN',
+    '',
+  ].join('\n'));
+
+  const written = writeToClient(clientById('hermes'), options({ configPath, backupDir: space.backupDir }));
+  assert.equal(written.outcome, 'written', `the write did not land: ${written.error ?? written.reason ?? ''}`);
+
+  const after = fs.readFileSync(configPath, 'utf8');
+
+  // Scoped to our own block. The fixture already has a server with
+  // `enabled: true` at the same indent and already has an `mcp_servers:` line,
+  // so a file-wide match passes whatever the row says — and did, with `enabled`
+  // deleted from the row and with the root key changed to `mcpServers`. The
+  // assertions have to be about the entry this write made.
+  const ours = after.slice(after.indexOf('  nosyparker:'));
+  const block = ours.slice(0, ours.indexOf('\n  something_else:'));
+
+  assert.ok(after.includes('  nosyparker:'), 'our entry is not in the file at all');
+  assert.doesNotMatch(after, /^mcpServers:$/mu, 'it wrote the camelCase key Hermes does not read');
+  assert.match(after, /^mcp_servers:$/mu, 'the snake_case root key is gone');
+  assert.match(block, /^ {4}enabled: true$/mu, 'without enabled Hermes does not load it');
+  assert.match(block, /^ {4}command: \/usr\/bin\/node$/mu);
+  assert.match(block, /^ {6}- \/srv\/mcp-server\.js$/mu, 'the argument is not a YAML list item');
+
+  assert.match(after, /^# a comment the person wrote$/mu, 'their comment was dropped');
+  assert.match(after, /^ {2}something_else:$/mu, 'their other server was dropped');
+  assert.match(after, /^ {2}token_env: HERMES_TELEGRAM_TOKEN$/mu, 'the rest of the file was dropped');
+});
