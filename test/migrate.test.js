@@ -182,6 +182,17 @@ test('each check fails when the thing it watches is broken', (t) => {
     namesThatFail((db) => db.exec('PRAGMA user_version = 99'))
       .some((n) => n.includes('schema version')),
     'a moved schema version did not fail its check');
+
+  // 7. The *folded* search index damaged. There are two indexes now — one over
+  //    the text as written, one over the folded text — and search reads the
+  //    folded one, so a check that only looked at the raw one would be watching
+  //    the index nothing uses.
+  assert.ok(
+    namesThatFail((db) => db.prepare(
+      'DELETE FROM memories_fts_folded_data WHERE id = (SELECT max(id) FROM memories_fts_folded_data)',
+    ).run())
+      .some((n) => n.includes('search index')),
+    'a damaged folded index did not fail its check');
 });
 
 test('a memory left behind is caught by the query check, and by nothing else', (t) => {

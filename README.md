@@ -201,6 +201,19 @@ folder:
 Delete the folder and all of it is gone. `NOSYPARKER_STORE` moves the memories
 elsewhere; the other two stay here.
 
+**Searching for a number finds it in any script.** `search 2026` and
+`search ۲۰۲۶` return the same memories, and so do `search 10` and `search ۱۰`.
+Until 0.0.5 that was only true of short terms: the search index was built on the
+text exactly as written, so a longer number written in Persian and the same
+number written in ASCII were two different things to it. There is now a second
+index over the folded text, and search reads that one.
+
+It is built the first time this version opens your store — 13 milliseconds on a
+store of two hundred memories, under a second on one of a hundred thousand — and
+it adds about a quarter to the file's size. Nothing to run, and it does not
+change the schema version, so a store this version has opened still opens under
+0.0.4.
+
 **Upgrading from 0.0.3 or earlier.** This version reads digits as digits in any
 script, which changes how memories are indexed — so a store written before it
 needs its index rebuilt once. Close your editors and assistants, then:
@@ -216,6 +229,12 @@ beside it as a backup. Nothing deletes that backup; you do, when you are
 satisfied. If you skip this, memories written earlier stay findable exactly as
 they are today; what you would miss is `۱۰` and `10` counting as the same
 number.
+
+If something has your store open it now says so and stops **before** copying
+anything, rather than doing the whole migration and failing at the last step.
+And if a `.migrating` file is left behind, it tells you which of the two
+situations you are in: a run that changed nothing, which you can move aside and
+retry, or one it cannot account for, which it will not touch.
 
 **What creates `memory.sqlite`, if you are wondering where it came from.** Two
 things, and only two. Storing something — `nosyparker add`, or an agent calling

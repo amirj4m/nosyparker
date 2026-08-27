@@ -8,7 +8,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { forget, submit } from '../src/gate.js';
-import { searchMemories, SEARCH_QUERY_LIMIT } from '../src/store.js';
+import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+
+import { openStore, searchMemories, SEARCH_QUERY_LIMIT } from '../src/store.js';
 import { OWNER, runWatched, temporaryStore } from './helpers.js';
 
 const STORE_MODULE = new URL('../src/store.js', import.meta.url).href;
@@ -439,4 +442,135 @@ test('the short-term path is bounded too, and nothing rests on it being cheap', 
     result.peak < 400,
     `16 MB of the worst text cost ${result.peak.toFixed(0)} MB on the substring path`,
   );
+});
+
+test('a number written in two scripts finds the same memories, at every length', (t) => {
+  // The gap 0.0.5 closes, and the reason the 0.0.4 fold was only half a fix.
+  // `text_normalised` holds folded digits, so the substring path — anything
+  // under three characters — already agreed. The FTS path did not, because the
+  // index is built on `text`, which the fold deliberately never touches. So
+  // `search ۱۰` and `search 10` agreed while `search ۲۰۲۶` and `search 2026`
+  // did not, and the longer term is the commoner one.
+  //
+  // Measured on the owner's store before this: 70 results against 4.
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  for (const text of [
+    'the lease started in ۲۰۲۶ and runs for three years',
+    'the lease on the other flat started in 2026 as well',
+    'my locker downstairs is number ۱۰',
+    'the bus I take is the 10',
+    'flat ٤٥٦ is the one with the balcony',
+  ]) {
+    submit(store, { owner: OWNER, text });
+  }
+
+  /** @param {string} term @returns {string[]} */
+  const found = (term) => searchMemories(store, OWNER, term).map((m) => m.text).sort();
+
+  for (const [a, b] of [['2026', '۲۰۲۶'], ['10', '۱۰'], ['456', '٤٥٦'], ['456', '۴۵۶']]) {
+    assert.deepEqual(found(a), found(b), `"${a}" and "${b}" do not find the same memories`);
+    assert.ok(found(a).length > 0, `neither "${a}" nor "${b}" found anything at all`);
+  }
+
+  // Both of the 2026 memories, from either script. An equality check alone
+  // would pass if both sides found nothing.
+  assert.equal(found('2026').length, 2);
+  assert.equal(found('۲۰۲۶').length, 2);
+});
+
+test('the folded index is kept in step as memories are added, archived and restored', (t) => {
+  // An index that is right when it is built and wrong afterwards is worse than
+  // no index, because nothing announces it. The raw index is maintained by
+  // triggers; this asserts the folded one is too, through the operations that
+  // actually change a row.
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const stored = submit(store, { owner: OWNER, text: 'the meeting is on floor ۱۲۳' });
+  assert.equal(searchMemories(store, OWNER, '123').length, 1, 'a new memory is not in the folded index');
+
+  forget(store, {
+    owner: OWNER,
+    id: /** @type {number} */ (stored.memory_id),
+    reason: 'the meeting moved',
+  });
+  assert.equal(searchMemories(store, OWNER, '123').length, 0, 'an archived memory is still being returned');
+  assert.equal(
+    searchMemories(store, OWNER, '123', { includeArchived: true }).length, 1,
+    'an archived memory has fallen out of the folded index entirely');
+});
+
+test('a store written before the folded index existed gets one, and finds things it could not', (t) => {
+  // The upgrade path, and it is an open rather than a migration. A store that
+  // has rows but no folded index gets the table built and filled the first time
+  // this code opens it — an external-content FTS5 table created beside existing
+  // rows starts empty, so creating it is not enough.
+  const first = temporaryStore();
+  const file = path.join(first.dir, 'memory.sqlite');
+
+  submit(first, { owner: OWNER, text: 'the lease started in ۲۰۲۶' });
+  submit(first, { owner: OWNER, text: 'the other lease started in 2026' });
+  first.close();
+
+  // Put it back to how a 0.0.4 store looks: the folded index and its triggers
+  // gone, everything else untouched.
+  const raw = new DatabaseSync(file);
+  raw.exec('DROP TRIGGER IF EXISTS memories_fts_folded_insert');
+  raw.exec('DROP TRIGGER IF EXISTS memories_fts_folded_update');
+  raw.exec('DROP TRIGGER IF EXISTS memories_fts_folded_delete');
+  raw.exec('DROP TABLE IF EXISTS memories_fts_folded');
+  const version = /** @type {{user_version: number}} */ (
+    /** @type {unknown} */ (raw.prepare('PRAGMA user_version').get())).user_version;
+  raw.close();
+
+  const store = openStore({ file, now: () => new Date().toISOString() });
+  t.after(() => store.close());
+
+  assert.equal(searchMemories(store, OWNER, '2026').length, 2, 'the index was not filled on open');
+  assert.deepEqual(
+    searchMemories(store, OWNER, '2026').map((m) => m.text).sort(),
+    searchMemories(store, OWNER, '۲۰۲۶').map((m) => m.text).sort(),
+  );
+
+  const after = new DatabaseSync(file);
+  assert.equal(
+    /** @type {{user_version: number}} */ (
+      /** @type {unknown} */ (after.prepare('PRAGMA user_version').get())).user_version,
+    version,
+    'building an index moved the schema version, which turns older code away from the file');
+  after.close();
+});
+
+test('the raw index is still maintained, which is what lets older code read this store', (t) => {
+  // The compatibility claim, as an invariant rather than a sentence. A version
+  // of this program that predates the folded index searches `memories_fts`, and
+  // it keeps working only for as long as that index is still correct. Nothing
+  // here reads it any more, so nothing else would notice it rotting.
+  const store = temporaryStore();
+  const file = path.join(store.dir, 'memory.sqlite');
+
+  submit(store, { owner: OWNER, text: 'the lease started in ۲۰۲۶' });
+  const stored = submit(store, { owner: OWNER, text: 'I answer email at night' });
+  forget(store, {
+    owner: OWNER,
+    id: /** @type {number} */ (stored.memory_id),
+    reason: 'not true any more',
+  });
+  store.close();
+
+  const raw = new DatabaseSync(file);
+  t.after(() => raw.close());
+
+  // What the older code's query is, run against a store this code wrote.
+  const asOldCodeWould = (/** @type {string} */ term) => /** @type {{n: number}} */ (
+    /** @type {unknown} */ (raw.prepare(`
+      SELECT count(*) n FROM memories_fts f JOIN memories m ON m.id = f.rowid
+       WHERE memories_fts MATCH ? AND m.owner = ?`).get(`"${term}"`, OWNER))).n;
+
+  assert.equal(asOldCodeWould('۲۰۲۶'), 1, 'the raw index no longer finds what it used to');
+  assert.equal(asOldCodeWould('night'), 1, 'an archived memory fell out of the raw index');
+  assert.doesNotThrow(() => raw.exec("INSERT INTO memories_fts(memories_fts) VALUES('integrity-check')"));
+  assert.doesNotThrow(() => raw.exec("INSERT INTO memories_fts_folded(memories_fts_folded) VALUES('integrity-check')"));
 });
