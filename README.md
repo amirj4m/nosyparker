@@ -117,21 +117,21 @@ nosyparker setup
 Install it globally rather than through `npx`. Setup writes the path it is
 running from into every config it touches, and npx keeps a separate copy per
 version in a cache — those entries would keep pointing at a copy you had moved
-on from. Setup refuses to run from there and says so, rather than writing twenty
-paths that quietly rot.
+on from. Setup refuses to run from there and says so, rather than writing
+twenty-two paths that quietly rot.
 
-It looks for twenty clients, writes its entry into the ones it finds, and sorts
+It looks for twenty-two clients, writes its entry into the ones it finds, and sorts
 them into three groups: the ones that answered us, the ones you should check
 yourself, and the ones that did not work, with the reason.
 
 The middle group is most of them, because most of these applications offer no
-way to be asked. Three can be — Claude Code, Gemini CLI and opencode — and two
-more, Codex and Goose, will show you their own parsed configuration with our
-entry in it, which is not the same thing. For the rest, open the client and ask
-the agent something it could only know from your shared memory. Ten seconds,
-once per client.
+way to be asked. Five can be — Claude Code, Gemini CLI, opencode, Hermes and
+OpenClaw — and two more, Codex and Goose, will show you their own parsed
+configuration with our entry in it, which is not the same thing. For the rest,
+open the client and ask the agent something it could only know from your shared
+memory. Ten seconds, once per client.
 
-[CLIENTS.md](CLIENTS.md) lists all twenty and says which group each is in.
+[CLIENTS.md](CLIENTS.md) lists all twenty-two and says which group each is in.
 
 It only ever adds or removes its own entry, and where it edits a config file it
 keeps a copy in `~/.nosyparker/backups/` first, never replaced.

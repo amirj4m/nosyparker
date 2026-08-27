@@ -1522,6 +1522,178 @@
         "traps": "2026-08-17"
       },
       "upstreamId": "jetbrains-ai"
+    },
+    {
+      "id": "hermes",
+      "name": "Hermes",
+      "tier": 3,
+      "evidence": "MACHINE",
+      "transports": [
+        "stdio"
+      ],
+      "format": "yaml-map",
+      "rootKey": "mcp_servers",
+      "configPaths": {
+        "linux": "~/.hermes/config.yaml",
+        "darwin": null,
+        "win32": null
+      },
+      "extraConfigPaths": [],
+      "entry": {
+        "command": "{{command}}",
+        "args": [
+          "{{serverPath}}"
+        ],
+        "enabled": true
+      },
+      "requiredFields": [],
+      "detect": {
+        "commands": [
+          "hermes"
+        ],
+        "commandFallbacks": [
+          "~/.local/bin/hermes"
+        ],
+        "paths": [
+          "~/.hermes/config.yaml",
+          "~/.hermes"
+        ]
+      },
+      "write": {
+        "method": "file",
+        "argv": null,
+        "why": "`hermes mcp add` is discovery-first and interactive: it prompts, and it cannot be driven with stdin closed. `hermes mcp remove` is interactive too. So the file is written here and the CLI is kept for verifying, the same split as opencode. Hermes watches config.yaml's mtime and reloads the mcp_servers section by itself, so a write takes effect without a restart."
+      },
+      "remove": {
+        "method": "file",
+        "argv": null
+      },
+      "verify": {
+        "tier": "A",
+        "method": "cli-lines",
+        "argv": [
+          "hermes",
+          "mcp",
+          "test",
+          "{{name}}"
+        ],
+        "connected": "Testing '{{name}}'\\.\\.\\.(?:(?!Testing ')[\\s\\S])*?✓ Connected\\b",
+        "failed": "(?:Testing '{{name}}'\\.\\.\\.(?:(?!Testing ')[\\s\\S])*?✗ Connection failed|✗ Server '{{name}}' not found)",
+        "proves": "the client started the server, completed a handshake and listed its tools",
+        "cannotProve": null
+      },
+      "blockers": [],
+      "traps": [
+        "The root key is `mcp_servers`, snake_case. It is not `mcpServers`, which is what every JSON client in this table uses.",
+        "`hermes mcp list` shows a server pointing at /usr/bin/false as `✓ enabled`. It reports what the config says, not what connects. Only `hermes mcp test <name>` starts anything, which is why that is the command in `verify` and not `list`.",
+        "`hermes mcp test` exits 0 whether it connected or not. The mark on the line is the answer; the status code is not.",
+        "HERMES_SAFE_MODE makes its own `_load_mcp_config()` return an empty map, so every MCP server is silently switched off and none of them load. There is no file to read this from, so it cannot be a blocker check here — it is an environment variable, and this is the note that says to look at it.",
+        "`${VAR}` inside a string value is interpolated, resolved from the environment plus ~/.hermes/.env. A path that genuinely contains ${ would be rewritten.",
+        "HERMES_HOME relocates the whole directory, config.yaml and all. The path in this row is the default, not the only one.",
+        "macOS and Windows paths were not established. Hermes is a self-hosted agent harness and was measured on Linux only."
+      ],
+      "restart": "None. Hermes watches config.yaml and reloads the mcp_servers section on change.",
+      "lastVerified": {
+        "configPaths": "2026-08-26",
+        "write": "2026-08-26",
+        "verify": "2026-08-27",
+        "traps": "2026-08-27"
+      },
+      "upstreamId": null,
+      "measuredOn": [
+        "linux"
+      ]
+    },
+    {
+      "id": "openclaw",
+      "name": "OpenClaw",
+      "tier": 3,
+      "evidence": "MACHINE",
+      "transports": [
+        "stdio"
+      ],
+      "format": "json",
+      "rootKey": "mcp.servers",
+      "configPaths": {
+        "linux": "~/.openclaw/openclaw.json",
+        "darwin": null,
+        "win32": null
+      },
+      "extraConfigPaths": [],
+      "entry": {
+        "command": "{{command}}",
+        "args": [
+          "{{serverPath}}"
+        ]
+      },
+      "requiredFields": [],
+      "detect": {
+        "commands": [
+          "openclaw"
+        ],
+        "paths": [
+          "~/.openclaw/openclaw.json"
+        ]
+      },
+      "write": {
+        "method": "cli",
+        "argv": [
+          "openclaw",
+          "mcp",
+          "add",
+          "{{name}}",
+          "--command",
+          "{{command}}",
+          "--arg",
+          "{{serverPath}}"
+        ],
+        "why": "Its own `mcp add` runs non-interactively with stdin closed, preserves every unrelated key in the file, writes at mode 0600 by atomic rename, and is idempotent — adding the same name twice leaves one entry and exits 0 both times. It is also the only add command in this table that connects to the server before saving and refuses with exit 1 if it cannot, so using it makes the install verify itself."
+      },
+      "remove": {
+        "method": "cli",
+        "argv": [
+          "openclaw",
+          "mcp",
+          "unset",
+          "{{name}}"
+        ]
+      },
+      "verify": {
+        "tier": "A",
+        "method": "cli-lines",
+        "argv": [
+          "openclaw",
+          "mcp",
+          "probe"
+        ],
+        "connected": "^- {{name}}: \\d+ tools?\\b",
+        "failed": "^(! {{name}}:|\\[bundle-mcp\\] failed to start server \"{{name}}\")",
+        "proves": "the client started the server, completed a handshake and counted its tools",
+        "cannotProve": null
+      },
+      "blockers": [],
+      "traps": [
+        "`npm install -g openclaw` runs a postinstall that creates ~/.openclaw/state/openclaw.sqlite in the real home, ignoring the npm prefix entirely. So the directory existing does not mean OpenClaw is configured, or even that it was installed here on purpose. Detection reads openclaw.json, never the directory.",
+        "`openclaw mcp doctor` reported `nosyparker: ok` for a server whose command could not start at all. It is a static check and the name is misleading. `openclaw mcp status` prints the transport `stdio` and, by its own help text, does not connect. `mcp probe` is the only one that dials.",
+        "`openclaw mcp probe` exits 0 even when a server fails. It marks the failing one with `!` in its output. The mark is the answer; the status code is not.",
+        "Values passed with `--env` are written verbatim into ~/.openclaw/logs/config-audit.jsonl, which records the argv of every command that changes the config. Nothing here needs an environment variable, and nothing here should start.",
+        "`openclaw mcp list` shows only OpenClaw-managed entries and says so: it does not include servers configured in its second surface, config/mcporter.json. A server can be configured and absent from that list.",
+        "`--profile`, `--dev` (which moves everything to ~/.openclaw-dev), OPENCLAW_CONFIG_PATH and OPENCLAW_STATE_DIR all relocate the config. The path in this row is the default, not the only one.",
+        "`npm uninstall -g openclaw` does not remove ~/.openclaw. Install creates it; uninstall leaves it.",
+        "Hermes ships a one-way migration away from OpenClaw that reads `~/.openclaw/config.yaml`. There is no such file: this build's own `openclaw config file` names ~/.openclaw/openclaw.json on Linux, and JSON is what it writes. A vendor is wrong about a product it ships a migration for.",
+        "macOS and Windows paths were not established. It was measured on Linux only."
+      ],
+      "restart": "`{{clientCommand}} mcp reload`, or start the next turn. It disposes cached MCP runtimes so the new config is used.",
+      "lastVerified": {
+        "configPaths": "2026-08-26",
+        "write": "2026-08-27",
+        "verify": "2026-08-27",
+        "traps": "2026-08-27"
+      },
+      "upstreamId": null,
+      "measuredOn": [
+        "linux"
+      ]
     }
   ]
 }

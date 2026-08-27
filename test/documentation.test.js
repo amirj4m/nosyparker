@@ -70,7 +70,11 @@ test('a document that stops being true is noticed', (t) => {
 
   /** @type {[string, string, string][]} */
   const mutations = [
-    ['README.md', 'twenty clients', 'nineteen clients'],
+    // Not `two clients`: `twenty-two clients` contains that string, so a
+    // mutation to it would be caught by the wrong half of the check. The count
+    // check matches on a boundary that excludes the hyphen for the same reason
+    // — before it did, the true README was reported as still saying `two`.
+    ['README.md', 'twenty-two clients', 'twenty-one clients'],
     ['CLIENTS.md', 'Wired through `codex mcp add`', 'Wired through its own tool'],
     ['README.md', 'Node 22.5', 'Node 22'],
     ['CLIENTS.md', '/permissions trust', '/permissions grant'],

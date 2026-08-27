@@ -264,6 +264,9 @@ test('and every client still recognises the output it was actually measured prin
     'gemini-cli': '\u2713 nosyparker: node /srv/mcp-server.js (stdio) - Connected',
     opencode: '\u25cf  \u2713 nosyparker \u001b[90mconnected',
     goose: 'extensions:\n  nosyparker:\n    enabled: true',
+    hermes: "\n  Testing 'nosyparker'...\n  Transport: stdio \u2192 /srv/node\n  Auth: none"
+      + '\n  \u2713 Connected (556ms)\n  \u2713 Tools discovered: 10\n',
+    openclaw: 'MCP probe (/home/x/.openclaw/openclaw.json):\n- nosyparker: 10 tools\n',
   };
 
   for (const [id, line] of Object.entries(real)) {
@@ -276,6 +279,42 @@ test('and every client still recognises the output it was actually measured prin
       checked.status === CONNECTED || checked.status === CONFIG_CONFIRMED,
       `${id} no longer recognises its own output: ${checked.status}`,
     );
+  }
+});
+
+test('a success reported for one server is not read as success for ours', () => {
+  // The gap the hostile list above cannot see. Every line in it is about
+  // nosyparker; none of them asks whether a pattern knows *which* server it is
+  // looking at. Hermes' first draft here matched `\u2713 Connected` on its own,
+  // because the name is on an earlier line — so any success from any server, or
+  // a summary naming none, would have been reported as ours.
+  //
+  // The name is in the argv for that command, so nothing on this machine could
+  // reach the bad case today. That is not a reason to keep a pattern that says
+  // yes to the wrong thing: it is one refactor away from mattering, and this is
+  // the class of mistake that has cost this table two tiers already.
+  /** @type {Record<string, string>} */
+  const elsewhere = {
+    'claude-code': 'somethingelse: node /srv/mcp-server.js - \u2714 Connected',
+    'gemini-cli': '\u2713 somethingelse: node /srv/mcp-server.js (stdio) - Connected',
+    opencode: '\u25cf  \u2713 somethingelse \u001b[90mconnected',
+    goose: 'extensions:\n  somethingelse:\n    enabled: true',
+    hermes: "\n  Testing 'somethingelse'...\n  \u2713 Connected (5ms)\n",
+    openclaw: 'MCP probe (/home/x/.openclaw/openclaw.json):\n- somethingelse: 3 tools\n',
+  };
+
+  for (const client of loadClients().clients) {
+    if (client.verify.method !== 'cli-lines') continue;
+
+    const line = elsewhere[client.id];
+    assert.ok(line, `${client.id} is checked by lines and has no other-server sample here`);
+
+    const checked = verifyClient(client, options(client, {
+      run: () => ({ status: 0, stdout: line, stderr: '' }),
+    }));
+
+    assert.notEqual(checked.status, CONNECTED, `${client.id} read another server's success as ours`);
+    assert.notEqual(checked.status, CONFIG_CONFIRMED, `${client.id} read another server's entry as ours`);
   }
 });
 

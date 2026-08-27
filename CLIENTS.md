@@ -63,6 +63,29 @@ present and enabled, not confirmed running. Note that a malformed file makes
 Goose fall back to defaults silently and lose *all* your extensions, not just
 this one — which is why setup backs the file up first.
 
+**Hermes.** A self-hosted agent harness — a long-lived agent you run on your own
+machine or a server, reachable from channels like Telegram. Setup writes its
+configuration file directly, because `hermes mcp add` is interactive and cannot
+be driven from a script. Afterwards `hermes mcp test nosyparker` starts the
+server, completes a handshake and lists the tools it found, which is real
+confirmation. No restart: Hermes watches its own configuration file and reloads
+the server list when it changes. Two things to know. Its `hermes mcp list` shows
+a server as enabled whether or not it can start — a server pointing at a
+program that immediately exits still shows a tick there, which is why setup uses
+`test` and not `list`. And if `HERMES_SAFE_MODE` is set in the environment,
+Hermes silently loads no MCP servers at all; nothing in any file will show you
+that, so it is the first thing to check if the entry is right and nothing works.
+
+**OpenClaw.** Another self-hosted agent harness. It is the only application on
+this page whose own install command verifies itself: `openclaw mcp add` connects
+to the server and refuses to save the entry if it cannot, so setup uses that
+command rather than writing the file, and a saved entry is already proof. If you
+want to check again later, `openclaw mcp probe` connects and counts the tools.
+Do not use `openclaw mcp doctor` for this — despite the name it is a static
+check and reports `ok` for a server that cannot start at all, which we found by
+pointing one at a program that does not exist. `openclaw mcp status` likewise
+prints the transport without connecting, and says so in its own help.
+
 ---
 
 ## Written, but unconfirmed — worth ten seconds of your time
@@ -120,14 +143,40 @@ setup — it rewrites its configuration from memory, and a damaged file can cost
 you the whole thing, so setup takes a backup first. Restart it fully afterwards,
 not just the window.
 
+**It starts no MCP server at all until you are signed in.** A fresh install with
+the entry written sits on the login screen and does not try, which is not a
+failure and looks exactly like one.
+
+Once it is running there is a log worth knowing about:
+`~/.config/Claude/logs/mcp-server-nosyparker.log` on Linux, and the equivalent
+folder on macOS and Windows. Look for a line reading
+`Message from server: id=1 result` — that is our server answering a request, and
+it is the only line in that file that proves anything. `Server started and
+connected successfully` looks like the answer and is not: it is written before
+the app has said a word to the server, and a server that dies immediately
+produces it too, followed by `Server disconnected`.
+
 **Zed.** The editor. Its settings file allows comments and setup keeps them. Zed
 starts servers only when its agent panel needs them, which is why nothing can be
 confirmed at install time.
 
 **LM Studio.** For running models locally. Its configuration file is created the
 first time you open the app, and setup adds to it without disturbing anything
-else. It only starts a server when a model actually uses one, so there is nothing
-to observe until you load a model.
+else. It only starts a server when a model actually uses one, so nothing
+connects until you load a model and it calls a tool.
+
+There is, however, something you can look at yourself. When LM Studio accepts
+its configuration file it copies each server into a folder of its own —
+`~/.lmstudio/extensions/plugins/mcp/nosyparker/` — and records the whole
+accepted set in `~/.lmstudio/.internal/last-synced-mcp-state.json`. If those
+exist and name nosyparker, LM Studio has read and accepted the entry. They do
+not prove it ran.
+
+The reason to know this is the failure it exposes. LM Studio validates that file
+as a whole, and **one bad entry throws the entire file away** — every other MCP
+server you have configured stops loading, with no message anywhere you would
+normally look. If nosyparker is in `mcp.json` but not in those two places, that
+is what has happened, and the broken entry will be somebody else's.
 
 **Kimi Code.** Moonshot's terminal agent. Setup can write the entry, but nothing
 in Kimi will confirm it without signing in to a Moonshot account. Its `kimi doctor`
@@ -140,8 +189,14 @@ documentation and cannot check it. Treat this entry as the least certain on the
 list.
 
 **Roo Code.** A VS Code extension. Setup writes the file the extension itself
-looks for. The extension only starts up when you first open its panel, so there
-is nothing to check before then.
+looks for. This page used to say the extension only starts when you first open
+its panel — that was wrong, and it was corrected by watching it. Roo Code
+activates when VS Code finishes starting, and it connects to nosyparker within a
+few seconds of the window opening, with no panel opened and no API key
+configured. What it does not do is record any of that anywhere we can read: it
+writes nothing about MCP to its own log, its stored state, or any file. So the
+connection is real and the check still is not available. Reload the window after
+setup runs.
 
 **Continue**, **Warp**, **JetBrains Junie** and **GitHub Copilot CLI** are
 written from their published documentation rather than from a running
