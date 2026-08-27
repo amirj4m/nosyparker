@@ -32,4 +32,14 @@ requireSupportedNode();
 silenceSqliteExperimentalWarning();
 
 const { main } = await import('./migrate-main.mjs');
-await main(process.argv.slice(2));
+
+// The catch-all. `main` says its own refusals in sentences and exits; anything
+// that reaches here is a failure nobody foresaw, and it still must not arrive
+// as a stack trace. See `sentenceFor` for why.
+try {
+  await main(process.argv.slice(2));
+} catch (error) {
+  const { sentenceFor } = await import('../src/migrate.js');
+  process.stderr.write(`${sentenceFor(error)}\n`);
+  process.exit(1);
+}

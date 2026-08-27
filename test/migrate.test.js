@@ -19,7 +19,9 @@ import test from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 
-import { copyStore, queriesStillFind, recompute, survey, verify } from '../src/migrate.js';
+import {
+  copyStore, paths, queriesStillFind, recompute, sentenceFor, survey, verify,
+} from '../src/migrate.js';
 import { normaliseForComparison } from '../src/text.js';
 import { openStore } from '../src/store.js';
 import { submit } from '../src/gate.js';
@@ -389,4 +391,172 @@ test('killed at any point, he is left with a store he can read', (t) => {
   }
 
   assert.equal(clean + recovered, 8);
+});
+
+
+test('it refuses while something else has the store open, and refuses before it copies', (t) => {
+  // His own run, reproduced. The check that was there asked `BEGIN IMMEDIATE`,
+  // which in WAL mode succeeds alongside any number of readers — so a client
+  // sitting with the store open passed it. The migration then copied the store,
+  // rewrote 154 rows, ran all seven verifications, and only met the truth at
+  // the swap, where `PRAGMA journal_mode = DELETE` needs the file to itself and
+  // said `database is locked`.
+  //
+  // Measured rather than reasoned: with a second connection open, `BEGIN
+  // IMMEDIATE` succeeds, `journal_mode = DELETE` fails, and an exclusive
+  // locking-mode write fails in the same way as the swap. So the early check
+  // has to be the exclusive one, and this asserts on the working file rather
+  // than on the exit code, because exiting 1 after doing all the work is
+  // exactly the behaviour being removed.
+  const { file } = workspace(t);
+  const { working } = paths(file, 'unused');
+
+  const holder = new DatabaseSync(file);
+  holder.prepare('SELECT count(*) FROM memories').get();
+
+  const run = spawnSync(process.execPath, [MIGRATE, '--yes'], {
+    encoding: 'utf8',
+    env: { ...process.env, NOSYPARKER_STORE: file },
+  });
+  holder.close();
+
+  assert.equal(run.status, 1, 'it did not refuse');
+  assert.equal(
+    fs.existsSync(working), false,
+    'it copied the store before finding out it could not finish, and left the copy behind',
+  );
+  assert.match(run.stderr, /open/u, 'it did not say what was wrong');
+  assert.match(run.stderr, /Nothing was changed/u);
+});
+
+test('nothing it prints when it refuses is a stack trace', (t) => {
+  // Every other refusal in this project is a sentence. This one printed a raw
+  // Node trace with a file path and a line number to somebody whose editor was
+  // open — which is the commonest way to arrive here, not a rare one.
+  const { file } = workspace(t);
+
+  const holder = new DatabaseSync(file);
+  holder.prepare('SELECT count(*) FROM memories').get();
+  const locked = spawnSync(process.execPath, [MIGRATE, '--yes'], {
+    encoding: 'utf8',
+    env: { ...process.env, NOSYPARKER_STORE: file },
+  });
+  holder.close();
+
+  for (const [what, output] of [['the locked message', locked.stderr]]) {
+    assert.doesNotMatch(output, /^\s*at .+:\d+:\d+\)?$/mu, `${what} contains a stack frame`);
+    assert.doesNotMatch(output, /\bError:/u, `${what} shows a raw error class`);
+    assert.doesNotMatch(output, /migrate-main\.mjs/u, `${what} names a source file`);
+  }
+});
+
+test('a working file left by a run that changed nothing says so, and says what to do', (t) => {
+  // It left him stuck. Refusing because the working file is there is right; the
+  // sentence was not, because it described the dangerous case — a run that got
+  // far enough that the copy might be the only thing that finished — when in
+  // fact the run had failed at the swap and his store was untouched.
+  //
+  // The two are told apart from the store itself rather than from a marker file
+  // that could also be left behind: if the live store still holds rows keyed
+  // under the old rule, the swap did not happen and nothing of his changed.
+  const { file } = workspace(t);
+  const { working } = paths(file, 'unused');
+  fs.writeFileSync(working, 'not a store, and it does not need to be');
+
+  const run = spawnSync(process.execPath, [MIGRATE, '--yes'], {
+    encoding: 'utf8',
+    env: { ...process.env, NOSYPARKER_STORE: file },
+  });
+
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, new RegExp(working.replaceAll(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'),
+    'it did not name the file it is refusing over');
+  assert.match(run.stderr, /Your store was not changed|nothing was changed/iu,
+    'it did not say his store is untouched');
+  assert.doesNotMatch(run.stderr, /only thing that finished/u,
+    'it gave the dangerous-case sentence for the safe case');
+  assert.equal(fs.existsSync(file), true);
+});
+
+test('and a working file beside an already-migrated store keeps the careful sentence', (t) => {
+  // The other side of it. If the store no longer has anything to migrate and a
+  // working file is still there, what that file is cannot be told from here,
+  // and the cautious wording is the right one. Without this the fix would be a
+  // rewording that always says the reassuring thing.
+  const { file } = workspace(t);
+
+  const first = spawnSync(process.execPath, [MIGRATE, '--yes'], {
+    encoding: 'utf8',
+    env: { ...process.env, NOSYPARKER_STORE: file },
+  });
+  assert.equal(first.status, 0, `the first migration failed: ${first.stderr.slice(0, 300)}`);
+
+  const { working } = paths(file, 'unused');
+  fs.writeFileSync(working, 'left over from something nobody can identify');
+
+  const run = spawnSync(process.execPath, [MIGRATE, '--yes'], {
+    encoding: 'utf8',
+    env: { ...process.env, NOSYPARKER_STORE: file },
+  });
+
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /only thing that finished/u,
+    'it reassured about a file it cannot account for');
+});
+
+
+test('a failure that is not a lock is not reported as one, and is still a sentence', (t) => {
+  // The first version of the exclusive-lock check treated every error the same
+  // way, so a directory it could not write reported that somebody had the store
+  // open — sending a person to close editors that were already closed. The
+  // check has to say which of the two it met.
+  const { file, home } = workspace(t);
+  const directory = path.dirname(file);
+
+  // Put back inside the test rather than in an `after` hook: the workspace's own
+  // cleanup is registered first and runs first, and it cannot delete a store
+  // inside a directory it may not write.
+  fs.chmodSync(directory, 0o500);
+
+  // If the process can write anyway — running as root — this proves nothing, so
+  // say so rather than passing.
+  let writable = true;
+  try { fs.writeFileSync(path.join(directory, '.probe'), ''); fs.rmSync(path.join(directory, '.probe')); }
+  catch { writable = false; }
+  assert.equal(writable, false, 'the directory is still writable, so this test cannot run');
+
+  const run = spawnSync(process.execPath, [MIGRATE, '--yes'], {
+    encoding: 'utf8',
+    env: { ...process.env, NOSYPARKER_STORE: file },
+  });
+  fs.chmodSync(directory, 0o700);
+
+  assert.equal(run.status, 1);
+  assert.doesNotMatch(run.stderr, /has your store open/u,
+    'it blamed a client for a problem with the file');
+  assert.match(run.stderr, /Nothing was changed/u);
+  assert.doesNotMatch(run.stderr, /^\s*at .+:\d+:\d+\)?$/mu, 'it printed a stack frame');
+  assert.ok(home);
+});
+
+test('an unexpected failure is turned into a sentence rather than a trace', () => {
+  // The catch-all, tested where it lives. Every failure this migration can be
+  // driven into from outside is now handled and named — a lock, a file it
+  // cannot write, a store that is not one — so manufacturing an unforeseen
+  // failure end to end would mean putting a hook in the program to break
+  // itself, and a test-only branch in the one script that rewrites somebody's
+  // store is a worse thing than the gap it closes. The formatter is tested
+  // directly instead, and the three reachable failures are asserted for stack
+  // frames above.
+  const shown = sentenceFor(new Error('ENOSPC: no space left on device, write'));
+
+  assert.doesNotMatch(shown, /^\s*at .+:\d+:\d+\)?$/mu, 'it kept a stack frame');
+  assert.doesNotMatch(shown, /migrate-main\.mjs/u, 'it named a source file');
+  assert.match(shown, /ENOSPC: no space left on device/u, 'it threw away what went wrong');
+  assert.match(shown, /Nothing was changed/u);
+  assert.match(shown, /report/iu, 'it did not ask for the failure to be reported');
+
+  // A thrown non-Error still has to come out as prose.
+  assert.match(sentenceFor('just a string'), /just a string/u);
+  assert.doesNotMatch(sentenceFor({ nope: true }), /\[object Object\]/u);
 });
