@@ -930,6 +930,59 @@ it any more, and there is a test that says so — because an index nothing reads
 is an index nothing would notice rotting, and it is the thing an older release
 depends on.
 
+## The guard was one file away from the defect  [record]
+
+0.0.5 shipped, the search fix worked on his own store — 70 matches from either
+script — and the command he was given to check it crashed:
+
+    $ nosyparker search 2026 | head -1
+    70 matches:
+    node:events:497
+          throw er; // Unhandled 'error' event
+    Error: write EPIPE
+        at ... /nosyparker/src/cli-main.js:258:46
+
+`head` closes the pipe after the line it asked for. The next write fails with
+EPIPE. Node turns an unhandled `error` event on stdout into a crash, and a
+person who asked for one line got a stack trace with our source paths in it.
+
+**It is not a regression.** 0.0.4 does the same thing, byte for byte, thirteen
+frames deep — run from its own commit against the same store to be sure. It has
+been there since there was a CLI, and `latest` has it today.
+
+**What makes it a record rather than a bug.** Item 1 of this same release was
+spent removing exactly this — a stack trace where a sentence belongs — from the
+migration, and a test was written that asserts no refusal from `migrate.mjs`
+reaches a person as frames. That test passes. It has always passed. It is about
+`scripts/migrate-main.mjs`, and the defect was in `src/cli-main.js`, which is
+the file somebody actually types at.
+
+*The guard was written against the neighbour of the thing it needed to protect.*
+Sixth time in this project that a check has been satisfied by something adjacent
+to its subject: a regex matching prose near the claim rather than the claim, a
+fixture that already contained the string being asserted, a mutation that
+renamed a trigger instead of removing it. The pattern is always the same — the
+check is true, and true of the wrong thing.
+
+The fix is one handler installed in `src/cli.js` before any command runs, so it
+cannot be present on `search` and missing from `export`. Five commands were
+affected — `search`, `list`, `log`, `export` and `setup --print-config` — and
+the ones that were not are simply the ones that write little enough to fit in
+the pipe buffer, which is not a property worth relying on.
+
+**Two things it must not get wrong.** Only "the reader has gone" is silent: a
+write that fails for any other reason still gets a sentence, held by a test that
+writes to `/dev/full` and gets a real ENOSPC from the kernel. And the exit code
+was measured rather than picked — `seq`, `yes` and `cat` into `head -1` report
+141 because SIGPIPE kills them, `ls` reports 0 because it never writes twice.
+Node ignores SIGPIPE, so nothing here is killed and 141 would be claiming a
+death that did not happen. It exits 0. What it must not do is exit 1, which is
+what it did, and which tells a script the search failed.
+
+The test runs the real binary through a real pipe in a real shell. An earlier
+version of it read `PIPESTATUS`, which does not exist in `/bin/sh` here, so it
+was reading `head`'s exit code — 0, always — and asserting nothing.
+
 ## What we are, and the one thing to leave room for  [record]
 
 **We are not a place. We are a gate that decides.** The storage is a SQLite file

@@ -15,9 +15,14 @@
  */
 
 import { requireSupportedNode } from './node-version.js';
+import { quietWhenTheReaderGoes } from './output.js';
 import { silenceSqliteExperimentalWarning } from './warnings.js';
 
 requireSupportedNode();
 silenceSqliteExperimentalWarning();
+
+// Before any command runs, so that no command can be missing it. See
+// `output.js` for why `| head -1` was a stack trace and why this is not.
+quietWhenTheReaderGoes();
 
 await import('./cli-main.js');
