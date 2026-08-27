@@ -824,6 +824,112 @@ removes what somebody might want, and a migration is the moment it matters most.
 depend on the schema being readable at all, and the sentence to put in front of
 somebody before a migration runs is to take one.
 
+## What the first real migration got wrong  [record]
+
+0.0.4's migration ran on the owner's store and worked: 152 of 208 rows rekeyed,
+all seven checks green, `search 10` and `search ۱۰` returning the same 29
+results. It also failed on his first attempt, and the three things it got wrong
+are all the same mistake wearing different clothes — **the program found out too
+late, and then explained itself badly.**
+
+**The check asked the wrong question.** Before doing anything it asked whether
+the store was free by running `BEGIN IMMEDIATE` and rolling back. In WAL mode a
+write transaction may start alongside any number of readers, so a client sitting
+with the store open passes that. The step that actually needs the file to itself
+is `PRAGMA journal_mode = DELETE`, at step 6 of 7. So it copied his store,
+rewrote 154 rows, ran every verification, and met `database is locked` at the
+swap. Measured, with a second connection open:
+
+    BEGIN IMMEDIATE                     succeeds
+    wal_checkpoint(TRUNCATE)            succeeds
+    journal_mode = DELETE               database is locked
+    locking_mode = EXCLUSIVE + a write  database is locked
+
+The rule: **a precondition has to ask the question the last step will ask.** If
+it asks an easier one it is not a check, it is a delay. The check is now the
+exclusive-lock write, which fails in exactly the circumstances the swap will.
+
+**And it reported the wrong thing when it was not a lock.** The first version of
+the replacement treated every failure as "somebody has your store open", which
+sent a person to close editors that were already closed when the real problem
+was a folder they could not write. A check that collapses distinct failures into
+one sentence is worse than no sentence, because it is confidently wrong.
+
+**The failure arrived as a stack trace.** Every other refusal in this project is
+prose. This one — the one a person is most likely to hit, because having an
+editor open is the normal state of a working machine — printed a file path and a
+line number. The launcher now turns anything unforeseen into a sentence that
+keeps the error's own first line and throws the frames away.
+
+**And it left him stuck.** Refusing to run because a `.migrating` file is there
+is right; it may be the only thing that finished. But that was not his
+situation: his run had failed at the swap and his store was untouched, and he was
+given the dangerous-case sentence and had to work out for himself that moving
+the file aside was safe. The two are now told apart from the store itself — **if
+the live store still holds rows keyed under the old rule, the swap never
+happened** — rather than from a marker file, because a marker file is one more
+thing a stopped run can leave behind, and the situation being explained is
+somebody already holding a file they did not expect.
+
+The general form, and the reason this is a record rather than a bug fix: the
+migration was tested hard on whether it would *corrupt* anything, and not at all
+on what it does to a person when it stops. Six of its seven checks were watched
+failing against deliberately damaged copies before it shipped. None of that
+asked what somebody reads at the terminal, and that is where all three of these
+lived.
+
+## Two indexes, and why this one is not a migration  [record]
+
+0.0.4 folded digits into `text_normalised` so that `۱۰` and `10` are one
+memory. It did not fix search, and the reason it looked as though it had is
+worth keeping.
+
+Search has two paths. Under three characters it looks through `text_normalised`
+directly, because a trigram index has nothing to match on; three or more goes to
+the FTS index, which is built on `text` — the column the fold deliberately never
+touches. So `search ۱۰` and `search 10` agreed, and `search ۲۰۲۶` and
+`search 2026` did not. On the owner's store: 4 results against 70, for the same
+number. **The half of the feature that was tested was the half that already
+worked**, because the migration's own query check compares through the substring
+path, which is the path that was never broken.
+
+**Union or folded-only, settled by measuring.** The obvious safe choice is to
+search both indexes and union the results, on the grounds that finding more is
+the direction we already permit. It was measured instead: 3130 distinctive terms
+from his own store in three digit scripts and at every length, plus 30 built to
+break it — fullwidth forms, ligatures, roman numerals, ℃, ㍿, soft hyphens,
+sharp s, runs of whitespace. The raw index found a memory the folded one misses
+**zero** times; the folded index found 643 the raw one missed.
+
+It cannot be otherwise, and the argument is short enough to keep: the same
+many-to-one folding is applied to the stored text and to the search term, so it
+can only merge matches. The one case where it could cost a match is a term that
+folds below three characters — and such a term never reaches the index, because
+the length test is applied to the folded term and sends it to the substring path
+instead. Folded-only, and the promise is exact rather than approximate: the two
+scripts return the same memories, not overlapping ones.
+
+**And it is an index, so it is not a schema change.** The rule was already
+written down here for the b-tree indexes: *an index is not a column; it is not a
+reason to turn a file away and it does not move the schema version.* A second
+FTS table is an index. It is created and filled on the first open by code that
+knows about it — 13 ms for 213 memories, 43 ms for ten thousand, 688 ms for a
+hundred thousand, once — and `PRAGMA user_version` stays at 2.
+
+That last part is not a technicality. **A backup is only a way back if the
+version you would go back to can still open it.** Bumping the schema version
+would have meant that after upgrading, the backup the migration tells somebody
+to keep could no longer be opened by the release they kept it for. Verified
+rather than assumed: 0.0.4's own code, from its own commit, opens a store this
+version has written, reads it, writes to it, and searches it with 0.0.4's
+behaviour — `2026` finding the ASCII memory and `۲۰۲۶` the Persian one, exactly
+as it always did.
+
+The raw index is therefore kept and kept correct even though nothing here reads
+it any more, and there is a test that says so — because an index nothing reads
+is an index nothing would notice rotting, and it is the thing an older release
+depends on.
+
 ## What we are, and the one thing to leave room for  [record]
 
 **We are not a place. We are a gate that decides.** The storage is a SQLite file

@@ -264,6 +264,9 @@ test('and every client still recognises the output it was actually measured prin
     'gemini-cli': '\u2713 nosyparker: node /srv/mcp-server.js (stdio) - Connected',
     opencode: '\u25cf  \u2713 nosyparker \u001b[90mconnected',
     goose: 'extensions:\n  nosyparker:\n    enabled: true',
+    hermes: "\n  Testing 'nosyparker'...\n  Transport: stdio \u2192 /srv/node\n  Auth: none"
+      + '\n  \u2713 Connected (556ms)\n  \u2713 Tools discovered: 10\n',
+    openclaw: 'MCP probe (/home/x/.openclaw/openclaw.json):\n- nosyparker: 10 tools\n',
   };
 
   for (const [id, line] of Object.entries(real)) {
@@ -276,6 +279,42 @@ test('and every client still recognises the output it was actually measured prin
       checked.status === CONNECTED || checked.status === CONFIG_CONFIRMED,
       `${id} no longer recognises its own output: ${checked.status}`,
     );
+  }
+});
+
+test('a success reported for one server is not read as success for ours', () => {
+  // The gap the hostile list above cannot see. Every line in it is about
+  // nosyparker; none of them asks whether a pattern knows *which* server it is
+  // looking at. Hermes' first draft here matched `\u2713 Connected` on its own,
+  // because the name is on an earlier line — so any success from any server, or
+  // a summary naming none, would have been reported as ours.
+  //
+  // The name is in the argv for that command, so nothing on this machine could
+  // reach the bad case today. That is not a reason to keep a pattern that says
+  // yes to the wrong thing: it is one refactor away from mattering, and this is
+  // the class of mistake that has cost this table two tiers already.
+  /** @type {Record<string, string>} */
+  const elsewhere = {
+    'claude-code': 'somethingelse: node /srv/mcp-server.js - \u2714 Connected',
+    'gemini-cli': '\u2713 somethingelse: node /srv/mcp-server.js (stdio) - Connected',
+    opencode: '\u25cf  \u2713 somethingelse \u001b[90mconnected',
+    goose: 'extensions:\n  somethingelse:\n    enabled: true',
+    hermes: "\n  Testing 'somethingelse'...\n  \u2713 Connected (5ms)\n",
+    openclaw: 'MCP probe (/home/x/.openclaw/openclaw.json):\n- somethingelse: 3 tools\n',
+  };
+
+  for (const client of loadClients().clients) {
+    if (client.verify.method !== 'cli-lines') continue;
+
+    const line = elsewhere[client.id];
+    assert.ok(line, `${client.id} is checked by lines and has no other-server sample here`);
+
+    const checked = verifyClient(client, options(client, {
+      run: () => ({ status: 0, stdout: line, stderr: '' }),
+    }));
+
+    assert.notEqual(checked.status, CONNECTED, `${client.id} read another server's success as ours`);
+    assert.notEqual(checked.status, CONFIG_CONFIRMED, `${client.id} read another server's entry as ours`);
   }
 });
 
@@ -474,15 +513,51 @@ test('no client can reach connected except the two the research proved can', () 
   }
 });
 
+test('Claude Desktop not being signed in is a blocker, and being signed in is not', (t) => {
+  // It starts no MCP server at all before somebody signs in: a fresh profile
+  // with the entry written sits on the login screen, writes an empty mcp.log and
+  // creates no per-server log. That is indistinguishable from a broken entry
+  // unless something says so.
+  //
+  // Both directions, because the first version of this check named a key —
+  // `hasCompletedOnboarding` — that does not exist in that file at all. It was
+  // caught by reading a real signed-in config, where it would have fired for
+  // everybody. The keys below are the ones a never-signed-in profile actually
+  // wrote, copied from one.
+  const dir = directory(t);
+  const home = path.join(dir, 'home');
+  fs.mkdirSync(path.join(home, '.config', 'Claude'), { recursive: true });
+
+  const client = clientById('claude-desktop');
+  const machine = { home, platform: 'linux', cwd: home, pathDirs: [], exists: () => false, readdir: () => [], processes: () => [] };
+  const blockers = () => verifyClient(client, options(client, { machine })).blockers.join(' ');
+
+  const config = path.join(home, '.config', 'Claude', 'config.json');
+  fs.writeFileSync(config, JSON.stringify({
+    first_launch_at: 1, locale: 'en', updaterLastSeenVersion: '0.0.0',
+  }));
+  assert.match(blockers(), /starts no MCP server at all until somebody is signed in/u);
+
+  fs.writeFileSync(config, JSON.stringify({
+    first_launch_at: 1, locale: 'en', updaterLastSeenVersion: '0.0.0',
+    lastKnownAccountUuid: '00000000-0000-0000-0000-000000000000',
+  }));
+  assert.doesNotMatch(blockers(), /signed in/u);
+});
+
 test('a blocker says what to do about it, not only that something is wrong', () => {
   // The owner asked how to unlock Gemini's folder trust and the message could
   // not tell him, because it named the file and stopped there. Every blocker in
   // the table now ends in an action, in the same shape as the sentence for an
   // application that is running: what is wrong, then what to do.
+  //
+  // `Sign` joined the list when Claude Desktop turned out to start no MCP server
+  // until somebody is signed in. That is an action and it was not expressible in
+  // the vocabulary, which is a gap in the check rather than in the sentence.
   for (const client of loadClients().clients) {
     for (const blocker of client.blockers) {
       assert.ok(
-        /\b(Set|Remove|Start|add|ask|Make)\b/u.test(blocker.says),
+        /\b(Set|Remove|Start|Sign|add|ask|Make)\b/u.test(blocker.says),
         `${client.id}: "${blocker.says}" says what is wrong and not what to do`,
       );
     }

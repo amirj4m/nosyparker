@@ -85,6 +85,22 @@ export function checkDocumentation(root = repositoryRoot(), workingNotes = []) {
   const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
     'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen',
     'eighteen', 'nineteen', 'twenty', 'twenty-one', 'twenty-two', 'twenty-three'];
+
+  /**
+   * Does this text say exactly this number, and not a larger one ending in it.
+   *
+   * `includes('two clients')` is true of `twenty-two clients`, so the moment the
+   * table passed twenty every count check accused the README of still saying the
+   * old number while also agreeing it said the new one. The hyphen is the whole
+   * problem: it is not a word character, so `\b` does not help and the boundary
+   * has to exclude it by name.
+   *
+   * @param {string} text
+   * @param {string} word
+   * @param {string} noun
+   * @returns {boolean}
+   */
+  const says = (text, word, noun) => new RegExp(`(?<![\\w-])${word} ${noun}`, 'u').test(text);
   const version = `Node ${OLDEST_SUPPORTED.major}.${OLDEST_SUPPORTED.minor}`;
   const heading = 'What Phase 3 refuses to write';
 
@@ -117,7 +133,7 @@ export function checkDocumentation(root = repositoryRoot(), workingNotes = []) {
 
     check('the README says how many clients there are, and is right',
       words.flatMap((word, n) => {
-        const said = flatReadme.includes(`${word} clients`);
+        const said = says(flatReadme, word, 'clients');
         if (n === clients.length) return said ? [] : [`the README does not say ${word}`];
         return said ? [`the README still says ${word} clients`] : [];
       })),
@@ -143,7 +159,7 @@ export function checkDocumentation(root = repositoryRoot(), workingNotes = []) {
         // there. A check that missed for that reason would be a check nobody
         // could satisfy without rewriting the sentence around it.
         ...words.flatMap((word, n) => {
-          const said = flatReadme.toLowerCase().includes(`${word} things an agent can do`);
+          const said = says(flatReadme.toLowerCase(), word, 'things an agent can do');
           if (n === tools.length) {
             return said ? [] : [`the README does not say ${word} things an agent can do`];
           }

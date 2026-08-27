@@ -45,7 +45,7 @@ function row(id) {
   return client;
 }
 
-test('the table carries twenty clients, and each one is a decision somebody made', () => {
+test('the table carries twenty-two clients, and each one is a decision somebody made', () => {
   // Written out rather than counted. Three web-only clients are deliberately
   // absent and are not a gap: Claude on the web, ChatGPT and the Copilot coding
   // agent have no local configuration file at all, so there is nothing to write
@@ -55,8 +55,8 @@ test('the table carries twenty clients, and each one is a decision somebody made
     clients.map((client) => client.id).sort(),
     [
       'amazon-q', 'claude-code', 'claude-desktop', 'cline', 'codex-cli', 'continue', 'copilot-cli',
-      'cursor', 'devin-desktop', 'gemini-cli', 'goose', 'junie', 'kimi-code', 'kiro', 'lmstudio',
-      'opencode', 'roo-code', 'vscode', 'warp', 'zed',
+      'cursor', 'devin-desktop', 'gemini-cli', 'goose', 'hermes', 'junie', 'kimi-code', 'kiro',
+      'lmstudio', 'openclaw', 'opencode', 'roo-code', 'vscode', 'warp', 'zed',
     ],
   );
 
@@ -71,7 +71,8 @@ test('the table carries twenty clients, and each one is a decision somebody made
   );
   assert.deepEqual(
     clients.filter((client) => client.tier === 3).map((client) => client.id).sort(),
-    ['amazon-q', 'cline', 'continue', 'copilot-cli', 'junie', 'roo-code', 'warp'],
+    ['amazon-q', 'cline', 'continue', 'copilot-cli', 'hermes', 'junie', 'openclaw', 'roo-code',
+      'warp'],
   );
 });
 
@@ -304,6 +305,8 @@ test('the verification tiers are the ones the research earned, not one green tic
   assert.deepEqual(tiers, {
     'claude-code': 'A',
     'gemini-cli': 'A',
+    hermes: 'A',
+    openclaw: 'A',
     'codex-cli': 'B+',
     goose: 'B+',
     'copilot-cli': 'C',

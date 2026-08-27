@@ -64,31 +64,95 @@ function say(message) {
 }
 
 /**
- * Is anything else holding the store.
+ * Is anything else holding the store, and if not, what is wrong instead.
  *
- * Asked by taking the write lock and giving it straight back. A migration that
- * ran while an agent was connected would copy the store, spend a minute
- * verifying it, and then rename over whatever that agent had written in the
- * meantime — which is data loss with a clean bill of health attached. Asked
- * again immediately before the rename, because a client can arrive while the
- * verification is running.
+ * Asked by taking an *exclusive* lock and giving it straight back, which is not
+ * what this used to do. It used to ask `BEGIN IMMEDIATE`, and in WAL mode a
+ * write transaction is allowed to start alongside any number of readers — so a
+ * client sitting with the store open passed the check. Measured on this
+ * machine, with a second connection open: `BEGIN IMMEDIATE` succeeds,
+ * `PRAGMA journal_mode = DELETE` fails with `database is locked`, and an
+ * exclusive locking-mode write fails the same way.
+ *
+ * That matters because `journal_mode = DELETE` is step 6 of the swap. The
+ * owner's own run passed the old check, copied his store, rewrote 154 rows, ran
+ * all seven verifications, and only then found out it could not finish. A check
+ * has to ask the question the last step will ask, or it is not a check — it is
+ * a delay.
+ *
+ * It returns which failure it met rather than a boolean, because the first
+ * version of this did not: a directory it could not write came back as `false`
+ * and sent somebody off to close editors that were already closed. A lock and a
+ * file it cannot open are different problems and need different sentences.
+ *
+ * The locking mode is per-connection and the connection is closed either way,
+ * so nothing here can leave the store locked.
  *
  * @param {string} file
- * @returns {boolean}
+ * @returns {{free: true} | {free: false, locked: boolean, why: string}}
  */
 function storeIsFree(file) {
   try {
     const db = new DatabaseSync(file);
     try {
+      db.exec('PRAGMA locking_mode = EXCLUSIVE');
       db.exec('BEGIN IMMEDIATE');
-      db.exec('ROLLBACK');
-      return true;
+      db.exec('COMMIT');
+      db.exec('PRAGMA locking_mode = NORMAL');
+      return { free: true };
     } finally {
       db.close();
     }
+  } catch (error) {
+    const why = String(error instanceof Error ? error.message : error).split('\n')[0].trim();
+    return { free: false, locked: /database is locked|database is busy/iu.test(why), why };
+  }
+}
+
+/**
+ * Does the live store still hold rows keyed under the old rule.
+ *
+ * The one question that tells a leftover working file apart from a dangerous
+ * one. If the store still has something to migrate then the swap never
+ * happened, so nothing of the person's has changed and the working file is a
+ * partial copy they can throw away. If it does not, a working file sitting
+ * beside it cannot be accounted for from here and the careful wording stands.
+ *
+ * Read from the store itself rather than from a marker file, because a marker
+ * file is one more thing a stopped run can leave behind, and the situation this
+ * exists to explain is somebody already holding a file they did not expect.
+ *
+ * @param {string} file
+ * @returns {boolean}
+ */
+function stillToMigrate(file) {
+  try {
+    return survey(file).changing > 0;
   } catch {
     return false;
   }
+}
+
+/**
+ * Why it cannot start, in words, for each of the two reasons it cannot.
+ *
+ * @param {{free: false, locked: boolean, why: string}} found
+ * @param {string} store
+ * @returns {string}
+ */
+function cannotStart(found, store) {
+  if (found.locked) {
+    return 'Something else has your store open — that will be an editor or an assistant '
+      + 'connected to your memories. Close them and run this again.\n\n'
+      + 'Nothing was changed, and nothing was copied: this is asked before any work '
+      + 'starts, because the last step of the swap needs the file to itself and there '
+      + 'is no point finding that out at the end.';
+  }
+
+  return `Your store at ${store} could not be opened for writing:\n\n  ${found.why}\n\n`
+    + 'That is not another program holding it — it is the file or the folder it sits in. '
+    + 'Check that both are yours to write and that the disk is not full, then run this '
+    + 'again. Nothing was changed.';
 }
 
 /**
@@ -110,25 +174,27 @@ export async function main(argv) {
 
   if (!fs.existsSync(store)) stop(`There is no store at ${store}. Nothing to migrate.`);
 
-  if (!storeIsFree(store)) {
-    stop(
-      'Something else has your store open — that will be an agent connected to your '
-      + 'memories. Close your editors and assistants and run this again. Nothing was '
-      + 'changed.',
-    );
-  }
+  const before = storeIsFree(store);
+  if (!before.free) stop(cannotStart(before, store));
 
   const stamp = new Date().toISOString().replaceAll(/[:.]/gu, '-');
   const { working, backup } = paths(store, stamp);
 
-  for (const leftover of [working]) {
-    if (fs.existsSync(leftover)) {
-      stop(
-        `${leftover} is already there, left by a run that did not finish. Look at it, `
-        + 'then move it out of the way and run this again. It is not deleted here, '
-        + 'because it may be the only thing that finished.',
-      );
-    }
+  if (fs.existsSync(working)) {
+    // Two situations, and they need opposite things said about them. The store
+    // answers which one this is: if it still has rows to migrate, the swap never
+    // happened and this file is a partial copy of a run that changed nothing.
+    stop(stillToMigrate(store)
+      ? `${working} is already there, left by a run that stopped before anything was `
+        + 'replaced.\n\nYour store was not changed — it still holds every memory it held, '
+        + 'keyed the way it was keyed. That file is a partial copy and nothing depends on '
+        + `it. Move it aside and run this again:\n\n  mv ${working} ${working}.old\n  `
+        + 'node scripts/migrate.mjs --yes\n\nIt is not deleted here because deleting '
+        + 'somebody\'s file to get past an error is not this program\'s decision to make.'
+      : `${working} is already there, left by a run that did not finish, and your store `
+        + 'has nothing left to migrate.\n\nWhat that file is cannot be told from here. '
+        + 'Look at it, then move it out of the way and run this again. It is not deleted '
+        + 'here, because it may be the only thing that finished.');
   }
 
   // 1. What it would do, before it does anything.
@@ -177,7 +243,7 @@ export async function main(argv) {
   copyStore(store, backup);
 
   // 6, 7. Sidecars first, rename last. See the note at the top of this file.
-  if (!storeIsFree(store)) {
+  if (!storeIsFree(store).free) {
     fs.rmSync(working, { force: true });
     stop(
       'Something opened your store while this was checking, so nothing was replaced. '

@@ -180,7 +180,7 @@
       "lastVerified": {
         "configPaths": "2026-08-17",
         "write": "2026-08-17",
-        "verify": "2026-08-17",
+        "verify": "2026-08-27",
         "blockers": "2026-08-18",
         "traps": "2026-08-17"
       },
@@ -507,8 +507,8 @@
         {
           "path": "~/.kiro/settings/mcp.json",
           "rootKey": "mcpServers",
-          "status": "the product's own",
-          "says": "Kiro's own agent extension reads this file — the path is in its shipped code alongside ~/.kiro/settings/permissions.yaml. We write the surface Kiro's own --add-mcp writes, which is the VS Code one it inherited. Whether the agent also reads that one was not established, so if the entry does not appear in Kiro, this is the file to add it to by hand."
+          "status": "the product's own, and the only one that works",
+          "says": "Kiro's own agent reads this file. Measured on 2026-08-27 by putting a server into both surfaces under different names and launching Kiro: this one connected within four seconds of the window opening, with no sign-in and no panel, and the inherited VS Code surface that we write spawned nothing at all. The earlier reading of this row said whether the agent read it was not established; it is established, and in the direction that makes what we write inert. Until the write target changes, this is the file to add it to by hand."
         }
       ],
       "entry": {
@@ -554,21 +554,23 @@
         "connected": null,
         "failed": null,
         "proves": "the entry is in mcp.json after the app's own CLI wrote it",
-        "cannotProve": "that Kiro loads it, or that its own agent reads this file rather than the other one. There is no list command."
+        "cannotProve": "that Kiro loads it. It does not: measured on 2026-08-27, the file this row writes is not read by Kiro's agent at all, and ~/.kiro/settings/mcp.json is. There is no list command either."
       },
       "blockers": [],
       "traps": [
+        "The surface this row writes was watched receiving nothing. A server placed in ~/.kiro/settings/mcp.json connected; the same server placed in the inherited VS Code file was never started. Writing here is what `kiro --add-mcp` does, and it is not what Kiro reads.",
         "Two configuration surfaces, the second time a VS Code fork with its own agent has had them — Devin was the first. The inherited one is written by --add-mcp; the product's own is ~/.kiro/settings/mcp.json.",
         "The shipped code also references .cursor/mcp.json and .vscode/mcp.json, so Kiro reads other clients' files as VS Code does and the server may appear more than once.",
-        "macOS and Windows paths were not established. This client is Linux-only in this table."
+        "macOS and Windows paths were not established. This client is Linux-only in this table.",
+        "Kiro keeps a structured MCP log at ~/.kiro/logs/<stamp>/mcp.log on Linux, one JSON object per line, with `\"message\":\"Connected\"` and `serverName`. A failure is `\"level\":\"error\",\"message\":\"Failed to connect\"` — followed immediately by `\"Connection closed successfully\"`, so anything matching on the word `successfully` reads the failure as a success."
       ],
       "restart": "Quit and reopen Kiro.",
       "lastVerified": {
         "configPaths": "2026-08-17",
-        "extraConfigPaths": "2026-08-17",
+        "extraConfigPaths": "2026-08-27",
         "write": "2026-08-17",
-        "verify": "2026-08-17",
-        "traps": "2026-08-17"
+        "verify": "2026-08-27",
+        "traps": "2026-08-27"
       },
       "upstreamId": "kiro"
     },
@@ -622,20 +624,23 @@
         "connected": null,
         "failed": null,
         "proves": "our entry is in mcp.json and the rest of the file is unchanged",
-        "cannotProve": "that LM Studio loads it. It starts a server only when a model actually calls one, so there is nothing to observe until a model is loaded."
+        "cannotProve": "that LM Studio loads it. It starts a server only when a model calls a tool, and three sandboxed launches on 2026-08-27 spawned nothing. There is a weaker thing that can be read, and this check does not yet read it: on accepting the file, LM Studio copies each server into ~/.lmstudio/extensions/plugins/mcp/<name>/ and records the accepted set in ~/.lmstudio/.internal/last-synced-mcp-state.json. That proves it parsed and accepted the entry, not that anything ran — a server pointing at /usr/bin/false gets the same treatment."
       },
       "blockers": [],
       "traps": [
         "The macOS path its documentation gives does not apply here. The path verified on Linux is ~/.lmstudio/mcp.json, and the documented one was not.",
         "The file is created the first time the application is opened, and arrives holding an empty mcpServers object.",
-        "macOS and Windows paths were not established from a running installation."
+        "macOS and Windows paths were not established from a running installation.",
+        "Its configuration file is validated as a whole, and one bad entry throws away the entire file: no server loads, including every other one the person has, and the only sign is a ZodError on standard output that nobody sees. Measured on 2026-08-27 with an entry missing `command`. A malformed write here does not cost us our entry, it costs them all of theirs.",
+        "The acceptance record survives a rejected file. After the run whose file was thrown away, the plugin folders from the previous run were still there. Anything checking this has to compare the contents of last-synced-mcp-state.json against what was written, not check that a folder exists.",
+        "Underscores in a server name become hyphens in the plugin folder name: `bad_dead` became `bad-dead`. `nosyparker` is unaffected, but a lookup by name has to apply that."
       ],
       "restart": "Quit and reopen LM Studio.",
       "lastVerified": {
         "configPaths": "2026-08-17",
         "write": "2026-08-17",
-        "verify": "2026-08-17",
-        "traps": "2026-08-17"
+        "verify": "2026-08-27",
+        "traps": "2026-08-27"
       },
       "upstreamId": "lm-studio"
     },
@@ -685,19 +690,22 @@
         "connected": null,
         "failed": null,
         "proves": "our entry is in the file and the rest of the file is unchanged",
-        "cannotProve": "that Roo Code loads it. The extension only starts when its panel is first opened, so there is nothing to check before then."
+        "cannotProve": "that Roo Code loads it — though it does. Measured on 2026-08-27: the extension activates when VS Code finishes starting and completes a handshake with the server within four seconds, with no panel opened and no API key. It records none of that anywhere readable: not in its own output channel, not in its stored state, not in any file. The connection is real and there is still nothing on this machine to read."
       },
       "blockers": [],
       "traps": [
+        "This row used to say the extension starts only when its panel is first opened. It does not. Its manifest declares onStartupFinished, and it was watched connecting with no panel open.",
         "The file name is mcp_settings.json, read out of the extension's own shipped code, and it lives under the lowercase form of the extension id.",
         "The version number is in the detection path because that is how VS Code names extension directories; the storage directory beside it is the stabler evidence and is checked first.",
-        "macOS and Windows paths were not established."
+        "macOS and Windows paths were not established.",
+        "It asks the server for `resources/list` and `resources/templates/list`, which nosyparker does not implement. It takes -32601 for both without complaint and keeps the tools. Worth knowing before anybody adds a resources capability to quieten it.",
+        "On activation it migrates cline_mcp_settings.json to mcp_settings.json, which is where the file name in this row comes from and confirms it."
       ],
       "restart": "Reload the VS Code window.",
       "lastVerified": {
         "configPaths": "2026-08-17",
-        "verify": "2026-08-17",
-        "traps": "2026-08-17"
+        "verify": "2026-08-27",
+        "traps": "2026-08-27"
       },
       "upstreamId": "roo-code"
     },
@@ -1119,7 +1127,7 @@
         "connected": null,
         "failed": null,
         "proves": "our entry is in the file and the keys that were there before it still are",
-        "cannotProve": "that Claude Desktop loads it. There is no CLI and no readable state. The only real signal is a per-server log file that appears after the app next starts."
+        "cannotProve": "that Claude Desktop loads it. There is no CLI. There is a per-server log this check does not yet read: ~/.config/Claude/logs/mcp-server-<name>.log on Linux, where `Message from server: id=1 result` is our server answering the client's tools/list and is the only line in it that proves anything."
       },
       "blockers": [
         {
@@ -1127,20 +1135,28 @@
           "file": "~/.config/Claude/config.json",
           "keyPrefix": "dxt:allowlistEnabled:",
           "says": "Claude Desktop has an organisation-level extension allowlist configured. Whether it gates a hand-written mcpServers entry or only packaged extensions was never established, so if the server does not appear after a restart, this is the thing to ask whoever administers it about."
+        },
+        {
+          "check": "json-key-absent",
+          "file": "~/.config/Claude/config.json",
+          "key": "lastKnownAccountUuid",
+          "says": "Claude Desktop starts no MCP server at all until somebody is signed in. Measured on 2026-08-27: a fresh profile with the entry written sat on the login screen, wrote an empty mcp.log and created no per-server log, and its config.json held only first_launch_at, locale and updaterLastSeenVersion — the account key appears when somebody signs in. Sign in to Claude Desktop and start it again if {{name}} does not appear; this is not a fault in the entry."
         }
       ],
       "traps": [
         "The app's config loader falls back to {} on a failed cold-start read and then writes that empty object over the file. A malformed write is not a write that fails; it is a write that destroys the file at the next launch. This is why the entry is read back and re-parsed before anything is claimed.",
         "The app rewrites the file wholesale from memory. An edit made while it is running is clobbered on its next settings write. Close it first.",
-        "The file is mode 0600 and sits beside the OAuth token cache. Never log its contents."
+        "The file is mode 0600 and sits beside the OAuth token cache. Never log its contents.",
+        "`Server started and connected successfully` in the per-server log means the transport opened, not that the server works. It is written about half a second before the app says its first word to the server, and a server that exits immediately produces it too, followed by `Server transport closed unexpectedly` and `Server disconnected`.",
+        "On the unofficial Linux build the launcher copies claude_desktop_config.json to ~/.cache/claude-desktop-debian/config-backups/ on every launch, keeping five. Its own comment gives the reasons: bad JSON, a missing file, and a single bad entry failing validation. That is a recovery path worth knowing, and it is Linux-only."
       ],
       "restart": "Quit Claude Desktop completely and start it again. It reads this file only at startup.",
       "lastVerified": {
         "configPaths": "2026-08-17",
         "write": "2026-08-17",
-        "verify": "2026-08-17",
-        "blockers": "2026-08-18",
-        "traps": "2026-08-17",
+        "verify": "2026-08-27",
+        "blockers": "2026-08-27",
+        "traps": "2026-08-27",
         "writeRequiresQuit": "2026-08-17"
       },
       "upstreamId": "claude-desktop"
@@ -1522,6 +1538,178 @@
         "traps": "2026-08-17"
       },
       "upstreamId": "jetbrains-ai"
+    },
+    {
+      "id": "hermes",
+      "name": "Hermes",
+      "tier": 3,
+      "evidence": "MACHINE",
+      "transports": [
+        "stdio"
+      ],
+      "format": "yaml-map",
+      "rootKey": "mcp_servers",
+      "configPaths": {
+        "linux": "~/.hermes/config.yaml",
+        "darwin": null,
+        "win32": null
+      },
+      "extraConfigPaths": [],
+      "entry": {
+        "command": "{{command}}",
+        "args": [
+          "{{serverPath}}"
+        ],
+        "enabled": true
+      },
+      "requiredFields": [],
+      "detect": {
+        "commands": [
+          "hermes"
+        ],
+        "commandFallbacks": [
+          "~/.local/bin/hermes"
+        ],
+        "paths": [
+          "~/.hermes/config.yaml",
+          "~/.hermes"
+        ]
+      },
+      "write": {
+        "method": "file",
+        "argv": null,
+        "why": "`hermes mcp add` is discovery-first and interactive: it prompts, and it cannot be driven with stdin closed. `hermes mcp remove` is interactive too. So the file is written here and the CLI is kept for verifying, the same split as opencode. Hermes watches config.yaml's mtime and reloads the mcp_servers section by itself, so a write takes effect without a restart."
+      },
+      "remove": {
+        "method": "file",
+        "argv": null
+      },
+      "verify": {
+        "tier": "A",
+        "method": "cli-lines",
+        "argv": [
+          "hermes",
+          "mcp",
+          "test",
+          "{{name}}"
+        ],
+        "connected": "Testing '{{name}}'\\.\\.\\.(?:(?!Testing ')[\\s\\S])*?✓ Connected\\b",
+        "failed": "(?:Testing '{{name}}'\\.\\.\\.(?:(?!Testing ')[\\s\\S])*?✗ Connection failed|✗ Server '{{name}}' not found)",
+        "proves": "the client started the server, completed a handshake and listed its tools",
+        "cannotProve": null
+      },
+      "blockers": [],
+      "traps": [
+        "The root key is `mcp_servers`, snake_case. It is not `mcpServers`, which is what every JSON client in this table uses.",
+        "`hermes mcp list` shows a server pointing at /usr/bin/false as `✓ enabled`. It reports what the config says, not what connects. Only `hermes mcp test <name>` starts anything, which is why that is the command in `verify` and not `list`.",
+        "`hermes mcp test` exits 0 whether it connected or not. The mark on the line is the answer; the status code is not.",
+        "HERMES_SAFE_MODE makes its own `_load_mcp_config()` return an empty map, so every MCP server is silently switched off and none of them load. There is no file to read this from, so it cannot be a blocker check here — it is an environment variable, and this is the note that says to look at it.",
+        "`${VAR}` inside a string value is interpolated, resolved from the environment plus ~/.hermes/.env. A path that genuinely contains ${ would be rewritten.",
+        "HERMES_HOME relocates the whole directory, config.yaml and all. The path in this row is the default, not the only one.",
+        "macOS and Windows paths were not established. Hermes is a self-hosted agent harness and was measured on Linux only."
+      ],
+      "restart": "None. Hermes watches config.yaml and reloads the mcp_servers section on change.",
+      "lastVerified": {
+        "configPaths": "2026-08-26",
+        "write": "2026-08-26",
+        "verify": "2026-08-27",
+        "traps": "2026-08-27"
+      },
+      "upstreamId": null,
+      "measuredOn": [
+        "linux"
+      ]
+    },
+    {
+      "id": "openclaw",
+      "name": "OpenClaw",
+      "tier": 3,
+      "evidence": "MACHINE",
+      "transports": [
+        "stdio"
+      ],
+      "format": "json",
+      "rootKey": "mcp.servers",
+      "configPaths": {
+        "linux": "~/.openclaw/openclaw.json",
+        "darwin": null,
+        "win32": null
+      },
+      "extraConfigPaths": [],
+      "entry": {
+        "command": "{{command}}",
+        "args": [
+          "{{serverPath}}"
+        ]
+      },
+      "requiredFields": [],
+      "detect": {
+        "commands": [
+          "openclaw"
+        ],
+        "paths": [
+          "~/.openclaw/openclaw.json"
+        ]
+      },
+      "write": {
+        "method": "cli",
+        "argv": [
+          "openclaw",
+          "mcp",
+          "add",
+          "{{name}}",
+          "--command",
+          "{{command}}",
+          "--arg",
+          "{{serverPath}}"
+        ],
+        "why": "Its own `mcp add` runs non-interactively with stdin closed, preserves every unrelated key in the file, writes at mode 0600 by atomic rename, and is idempotent — adding the same name twice leaves one entry and exits 0 both times. It is also the only add command in this table that connects to the server before saving and refuses with exit 1 if it cannot, so using it makes the install verify itself."
+      },
+      "remove": {
+        "method": "cli",
+        "argv": [
+          "openclaw",
+          "mcp",
+          "unset",
+          "{{name}}"
+        ]
+      },
+      "verify": {
+        "tier": "A",
+        "method": "cli-lines",
+        "argv": [
+          "openclaw",
+          "mcp",
+          "probe"
+        ],
+        "connected": "^- {{name}}: \\d+ tools?\\b",
+        "failed": "^(! {{name}}:|\\[bundle-mcp\\] failed to start server \"{{name}}\")",
+        "proves": "the client started the server, completed a handshake and counted its tools",
+        "cannotProve": null
+      },
+      "blockers": [],
+      "traps": [
+        "`npm install -g openclaw` runs a postinstall that creates ~/.openclaw/state/openclaw.sqlite in the real home, ignoring the npm prefix entirely. So the directory existing does not mean OpenClaw is configured, or even that it was installed here on purpose. Detection reads openclaw.json, never the directory.",
+        "`openclaw mcp doctor` reported `nosyparker: ok` for a server whose command could not start at all. It is a static check and the name is misleading. `openclaw mcp status` prints the transport `stdio` and, by its own help text, does not connect. `mcp probe` is the only one that dials.",
+        "`openclaw mcp probe` exits 0 even when a server fails. It marks the failing one with `!` in its output. The mark is the answer; the status code is not.",
+        "Values passed with `--env` are written verbatim into ~/.openclaw/logs/config-audit.jsonl, which records the argv of every command that changes the config. Nothing here needs an environment variable, and nothing here should start.",
+        "`openclaw mcp list` shows only OpenClaw-managed entries and says so: it does not include servers configured in its second surface, config/mcporter.json. A server can be configured and absent from that list.",
+        "`--profile`, `--dev` (which moves everything to ~/.openclaw-dev), OPENCLAW_CONFIG_PATH and OPENCLAW_STATE_DIR all relocate the config. The path in this row is the default, not the only one.",
+        "`npm uninstall -g openclaw` does not remove ~/.openclaw. Install creates it; uninstall leaves it.",
+        "Hermes ships a one-way migration away from OpenClaw that reads `~/.openclaw/config.yaml`. There is no such file: this build's own `openclaw config file` names ~/.openclaw/openclaw.json on Linux, and JSON is what it writes. A vendor is wrong about a product it ships a migration for.",
+        "macOS and Windows paths were not established. It was measured on Linux only."
+      ],
+      "restart": "`{{clientCommand}} mcp reload`, or start the next turn. It disposes cached MCP runtimes so the new config is used.",
+      "lastVerified": {
+        "configPaths": "2026-08-26",
+        "write": "2026-08-27",
+        "verify": "2026-08-27",
+        "traps": "2026-08-27"
+      },
+      "upstreamId": null,
+      "measuredOn": [
+        "linux"
+      ]
     }
   ]
 }
