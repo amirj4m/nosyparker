@@ -23,7 +23,7 @@ import {
   copyStore, paths, queriesStillFind, recompute, sentenceFor, survey, verify,
 } from '../src/migrate.js';
 import { normaliseForComparison } from '../src/text.js';
-import { openStore } from '../src/store.js';
+import { openStore, searchMemories } from '../src/store.js';
 import { submit } from '../src/gate.js';
 import { sandboxEnv } from './helpers.js';
 
@@ -75,6 +75,15 @@ function workspace(t) {
     );
     const put = db.prepare('UPDATE memories SET text_normalised = ? WHERE id = ?');
     for (const row of rows) put.run(old(String(row.text)), row.id);
+
+    // And the folded search index rebuilt from those keys, so the fixture is a
+    // store as it really would be: written under the old rule, then opened once
+    // by this version, which builds the index over whatever the keys say at the
+    // time. Without this the index still holds the *new* keys — put there by the
+    // insert trigger when the fixture was written — and the migration appears to
+    // keep it in step while doing nothing of the sort. Renaming the update
+    // trigger left every test here passing, which is how this was found.
+    db.exec("INSERT INTO memories_fts_folded(memories_fts_folded) VALUES('rebuild')");
   } finally {
     db.close();
   }
@@ -570,4 +579,53 @@ test('an unexpected failure is turned into a sentence rather than a trace', () =
   // A thrown non-Error still has to come out as prose.
   assert.match(sentenceFor('just a string'), /just a string/u);
   assert.doesNotMatch(sentenceFor({ nope: true }), /\[object Object\]/u);
+});
+
+test('after the migration, the two scripts find the same memories', (t) => {
+  // The upgrade path for anybody who is not already on 0.0.4, run end to end.
+  // The folded index is built when this version first opens the store — which
+  // happens *before* the migration, so it is built over keys the old rule
+  // produced and is briefly as wrong as they are. The migration then rewrites
+  // those keys, the index triggers follow, and the two scripts agree.
+  //
+  // The term has to be three characters or more *and* sit in a row whose key
+  // the migration changes, or it never reaches the index at all. The first
+  // version of this test used `۱۲` and `٣٤`, which are two characters and go to
+  // the substring path, and `2019`, which is ASCII and does not change — so it
+  // passed with the folded index's update trigger deleted outright. A digit run
+  // long enough to be a trigram, in a script the fold moves, is the whole point.
+  const { file } = workspace(t);
+
+  const old = (/** @type {string} */ text) =>
+    text.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLowerCase();
+  const persian = 'the storage unit is number ۱۲۳';
+
+  const seed = new DatabaseSync(file);
+  seed.prepare(
+    "INSERT INTO memories (owner, text, text_normalised, created_at, state, state_reason, state_at)"
+    + " VALUES (?,?,?,?,'active',NULL,?)",
+  ).run(OWNER, persian, old(persian), 'now', 'now');
+  seed.exec("INSERT INTO memories_fts_folded(memories_fts_folded) VALUES('rebuild')");
+  seed.close();
+
+  const run = spawnSync(process.execPath, [MIGRATE, '--yes'], {
+    encoding: 'utf8',
+    env: { ...process.env, NOSYPARKER_STORE: file },
+  });
+  assert.equal(run.status, 0, `the migration failed: ${run.stderr.slice(0, 300)}`);
+
+  const store = openStore({ file, now: () => new Date().toISOString() });
+  t.after(() => store.close());
+
+  /** @param {string} term @returns {string[]} */
+  const found = (term) => searchMemories(store, OWNER, term).map((m) => m.text).sort();
+
+  assert.deepEqual(found('123'), [persian], 'the ASCII form does not find the Persian memory');
+  assert.deepEqual(found('۱۲۳'), [persian], 'the Persian form does not find its own memory');
+  assert.deepEqual(found('123'), found('۱۲۳'));
+
+  // And the short terms, which went through the substring path all along.
+  for (const [a, b] of [['12', '۱۲'], ['34', '٣٤']]) {
+    assert.deepEqual(found(a), found(b), `"${a}" and "${b}" disagree after the migration`);
+  }
 });

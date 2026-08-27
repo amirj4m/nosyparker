@@ -548,6 +548,13 @@ test('the raw index is still maintained, which is what lets older code read this
   // of this program that predates the folded index searches `memories_fts`, and
   // it keeps working only for as long as that index is still correct. Nothing
   // here reads it any more, so nothing else would notice it rotting.
+  //
+  // What this holds, precisely: that every memory this build writes reaches the
+  // raw index, and that both indexes pass their own integrity check. Deleting
+  // the raw insert trigger fails it. It does *not* hold the raw update trigger,
+  // and cannot — nothing in normal use ever changes `memories.text`, so that
+  // trigger has no observable effect to assert on. Saying so here rather than
+  // leaving a comment that claims more than the assertions do.
   const store = temporaryStore();
   const file = path.join(store.dir, 'memory.sqlite');
 
