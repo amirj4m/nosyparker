@@ -983,6 +983,52 @@ The test runs the real binary through a real pipe in a real shell. An earlier
 version of it read `PIPESTATUS`, which does not exist in `/bin/sh` here, so it
 was reading `head`'s exit code — 0, always — and asserting nothing.
 
+## The damage a test does can stop being allowed  [record]
+
+Reported from a stale checkout on a server: the suite fails on Node 26. It does
+— exactly one test of 503, and the diagnosis was right.
+
+`test/migrate.test.js` proves the migration notices a damaged search index by
+damaging one, and it did that with `DELETE FROM memories_fts_data` — writing
+straight into the shadow table that holds the index. SQLite stopped allowing
+that. On Node 26.7.0, carrying SQLite 3.53.4, the statement is refused with
+`table memories_fts_data may not be modified`, so the test ended in an error
+rather than an assertion. Node 22.23.2, which this project supports, still
+allows it. Measured on both.
+
+**The temptation is to weaken the assertion, and it has to be refused.** That
+test exists because a checker nobody has watched fail may be looking at nothing;
+if the corruption can no longer be performed, the check it guards becomes
+unproven on that Node, which is the same thing as not having it. Four routes
+were measured on both versions:
+
+    delete a row from the shadow table   refused on 26, works on 22
+    the documented 'delete' command      works on both — one memory unfindable
+    drop the index and recreate it       works on both — all unfindable
+    'delete-all'                         works on both — all unfindable
+    write over a page of the index file  works on both — index corrupt, table fine
+
+The last one is what it now does. `dbstat` says which pages belong to the
+index's storage, the file is closed, one of those pages is written over, and the
+file is opened again. It is the same corruption in a stronger form: not a
+statement SQLite happened to permit, but bytes that are no longer a b-tree page.
+The `memories` table still reads every row and the *other* search index is
+untouched, so the damage is where it is aimed.
+
+It is also better held than what it replaced. The index check has three ways of
+reporting — the index failing its own `integrity-check`, a memory not being
+findable, and the MATCH itself throwing — and this corruption trips all three
+independently. Blanking any one of them leaves the test green; blanking all
+three turns it red, on both Node versions. The old damage was caught by fewer.
+
+**And the product was fine the whole time.** On Node 26.7.0: `search`, `list`,
+`log`, `export`, `doctor` and `setup --print-config` all work, piping into
+`head` stays quiet, and the migration runs a real store of 219 memories end to
+end — 163 rekeyed, all seven checks green, 789 queries still finding what they
+found. `engines` says `>=22.5.0` and that is still true; nothing about it needed
+changing. The suite failing and the program failing are different problems, and
+this was only ever the first.
+
 ## What we are, and the one thing to leave room for  [record]
 
 **We are not a place. We are a gate that decides.** The storage is a SQLite file

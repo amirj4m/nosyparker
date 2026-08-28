@@ -123,6 +123,65 @@ function damage(file, breakIt) {
   }
 }
 
+/**
+ * Corrupt a search index by writing over a page of it in the file itself.
+ *
+ * This used to be `DELETE FROM memories_fts_data`, writing straight into the
+ * shadow table that holds the index. SQLite stopped allowing that: on Node
+ * 26.7.0, which carries SQLite 3.53.4, the statement is refused with `table
+ * memories_fts_data may not be modified`, and the test that proves the
+ * migration notices a damaged index failed with an error instead of an
+ * assertion. Node 22.23.2, which this project supports, still allows it.
+ *
+ * The assertion is not weakened to get past that. The index is damaged by a
+ * route neither version can refuse — `dbstat` says which pages belong to the
+ * index, the file is closed, one of those pages is written over, and the file
+ * is opened again. It is the same corruption in a stronger form: not a
+ * statement SQLite happened to permit, but bytes that are no longer a b-tree
+ * page.
+ *
+ * Measured on both versions: the targeted index fails its own
+ * `integrity-check`, the `memories` table still reads all six rows, and the
+ * *other* search index is untouched — so the damage is where it is aimed.
+ *
+ * @param {string} file
+ * @param {string} index the FTS table whose storage to ruin
+ * @returns {void}
+ */
+function damageIndexFile(file, index) {
+  const probe = new DatabaseSync(file);
+  /** @type {number[]} */
+  let pages;
+  try {
+    pages = /** @type {{pageno: number}[]} */ (
+      /** @type {unknown} */ (probe.prepare(
+        'SELECT pageno FROM dbstat WHERE name = ? ORDER BY pageno',
+      ).all(`${index}_data`))
+    ).map((row) => Number(row.pageno));
+  } finally {
+    probe.close();
+  }
+
+  // If `dbstat` ever goes away this has to say so rather than quietly damage
+  // nothing and let the check pass for the wrong reason.
+  assert.ok(pages.length > 0, `dbstat reported no pages for ${index}_data — nothing was damaged`);
+
+  const size = (() => {
+    const db = new DatabaseSync(file);
+    try {
+      return Number(/** @type {{page_size: number}} */ (
+        /** @type {unknown} */ (db.prepare('PRAGMA page_size').get())).page_size);
+    } finally {
+      db.close();
+    }
+  })();
+
+  const bytes = fs.readFileSync(file);
+  const from = (pages[pages.length - 1] - 1) * size;
+  bytes.fill(0x5a, from + 8, from + size);
+  fs.writeFileSync(file, bytes);
+}
+
 test('a clean migration passes every check', (t) => {
   const { file } = workspace(t);
   const copy = migratedCopy(file);
@@ -144,11 +203,23 @@ test('each check fails when the thing it watches is broken', (t) => {
   const namesThatFail = (breakIt) => {
     const copy = migratedCopy(file);
     damage(copy, breakIt);
+    return whatFails(copy);
+  };
+
+  /** @param {string} index @returns {string[]} */
+  const namesThatFailWithABrokenIndex = (index) => {
+    const copy = migratedCopy(file);
+    damageIndexFile(copy, index);
+    return whatFails(copy);
+  };
+
+  /** @param {string} copy @returns {string[]} */
+  function whatFails(copy) {
     const failing = [...verify(file, copy), queriesStillFind(file, copy)]
       .filter((c) => !c.ok).map((c) => c.name);
     fs.rmSync(copy, { force: true });
     return failing;
-  };
+  }
 
   // 1. A row goes missing.
   assert.ok(
@@ -177,12 +248,11 @@ test('each check fails when the thing it watches is broken', (t) => {
 
   // 5. The search index damaged. Deleting from `memories_fts` does nothing
   //    useful here — it is an external-content table, so its rows come from
-  //    `memories` — so the damage is done to the shadow table that holds the
-  //    actual index, which is what real corruption looks like.
+  //    `memories` — so the damage is done to the storage that holds the actual
+  //    index, which is what real corruption looks like. See `damageIndexFile`
+  //    for why that is done through the file rather than through a statement.
   assert.ok(
-    namesThatFail((db) => db.prepare(
-      'DELETE FROM memories_fts_data WHERE id = (SELECT max(id) FROM memories_fts_data)',
-    ).run())
+    namesThatFailWithABrokenIndex('memories_fts')
       .some((n) => n.includes('search index')),
     'a damaged search index did not fail its check');
 
@@ -197,9 +267,7 @@ test('each check fails when the thing it watches is broken', (t) => {
   //    folded one, so a check that only looked at the raw one would be watching
   //    the index nothing uses.
   assert.ok(
-    namesThatFail((db) => db.prepare(
-      'DELETE FROM memories_fts_folded_data WHERE id = (SELECT max(id) FROM memories_fts_folded_data)',
-    ).run())
+    namesThatFailWithABrokenIndex('memories_fts_folded')
       .some((n) => n.includes('search index')),
     'a damaged folded index did not fail its check');
 });
