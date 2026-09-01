@@ -6,6 +6,16 @@ A gate, not a store — it decides what gets in, and writes down why.
 
 Nothing in it expires, and nothing is ever removed behind your back.
 
+Node 22.5 or newer, and nothing else:
+
+```
+npm install -g nosyparker
+nosyparker setup
+```
+
+To know it worked, open one of your agents and ask it something only your
+shared memory would know.
+
 **The file is yours, wherever it is.** No account, nothing to sign up for,
 nothing hosted. We never run a server and we never hold anyone's data.
 
@@ -106,13 +116,6 @@ node "$(npm root -g)/nosyparker/scripts/purge.mjs" --id 4 --yes
 ```
 
 ## Installing it
-
-Node 22.5 or newer, and nothing else:
-
-```
-npm install -g nosyparker
-nosyparker setup
-```
 
 Install it globally rather than through `npx`. Setup writes the path it is
 running from into every config it touches, and npx keeps a separate copy per

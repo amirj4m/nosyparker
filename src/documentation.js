@@ -131,6 +131,32 @@ export function checkDocumentation(root = repositoryRoot(), workingNotes = []) {
           ? [`${client.id} is written by file and CLIENTS.md says it is wired through a command`] : [];
       })),
 
+    check('the README gives the two commands before it explains anything', (() => {
+      // The commands sat two thirds down the page, behind about fifteen hundred
+      // words on what the gate refuses. Somebody arriving from npm met the
+      // refusals before the thing that makes it work. They are at the top now,
+      // and this is what keeps them there — the position, not just the presence,
+      // because the presence was never the part that was wrong.
+      //
+      // Nothing was watching their position, and the check that watches the
+      // command watches the whole page: `nosyparker setup` could be deleted from
+      // that block and still be found in the sentence about running it again
+      // after a Node upgrade, so every check stayed green. True of something
+      // next to the thing, which is the sixth time in this project.
+      const firstSection = readme.indexOf('\n## ');
+      const opening = firstSection === -1 ? readme : readme.slice(0, firstSection);
+      const fenced = /```\n([^`]*)```/u.exec(opening)?.[1] ?? '';
+
+      const wrong = [];
+      if (!fenced.includes('npm install -g nosyparker')) {
+        wrong.push('the opening has no `npm install -g nosyparker` in a block somebody can copy');
+      }
+      if (!fenced.includes('nosyparker setup')) {
+        wrong.push('the opening does not tell anybody to run `nosyparker setup`');
+      }
+      return wrong;
+    })()),
+
     check('the README says how many clients there are, and is right',
       words.flatMap((word, n) => {
         const said = says(flatReadme, word, 'clients');
