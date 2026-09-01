@@ -892,6 +892,37 @@ test('nothing on the memory path can get a timestamp out where it could be compa
   // for the same reason.
   const files = onTheMemoryPath();
 
+  // The two kinds of moment, which this check could not previously tell apart.
+  //
+  // `created_at` and `state_at` are a *memory's* dates and are the whole point
+  // of this file: nothing may conclude anything from them, ever. The other four
+  // are on `decisions` and `review_passes` — they record what this program did
+  // and when it did it, which is bookkeeping about our own process.
+  //
+  // The distinction became load-bearing when the store started saying its
+  // review was overdue. Counting how long since we last reviewed, and how many
+  // memories have arrived since, needs the process moments and must never need
+  // a memory's. Widening the check to allow both would have thrown away what it
+  // is for; so it now knows which is which, and the narrow permission below is
+  // held by an assertion of its own.
+  const MEMORY_MOMENTS = ['created_at', 'state_at'];
+  const PROCESS_MOMENTS = ['decided_at', 'began_at', 'closed_at', 'undone_at'];
+
+  // `review-due.js` is the one file allowed a clock, and this is what makes
+  // that safe: it may not so much as name a memory's date. The moment somebody
+  // writes `created_at` into it, that permission stops applying and this fails.
+  const REVIEW_BOOKKEEPING = 'src/review-due.js';
+  assert.ok(files.includes(REVIEW_BOOKKEEPING),
+    `${REVIEW_BOOKKEEPING} reads the store and is not being checked`);
+  {
+    const text = fs.readFileSync(path.join(ROOT, REVIEW_BOOKKEEPING), 'utf8');
+    const code = text.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/^\s*\/\/.*$/gmu, '');
+    for (const moment of MEMORY_MOMENTS) {
+      assert.doesNotMatch(code, new RegExp(`\\b${moment}\\b`, 'u'),
+        `${REVIEW_BOOKKEEPING} is allowed a clock only because it never names ${moment}`);
+    }
+  }
+
   for (const near of ['src/store.js', 'src/gate.js', 'src/tools.js', 'src/cli-main.js',
     'src/doctor.js', 'src/text.js', 'src/credentials.js', 'scripts/purge.mjs']) {
     assert.ok(files.includes(near), `${near} is on the memory path and is not being checked`);
@@ -922,7 +953,8 @@ test('nothing on the memory path can get a timestamp out where it could be compa
 
       // A clock, however it is spelled. `Date` as a bare identifier rather than
       // `Date.now` and `new Date` separately, because an alias is one line.
-      if (/\b(?:Date|performance\s*\.\s*now|process\s*\.\s*hrtime|Temporal)\b/u.test(line)) {
+      if (file !== REVIEW_BOOKKEEPING
+        && /\b(?:Date|performance\s*\.\s*now|process\s*\.\s*hrtime|Temporal)\b/u.test(line)) {
         offenders.push(`${where}: names a clock — ${line.trim()}`);
       }
 
@@ -979,7 +1011,10 @@ test('nothing on the memory path can get a timestamp out where it could be compa
           // stands here.
           if (/^\s*(?:<=|>=|<>|<|>|===|!==|==|!=|-)/u.test(line.slice(end))
             || /(?:<=|>=|<>|<|>|===|!==|==|!=|-)\s*$/u.test(line.slice(0, start))) {
-            if (!asksWhetherThereIsOne(line, start, end)) {
+            // Comparing when we last reviewed against when we decided something
+            // is bookkeeping. Comparing a memory's own date against anything is
+            // the thing this file exists to prevent, and stays forbidden here.
+            if (!asksWhetherThereIsOne(line, start, end) && !PROCESS_MOMENTS.includes(match[0])) {
               offenders.push(`${where}: compares a timestamp — ${line.trim()}`);
             }
           }

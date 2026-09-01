@@ -54,10 +54,25 @@ const ENTRANCES = [
   'src/gate.js',
   'src/mcp-main.js',
   'src/mcp-server.js',
+  'src/review-due.js',
   'src/tools.js',
   'scripts/purge-main.mjs',
   'scripts/purge.mjs',
 ];
+
+/**
+ * `review-due.js` joined in 0.0.7, and what it may see is narrower than what
+ * this list can express.
+ *
+ * It answers one question — is a review overdue — and it answers it from
+ * `decisions` and `review_passes` only. It never reads a memory row, and the
+ * date guard in `review.test.js` holds it to that by refusing to let it so much
+ * as name `created_at`. That is the condition on which it is allowed the one
+ * clock in this codebase.
+ *
+ * It is on this list because it reaches the store, which is what the list is
+ * about. Being on it is not permission to read memories.
+ */
 
 /**
  * The modules Phase 3 added, none of which may be on that list.

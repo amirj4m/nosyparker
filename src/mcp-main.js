@@ -35,6 +35,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { defaultStorePath, LOCAL_OWNER, systemClock } from './config.js';
+import { reviewStanding } from './review-due.js';
 import { openStore } from './store.js';
 import { TOOLS } from './tools.js';
 
@@ -225,7 +226,7 @@ function answer(request) {
   }
 
   try {
-    return said(tool.run(store, LOCAL_OWNER, args ?? {}));
+    return said(withReviewStanding(tool, tool.run(store, LOCAL_OWNER, args ?? {})));
   } catch (error) {
     // Everything ends up here: a bad argument, an id that is not there, and a
     // fault nobody foresaw. The store has already rolled back whatever it was
@@ -274,6 +275,32 @@ await server.connect(new StdioServerTransport());
  */
 function said(text, failed = false) {
   return { content: [{ type: 'text', text }], isError: failed };
+}
+
+/**
+ * Append the one line about the store's review, when there is one to append.
+ *
+ * Here rather than in each tool, because "every tool response" has to be
+ * structurally true: a line added tool by tool is a line that is missing from
+ * whichever tool is written next, and this project has spent seven defects on
+ * guards that were true of everything except the thing that mattered.
+ *
+ * Not on the review tools themselves. Somebody calling `review_finding` is
+ * already doing the thing the line asks for, and telling them again on every
+ * finding is how an agent learns to skip the line — which would cost us the one
+ * time it matters. Every other surface still carries it, so a review that is
+ * begun and abandoned does not buy silence: the next `remember` or `recall`
+ * says it again.
+ *
+ * @param {import('./tools.js').Tool} tool
+ * @param {string} text
+ * @returns {string}
+ */
+function withReviewStanding(tool, text) {
+  if (tool.name.startsWith('review_')) return text;
+
+  const standing = reviewStanding(store, LOCAL_OWNER, systemClock());
+  return standing.line === null ? text : `${text}\n\n${standing.line}`;
 }
 
 /**

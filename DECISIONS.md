@@ -1029,6 +1029,130 @@ found. `engines` says `>=22.5.0` and that is still true; nothing about it needed
 changing. The suite failing and the program failing are different problems, and
 this was only ever the first.
 
+## The review had no trigger, and what it cost  [record]
+
+The review mechanism worked from the day it was written. `review_start`,
+`review_finding` and `review_end` all did what they said. It ran **once** — 22
+August, eight minutes, four findings — and never again.
+
+Seventy-nine memories were written after it with no review over any of them. By
+the time anybody counted, roughly **19 of 161 active memories were stale or in
+direct contradiction**, including one saying his phone line was about to be cut
+off for non-payment sitting live beside another recording that he had paid it.
+
+Nothing was broken. The design was that the person's own agent would go and
+review periodically, on its own initiative, and **that part was never built**.
+It only ever ran because a human asked for it, and humans do not remember to ask
+for maintenance of something that is working.
+
+So the store now says the fact out loud, in every tool response, until a review
+is done: how many memories have arrived since the last one and when that was.
+Overdue at twenty memories or seven days, whichever comes first — both from his
+measured rate of about 2.3 memories a day, so they land at roughly weekly for
+him and move with him if the rate changes. They are in one place,
+`REVIEW_IS_DUE_AFTER`, for somebody who wants a different cadence.
+
+**The line this must not cross, and it is the oldest rule here.** No code in
+this project concludes anything from a *memory's* date. Counting our own process
+— how long since we reviewed, how much has arrived since — is bookkeeping.
+Deciding that a particular memory is stale, expired, or due to go is the
+judgement `valid_until` was rejected for, and the reason has not changed: only
+somebody reading the sentence can tell a fact that has gone out of date from one
+that has simply been true for a long time.
+
+That separation is built rather than promised. The calculation reads
+`decisions` and `review_passes` and **never touches a memory row** — it cannot
+rank, select or mark a memory, because it never sees one. The nudge says there
+is unreviewed material and how much. Which memories are wrong is for the agent
+that reads them.
+
+**The guard had to learn a distinction it did not have.** `review.test.js` holds
+the date rule mechanically, and it failed on the first version of this — a clock
+in `review-due.js`, a `decided_at > ?` in `store.js`. It was right to: it could
+not tell `created_at`, which is a memory's date, from `decided_at`, which is a
+note about what we did. The temptation was to widen it until it went quiet,
+which would have thrown away the thing it is for. Instead it now names the two
+sets — `created_at`, `state_at` against `decided_at`, `began_at`, `closed_at`,
+`undone_at` — and permits only the second, and only where the work is.
+
+**The permission is held by its own assertion.** `review-due.js` is allowed the
+one clock in this codebase on the condition that it never so much as names a
+memory's date; the test asserts that before it grants the exemption. Write
+`created_at` into that file and the exemption stops applying and the suite goes
+red. An exemption that is not itself guarded is a hole with a comment over it,
+and this project has spent seven defects on guards that were true of something
+adjacent to the thing they protected.
+
+**Two things settled by deciding.** A pass that was begun and abandoned is not
+"the last review" — it reviewed nothing, and treating it as one would buy
+silence for exactly as long as somebody left it open. Neither is a pass that was
+undone. And the seven-day rule does not fire when nothing has arrived: a review
+with nothing in front of it finds nothing, and a line that appears when there is
+nothing to do is one an agent learns to skip past — which would cost us the one
+time it matters.
+
+## Which of seventeen clients does the review, and the rule we cannot write  [record]
+
+Seventeen clients on his machine are wired to the same store. When the store
+says a review is overdue, all seventeen see it.
+
+**The answer is first come, and the rest stand down by themselves.** While a
+review is open the line changes from "overdue" to saying one is already in
+progress. No configuration, no election, no agent needing to know the others
+exist. A simultaneous start is wasteful rather than dangerous — two open passes
+cannot both retire the same memory, and there is a test that says so — and the
+changed line is what makes it rare rather than what makes it safe.
+
+**The failure that creates.** An agent begins a review and dies: terminal
+closed, session ended, client quit. Nothing in this project tidies an open pass
+away, deliberately — `doctor` reports one and declines to say whether anybody
+will finish it, because that is a judgement about somebody else's intent. If an
+open pass silenced the reminder for good, the store would look perfectly healthy
+while nothing was ever reviewed again. **Silence that looks like health is worse
+than never having had a reminder**, because there is nothing to notice.
+
+So an open review holds the reminder down only while it is plausibly alive:
+**thirty minutes with nothing happening in it**. Idle time rather than total
+time, measured from the last finding recorded in the pass, so a review that
+takes three hours is never called abandoned as long as it is working.
+
+Thirty, because the only review anybody has ever run took eight minutes, and an
+idle gap of nearly four times that with nothing written at all is far more
+likely to be a closed terminal than a thinking agent. It errs short on purpose:
+being wrong towards "abandoned" costs a duplicate review, which is safe; being
+wrong towards "alive" costs the reminder, which is the thing being built. An
+unreadable timestamp counts as idle forever, for the same reason — nothing
+should buy silence on the strength of a value nothing can read.
+
+**Nothing is decided about the pass itself.** It is not closed, marked, or
+tidied. All that is decided is how long to stay quiet, which is a decision about
+our own output rather than about somebody else's review, and that is why it does
+not contradict `doctor` refusing to call an open review abandoned.
+
+### The rule we cannot express, and why it is written here rather than skipped
+
+The right rule is not first-come. **The user should name which client is allowed
+to review.** These seventeen are not equivalent: a small local model judging a
+hundred and sixty sensitive memories badly is worse than no review at all, and
+"whichever got there first" gives that model the same standing as the most
+capable agent on the machine.
+
+**We cannot write that rule, because nothing records which client is calling.**
+Every tool call arrives as `LOCAL_OWNER` and nothing else. `review_start` takes
+a `reviewer` string, but it is free text the caller chooses for itself — it
+identifies whoever wanted to be identified, which is not the same thing and
+cannot be the basis of a permission.
+
+This is the same missing field that made it impossible to say which agent wrote
+the payment card into the store. That was the first thing it cost. **This is the
+second, and it is recorded now so that whenever provenance is built, this is
+waiting as a thing it unlocks** rather than being rediscovered from scratch:
+with a trustworthy caller identity, the reminder can be addressed to one client
+rather than announced to all of them, and everything above becomes the fallback
+for stores that have not named one.
+
+Until then, first come, and it is a compromise rather than a design.
+
 ## What we are, and the one thing to leave room for  [record]
 
 **We are not a place. We are a gate that decides.** The storage is a SQLite file

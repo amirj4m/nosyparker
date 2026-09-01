@@ -462,6 +462,87 @@ END;
 `;
 
 /**
+ * Bookkeeping about this store's own review process, for `review-due.js`.
+ *
+ * These read `review_passes` and `decisions` and deliberately never touch
+ * `memories`. That is not tidiness: the rule this project has held from the
+ * start is that no code concludes anything from a memory's date, and the
+ * cheapest way to keep a rule is to build so that breaking it would require
+ * writing a query that is not here. Counting what this program did, and when it
+ * did it, is bookkeeping. Judging a memory by its age is the thing that is
+ * refused.
+ *
+ * @param {Store} store
+ * @param {string} owner
+ * @returns {{lastClosedAt: string|null, firstDecisionAt: string|null, openPass: {id: number, begunAt: string, beatingAt: string}|null, storedSince: (at: string|null) => number}}
+ */
+export function reviewBookkeeping(store, owner) {
+  const { db } = handleOf(store);
+
+  // A pass that was begun and never closed reviewed nothing; one that was undone
+  // was taken back. Neither is a point to count from, and treating either as the
+  // last review would silence the reminder for exactly as long as somebody left
+  // a review abandoned.
+  const last = /** @type {{closed_at: string}|undefined} */ (
+    /** @type {unknown} */ (db.prepare(
+      `SELECT closed_at FROM review_passes
+        WHERE owner = ? AND closed_at IS NOT NULL AND undone_at IS NULL
+        ORDER BY id DESC LIMIT 1`,
+    ).get(owner))
+  );
+
+  const first = /** @type {{decided_at: string}|undefined} */ (
+    /** @type {unknown} */ (db.prepare(
+      'SELECT decided_at FROM decisions WHERE owner = ? ORDER BY id LIMIT 1',
+    ).get(owner))
+  );
+
+  // The newest pass nobody has closed, and when anything last happened in it.
+  // Ordered by id rather than by a moment: decisions are written in order, so
+  // the highest id in a pass is its latest activity, and asking that way keeps
+  // this clear of the rule against taking the extreme of a timestamp.
+  const open = /** @type {{id: number, began_at: string}|undefined} */ (
+    /** @type {unknown} */ (db.prepare(
+      `SELECT id, began_at FROM review_passes
+        WHERE owner = ? AND closed_at IS NULL AND undone_at IS NULL
+        ORDER BY id DESC LIMIT 1`,
+    ).get(owner))
+  );
+
+  const latest = open === undefined ? undefined : /** @type {{decided_at: string}|undefined} */ (
+    /** @type {unknown} */ (db.prepare(
+      'SELECT decided_at FROM decisions WHERE owner = ? AND pass_id = ? ORDER BY id DESC LIMIT 1',
+    ).get(owner, open.id))
+  );
+
+  return {
+    lastClosedAt: last?.closed_at ?? null,
+    firstDecisionAt: first?.decided_at ?? null,
+    openPass: open === undefined ? null : {
+      id: open.id,
+      begunAt: open.began_at,
+      // Its heartbeat: the last thing that happened in it, or its start if
+      // nothing has yet.
+      beatingAt: latest?.decided_at ?? open.began_at,
+    },
+
+    // `stored` and `superseded` are the two verdicts that record a memory
+    // arriving — on a supersede, `memory_id` is the new one and
+    // `related_memory_id` the one it replaced.
+    storedSince: (at) => Number(/** @type {{n: number}} */ (
+      /** @type {unknown} */ (at === null
+        ? db.prepare(
+          "SELECT count(*) n FROM decisions WHERE owner = ? AND verdict IN ('stored', 'superseded')",
+        ).get(owner)
+        : db.prepare(
+          `SELECT count(*) n FROM decisions
+            WHERE owner = ? AND verdict IN ('stored', 'superseded') AND decided_at > ?`,
+        ).get(owner, at))
+    ).n),
+  };
+}
+
+/**
  * The one index, and it is separate from the schema above on purpose.
  *
  * `SCHEMA` runs for a new store and never again, so anything in it reaches
