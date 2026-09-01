@@ -199,7 +199,7 @@ function digitValue(character) {
  * stored in plain text.
  *
  * Digits are any Unicode decimal digit, not `[0-9]`. `\d` in JavaScript is
- * ASCII even under the `u` flag, so a card written ۵۱۶۷ ۳۲۰۴ ۴۳۷۸ ۰۷۳۹ — which
+ * ASCII even under the `u` flag, so a card written ۴۱۱۱ ۱۱۱۱ ۱۱۱۱ ۱۱۱۱ — which
  * is how a Persian, Arabic, Urdu or Hindi speaker writes one — was not made of
  * digits as far as this function was concerned, and there was nothing for the
  * checksum to look at. It answered "no card here" and the number went into the
