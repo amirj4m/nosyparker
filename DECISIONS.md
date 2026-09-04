@@ -1153,6 +1153,95 @@ for stores that have not named one.
 
 Until then, first come, and it is a compromise rather than a design.
 
+## Where 0.0.7 stands, for whoever picks this up next  [record]
+
+Written for a session starting cold. **0.0.7 is committed and not published.**
+The registry is on 0.0.6 for both `latest` and `beta` — check it rather than
+trusting this sentence, because it has been out of date twice.
+
+### In 0.0.7
+
+- **The README's install block moved to the top.** `nosyparker setup` sat two
+  thirds down the page behind about fifteen hundred words. The same seven lines
+  were lifted to sit under the opening three, with one line on how to know it
+  worked. Nothing was reworded. There is now a check on the opening block,
+  because deleting `nosyparker setup` from it left every test green — the check
+  that looks for that command looks at the whole page and found it further down.
+- **The review reminder.** The store says how many memories have arrived since
+  the last review and when that was, in every tool response, until one is done.
+  Its own section is above.
+- **A real payment card removed from `src/credentials.js`.** See the condition
+  below, which is not finished business.
+
+### Paused mid-flight: the `setup` output
+
+Not started. The intent is staged progress while it runs — finding clients,
+writing entries, asking each one, summarising — with a symbol and a short line
+per client instead of several seconds of silence followed by a wall of prose.
+Every piece of information there today stays; the long explanations move
+underneath a short summary rather than in front of it.
+
+**The constraint that must survive, in full.** A ✓ may appear **only** where a
+client actually started the server and said so. Most of these clients cannot be
+asked at all, and the three groups — answered, written but unconfirmed, did not
+work — have to survive the redesign intact. There is a test named *"the
+verification tiers are the ones the research earned, not one green tick"*, and
+it exists because a tick beside everything is the single easiest way to turn
+this table into a lie. Written-but-unconfirmed needs its own mark, not a
+quieter tick.
+
+**If the visual language cannot carry that distinction honestly, the existing
+prose is better and the redesign should be abandoned rather than softened.**
+Say so and stop; do not ship a prettier version that overstates what is known.
+
+Colour must respect `NO_COLOR` and switch off when stdout is not a terminal —
+the same surface as the pipe defect fixed in 0.0.6.
+
+### Agreed, and deliberately untouched: the README cuts
+
+About four hundred words were identified as cuttable against the four questions
+the README exists to answer — who we are, what it can do, how to install, how to
+remove. **His decision is that the whole README is the last step of the
+project.** They are listed so the work is not redone, and **nobody should act on
+them yet.**
+
+1. **The Cursor `--add-mcp` paragraph** (~90 words). A correctness guarantee
+   about one client of twenty-two, already in `CLIENTS.md` at more length. Cut
+   entirely.
+2. **"What creates `memory.sqlite`"** (~110 words). Answers a question almost
+   nobody asks before installing. Move to `CLIENTS.md` or here, not delete — it
+   is a real answer in the wrong place.
+3. **The npx paragraph** (~70 words). Engineering justification. Cut to one
+   line; the argument is already in this file.
+4. **The Linux-only platform paragraph** in the install section (~50 words).
+   Duplicates `CLIENTS.md` with less detail. Cut, keep the pointer.
+5. **The "three groups" and "five can be asked" explanation** (~120 words).
+   Names specific clients and has already been edited twice this week as the
+   count changed. Compress to one line pointing at `CLIENTS.md`.
+
+Not to be cut: the secrets section with its worked example. It is the clearest
+statement of what the gate is for and the thing that distinguishes this from a
+notes file.
+
+### A known condition, not a task
+
+**The payment card is still in the published npm tarballs and in this
+repository's git history.** It was in `src/credentials.js` from 0.0.3 through
+0.0.6 — verified by downloading and unpacking every published version — and it
+is in three blob versions plus one commit message here. 0.0.1 and 0.0.2 are
+clean. It is the card number alone: no expiry, no CVV, no cardholder name,
+established by scanning every published version and every blob in history for
+either.
+
+**Taking it out of the working tree did not take it out of either place.**
+Rewriting history would change every commit from `1a00c0b98` onward and would
+not remove what the registry has already served.
+
+**That is his decision and he has made it: he judged the risk low and is
+handling the card himself.** This is recorded so that the next person does not
+discover it and panic, and does not quietly rewrite history or deprecate a
+published version without asking him first. Do neither.
+
 ## What we are, and the one thing to leave room for  [record]
 
 **We are not a place. We are a gate that decides.** The storage is a SQLite file
