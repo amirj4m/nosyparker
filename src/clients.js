@@ -284,7 +284,9 @@ export function fillArgv(argv, client, values) {
  * somebody's home directory, or writing a stabler-looking path that is not the
  * interpreter we verified against. So the honest answer is that changing Node
  * means running `setup` again, and the honest thing to do is say so — which the
- * report does, naming the exact path it wrote, every time it writes one.
+ * report does, naming the exact path it wrote, every time it writes one; and
+ * which the terminal does afterwards, the first time a store command runs on a
+ * machine where that path has gone. See `stale.js`.
  *
  * @returns {{command: string, serverPath: string}}
  */

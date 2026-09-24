@@ -19,10 +19,12 @@
 
 import fs from 'node:fs';
 
+import { defaultBackupDir } from './backup.js';
 import { defaultStorePath, LOCAL_OWNER, systemClock } from './config.js';
 import { exportAll, writeExport } from './export.js';
 import { forget, restore, screenQuery, submit, undoReview } from './gate.js';
-import { invocation } from './clients.js';
+import { invocation, serverCommand } from './clients.js';
+import { staleWiring } from './stale.js';
 import { diagnose, reportDiagnosis } from './doctor.js';
 import { defaultIo, install, ioWithLog, printConfig, Refusal, report, reportRemoval, uninstall } from './setup.js';
 import { listDecisions, listMemories, openStore, searchMemories } from './store.js';
@@ -90,6 +92,18 @@ function main(argv) {
   if (!STORE_COMMANDS.includes(command)) {
     fail(`There is no command called "${command}".`);
   }
+
+  // Before the store is opened, and only for the commands that open one: a
+  // person at a terminal on a new Node is the one moment anything can notice
+  // that the entries name an old one. One line, on stderr, so a search piped
+  // somewhere sees exactly what it saw before. `setup` fixes it and `doctor`
+  // itemises it, so neither of those is told.
+  const stale = staleWiring({
+    backupDir: defaultBackupDir(),
+    interpreter: process.execPath,
+    serverPath: serverCommand().serverPath,
+  });
+  if (stale !== null) process.stderr.write(`${stale}\n\n`);
 
   // Opening can fail, and the one way it is meant to is worth catching: a
   // store written by a different version of this code is refused at the door,

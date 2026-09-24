@@ -257,6 +257,15 @@ wrote it, and a version manager moves that path when you switch versions; the
 client then cannot start the server and mostly will not say so. `doctor` reads
 the path out of each entry and tells you if it is no longer there.
 
+You do not have to remember that. Setup writes down which interpreter, and
+which copy of nosyparker, each entry was written with, and the next time you
+run any command that opens the store — `add`, `list`, `search`, `log`,
+`export` — on a machine where that path has gone, it says so in one line on
+stderr and names `setup` and `doctor`. It stays quiet while the old
+interpreter still exists, because then the entries still work, and it says
+nothing about entries written by a version older than 0.0.7, which recorded
+nothing to compare against; run `setup` once and it will.
+
 It also checks that each entry is still exactly what `setup` would write, asks
 the clients that can answer whether they are using the server, and says plainly
 which clients cannot be asked at all. And if `setup` installed into a client

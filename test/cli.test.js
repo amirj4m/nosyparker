@@ -581,3 +581,35 @@ test('started through the shim, the sentences it prints name the command', (t) =
   assert.match(out, /nosyparker add "<text>"/u, 'it should name the command it was started as');
   assert.doesNotMatch(out, /node .*src\/cli\.js add/u, 'it named a path instead');
 });
+
+test('a store command says on stderr when the entries name an interpreter that has gone', (t) => {
+  // Under a sandboxed home, because the real one holds the owner's manifest.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-cli-home-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+
+  const backups = path.join(home, '.nosyparker', 'backups');
+  fs.mkdirSync(backups, { recursive: true });
+  fs.writeFileSync(path.join(backups, 'manifest.json'), JSON.stringify({
+    'cursor.mcp.json': {
+      path: path.join(home, '.cursor', 'mcp.json'), backup: null, existed: false,
+      takenAt: '2026-09-24T10:00:00.000Z', client: 'cursor',
+      wroteWith: { interpreter: path.join(home, 'gone', 'node'), serverPath: fileURLToPath(new URL('../src/mcp-server.js', import.meta.url)) },
+    },
+  }));
+
+  const run = (/** @type {string[]} */ args) => spawnSync(process.execPath, [CLI, ...args], {
+    encoding: 'utf8',
+    env: sandboxEnv(home),
+  });
+
+  const listed = run(['list']);
+  assert.equal(listed.status, 0, 'the line is a note, not a failure');
+  assert.equal(listed.stdout, 'Nothing stored yet.\n', 'stdout must be exactly what it was');
+  assert.match(listed.stderr, /entries setup wrote for one client start the server with .*gone\/node, which is not there any more/u);
+  assert.match(listed.stderr, /setup` to rewrite them/u);
+
+  // Not for the commands that would fix or itemise it, and not for a name that
+  // is not a command.
+  assert.doesNotMatch(run(['setup', '--print-config']).stderr, /not there any more/u);
+  assert.doesNotMatch(run(['--help']).stderr, /not there any more/u);
+});

@@ -19,7 +19,9 @@
  * a version manager moves that path when you switch versions and every entry
  * then points at nothing — silently, because a client that cannot start a
  * server mostly does not mention it. That was a known failure with no detection
- * behind it. This is the detection.
+ * behind it. This is the detection, and `stale.js` is what sends somebody here:
+ * it says one line at the terminal when a recorded interpreter has gone, and
+ * this is the command that says which clients.
  *
  * **The entry is still ours.** Present, well-formed, and identical to what
  * `setup` would write today. The last part is free and is the interesting one:

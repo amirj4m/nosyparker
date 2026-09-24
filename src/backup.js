@@ -215,6 +215,61 @@ export function recordRemoval(file, backupDir) {
 }
 
 /**
+ * Write down what an entry was just written with, so the terminal can notice
+ * when that stops existing.
+ *
+ * Two paths, both absolute, both baked into the entry: the interpreter, which a
+ * version manager moves when a Node version is switched or removed, and this
+ * copy of the server, which `npm install -g` under a different prefix moves too.
+ * `doctor` reads them back out of each client's file; this is the copy that
+ * `stale.js` can compare against without opening anybody else's file at all.
+ *
+ * Written after the write landed rather than on first touch, because the first
+ * touch is a record of what was there before us and this is a record of what we
+ * did, and because a second `setup` under a new Node has to update it — the
+ * whole point is that it tracks the entry as it is now.
+ *
+ * @param {string} file
+ * @param {string} backupDir
+ * @param {{interpreter: string, serverPath: string}} wroteWith
+ * @returns {void}
+ */
+export function recordWrittenWith(file, backupDir, wroteWith) {
+  const manifestPath = path.join(backupDir, MANIFEST_NAME);
+  const manifest = readManifest(manifestPath);
+
+  const name = Object.keys(manifest).find((key) => manifest[key].path === file);
+  if (name === undefined) return;
+
+  manifest[name] = { ...manifest[name], wroteWith };
+  writeManifest(manifestPath, manifest);
+}
+
+/**
+ * The entry came out, so there is nothing left to go stale.
+ *
+ * Called on both removal paths — the client's own command and our edit — which
+ * is one more place than `recordRemoval`, because that one answers a different
+ * question and is deliberately permanent. This one is about the entry that is
+ * in the file now, and there is not one.
+ *
+ * @param {string} file
+ * @param {string} backupDir
+ * @returns {void}
+ */
+export function forgetWrittenWith(file, backupDir) {
+  const manifestPath = path.join(backupDir, MANIFEST_NAME);
+  const manifest = readManifest(manifestPath);
+
+  const name = Object.keys(manifest).find((key) => manifest[key].path === file);
+  if (name === undefined || manifest[name].wroteWith === undefined) return;
+
+  const { wroteWith, ...rest } = manifest[name];
+  manifest[name] = rest;
+  writeManifest(manifestPath, manifest);
+}
+
+/**
  * Is there anything at this path at all, link or file.
  *
  * `existsSync` follows links and so answers no for one pointing at nothing,
@@ -255,7 +310,7 @@ function missingAncestors(file) {
 
 /**
  * @param {string} manifestPath
- * @returns {Record<string, {path: string, backup: string|null, existed: boolean, takenAt: string, client: string, created?: string[], whyNoBackup?: string, rootKeyExisted?: boolean, target?: string, removedFrom?: boolean}>}
+ * @returns {Record<string, {path: string, backup: string|null, existed: boolean, takenAt: string, client: string, created?: string[], whyNoBackup?: string, rootKeyExisted?: boolean, target?: string, removedFrom?: boolean, wroteWith?: {interpreter: string, serverPath: string}}>}
  */
 export function readManifest(manifestPath) {
   try {

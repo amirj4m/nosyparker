@@ -49,7 +49,7 @@ import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 
 import { fillArgv, fillTokens, invocation } from './clients.js';
-import { manifestRowFor, recordFirstTouch, recordRemoval } from './backup.js';
+import { forgetWrittenWith, manifestRowFor, recordFirstTouch, recordRemoval, recordWrittenWith } from './backup.js';
 import { anyRunning } from './detect.js';
 import { noLog } from './log.js';
 import {
@@ -150,9 +150,20 @@ export function writeToClient(client, options) {
       return result(client.write.method, options.configPath, null, NOT_WRITTEN, protectedFile, READ_ONLY);
     }
 
-    return client.write.method === 'cli'
+    const written = client.write.method === 'cli'
       ? writeThroughCli(client, options, request)
       : writeThroughFile(client, options, request);
+
+    // What the entry now names, so the terminal can say when it stops
+    // existing. Unchanged counts: the entry is ours and it is current.
+    if (written.outcome === WRITTEN || written.outcome === UNCHANGED) {
+      recordWrittenWith(options.configPath, options.backupDir, {
+        interpreter: options.command,
+        serverPath: options.serverPath,
+      });
+    }
+
+    return written;
   } catch (error) {
     return result(client.write.method, options.configPath, null, FAILED, sentence(error));
   }
@@ -209,6 +220,7 @@ export function removeFromClient(client, options) {
       }
 
       log(options).record('removed', { client: client.id, path: options.configPath, by: path.basename(argv[0]) });
+      forgetWrittenWith(options.configPath, options.backupDir);
       removeWhatWasOnlyEverOurs(client, options, request);
       return result('cli', options.configPath, null, REMOVED, null);
     }
@@ -253,6 +265,7 @@ export function removeFromClient(client, options) {
     // cannot otherwise tell an ordinary repeat from a table that names the
     // wrong file — see `recordRemoval`.
     recordRemoval(options.configPath, options.backupDir);
+    forgetWrittenWith(options.configPath, options.backupDir);
     if (hasEntry(readBack, request)) {
       return result('file', options.configPath, null, FAILED,
         'The entry is still in the file after being removed from it.');

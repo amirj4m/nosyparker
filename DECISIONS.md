@@ -1374,6 +1374,39 @@ empty, locally and on the remote. Deleted in both places on 24 September 2026.
 Nothing was lost; the commits are all on `main`, and the branch name is in the
 merge commit `a5fadac` for anybody looking for it.
 
+### The interpreter goes away, and now something says so
+
+Every entry names `process.execPath` in full, for a reason `clients.js` has
+carried since the day it was chosen: a client started from a desktop icon has no
+PATH. The cost was written beside it — switch or remove that Node and every
+entry points at nothing, silently. `doctor` has detected that since Phase 4.
+Nothing prompted anybody to run `doctor`, so the detection was a thing a person
+had to already suspect.
+
+**The least intrusive mechanism found, and what was rejected on the way.**
+Reading the client files at the terminal, the way `doctor` does, was rejected:
+twenty-two files belonging to other programs on every `list` is a cost this
+project has refused before. Warning inside the MCP server was rejected as
+impossible: a server whose interpreter is gone never starts. A third file in
+`~/.nosyparker/` was rejected because the README says what is in that folder
+and the README is not to be touched. Parsing `actions.log` for the last
+`setup` run would work and was set aside for a record with a shape.
+
+So `write.js` writes `wroteWith: {interpreter, serverPath}` onto the manifest
+row when a write lands — including an unchanged one, since the entry is ours and
+current — and both removal paths take it off again. `stale.js` reads that one
+file of ours, compares each row against the Node that is running and the copy
+of the server that is, and if a recorded path no longer exists, `cli-main.js`
+says one line on stderr before opening the store. Stderr so that a piped search
+is unchanged. Only for store commands, since `setup` fixes it and `doctor`
+itemises it. And only when the recorded path is *gone*: a shell on Node 24
+while the entries name a Node 22 that is still installed is a machine that
+works, and a line there is a line people learn to skip.
+
+Entries written by 0.0.6 and earlier have no record and get no line. Comparing
+against a record that was never taken would be a guess about somebody's
+machine, and this project does not print those. One `setup` writes the record.
+
 ## What we are, and the one thing to leave room for  [record]
 
 **We are not a place. We are a gate that decides.** The storage is a SQLite file

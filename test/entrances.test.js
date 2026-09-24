@@ -102,6 +102,7 @@ const PHASE_3 = [
   'src/edit.js',
   'src/log.js',
   'src/setup.js',
+  'src/stale.js',
   'src/verify.js',
   'src/write.js',
   'scripts/drift.mjs',

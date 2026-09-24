@@ -16,6 +16,8 @@ import test from 'node:test';
 
 import { defaultIo, install, printConfig, refuseNpxCache, report, reportRemoval, uninstall } from '../src/setup.js';
 import { ABSENT, REMOVED } from '../src/write.js';
+import { MANIFEST_NAME, readManifest } from '../src/backup.js';
+import { staleWiring } from '../src/stale.js';
 
 /**
  * @param {import('node:test').TestContext} t
@@ -1224,4 +1226,54 @@ test('a second surface with nothing of ours in it is not touched, backed up, or 
   assert.equal(fs.statSync(theirs).mtimeMs, stamp, 'the file was touched');
   assert.equal(fs.existsSync(io.backupDir), false, 'a backup was taken of a file we never edited');
   assert.match(printed(), /Nothing to remove/u, 'it claimed to have removed something');
+});
+
+test('setup writes down what each entry was written with, and uninstall crosses it out', (t) => {
+  // The one way an install breaks silently is a Node version switch moving
+  // the interpreter every entry names. `doctor` finds it; this record is what
+  // lets the terminal prompt somebody to run `doctor` without opening any
+  // client's file. Gemini is written by us and Claude Code by its own command,
+  // and both rows have to carry it — the path goes stale either way.
+  // Claude Code is found through the fallback path its row names, and its
+  // command is a stub that does what `claude mcp add` and `remove` do to
+  // ~/.claude.json, because the write-through-CLI path reads the file back and
+  // believes nothing the command says.
+  const { io, home } = machine(t, {
+    files: ['.gemini/', '.claude.json', '.claude/settings.json', '.config/Claude/claude-code/1.0.0/claude'],
+    run: (argv) => {
+      const file = path.join(home, '.claude.json');
+      if (argv[1] === 'mcp' && argv[2] === 'add') {
+        fs.writeFileSync(file,
+          JSON.stringify({ mcpServers: { nosyparker: { command: argv[7], args: [argv[8]] } } }));
+      }
+      if (argv[1] === 'mcp' && argv[2] === 'remove') fs.writeFileSync(file, '{}');
+      return { status: 0, stdout: '', stderr: '' };
+    },
+  });
+
+  install(io);
+
+  const manifest = () => readManifest(path.join(io.backupDir, MANIFEST_NAME));
+  for (const client of ['gemini-cli', 'claude-code']) {
+    const row = Object.values(manifest()).find((candidate) => candidate.client === client);
+    assert.deepEqual(row?.wroteWith, { interpreter: '/usr/bin/node', serverPath: '/srv/mcp-server.js' },
+      `${client} does not say what it was written with`);
+  }
+
+  // Nothing to say while the interpreter is the one running.
+  assert.equal(staleWiring({ backupDir: io.backupDir, interpreter: '/usr/bin/node', serverPath: '/srv/mcp-server.js' }), null);
+
+  // A second run under a new interpreter updates the record rather than
+  // keeping the first — the record is of the entry as it is now.
+  install({ ...io, command: path.join(home, 'bin', 'node') });
+  const gemini = Object.values(manifest()).find((candidate) => candidate.client === 'gemini-cli');
+  assert.equal(gemini?.wroteWith?.interpreter, path.join(home, 'bin', 'node'));
+
+  uninstall(io);
+
+  for (const row of Object.values(manifest())) {
+    assert.equal(row.wroteWith, undefined, `${row.client} still says what it was written with after uninstall`);
+  }
+  assert.equal(staleWiring({ backupDir: io.backupDir, interpreter: '/elsewhere/node', serverPath: '/srv/mcp-server.js' }), null,
+    'after uninstall there is nothing to go stale');
 });
