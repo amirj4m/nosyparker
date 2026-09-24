@@ -1366,6 +1366,14 @@ of two test files — which is the difference between a tidy-up and a mechanism.
 parameters kept to make a signature read correctly, and renaming them with an
 underscore to satisfy a flag is a cost with nothing on the other side of it.
 
+### One branch, fully merged, deleted
+
+`clients-hermes-openclaw-and-three-untested` was nine commits behind `main`
+with nothing on it that `main` did not have — `git log main..branch` was
+empty, locally and on the remote. Deleted in both places on 24 September 2026.
+Nothing was lost; the commits are all on `main`, and the branch name is in the
+merge commit `a5fadac` for anybody looking for it.
+
 ## What we are, and the one thing to leave room for  [record]
 
 **We are not a place. We are a gate that decides.** The storage is a SQLite file
