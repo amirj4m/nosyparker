@@ -5,7 +5,9 @@ that will run on Windows, written on Linux by a session that has never seen this
 program run anywhere else. Everything it says about Windows is either a quotation
 of our own source or an admission that we do not know.
 
-Written 2026-08-20, against `nosyparker@0.0.2`, commit `18e0844`.
+Written 2026-08-20, against `nosyparker@0.0.2`, commit `18e0844`; the counts
+and command list below were brought up to date on 2026-09-24 against 0.0.7.
+Nothing else in it has been revisited since it was written.
 
 This document is deliberately **not** in `package.json`'s `files` list. It is a
 working note between the people building this, not something a person who
@@ -51,7 +53,8 @@ npm test
 npm run typecheck
 ```
 
-On Linux that is 455 tests passing and a silent typecheck. **Whatever it does on
+On Linux that is the whole suite passing — 556 tests at 0.0.7, and the number
+only grows — and a silent typecheck. **Whatever it does on
 Windows is your first finding, and it is worth writing down before you do
 anything else** — including if it is a clean pass. A suite that fails here tells
 you which of the sections below to read first; a suite that passes tells you the
@@ -63,9 +66,9 @@ Run one file at a time with `node --test test/setup.test.js`.
 
 ### The commands this program has
 
-`setup`, `uninstall`, `doctor`, and then the store itself: `add`, `search`,
-`list`, `log`, `forget`, `restore`, `undo-review`, `export`. There is no
-`--help`; an unknown command says so and exits non-zero.
+`setup`, `uninstall`, `uninstall <client>`, `doctor`, and then the store
+itself: `add`, `search`, `list`, `log`, `forget`, `restore`, `undo-review`,
+`export`. There is no `--help`; an unknown command says so and exits non-zero.
 
 **The one to start with is `nosyparker setup --print-config`.** It prints the
 entry that *would* be written for each detected client and **writes nothing to

@@ -1194,9 +1194,11 @@ Until then, first come, and it is a compromise rather than a design.
 
 ## Where 0.0.7 stands, for whoever picks this up next  [record]
 
-Written for a session starting cold. **0.0.7 is committed and not published.**
-The registry is on 0.0.6 for both `latest` and `beta` — check it rather than
-trusting this sentence, because it has been out of date twice.
+Written for a session starting cold on 4 September. **Superseded on
+24 September 2026:** 0.0.7 was published through the workflow that day, with
+the Phase 1 changes recorded in their own section below on top of the three
+listed here. This section is kept as the record of where things stood between
+the two dates; the registry, not this sentence, says what is current.
 
 ### In 0.0.7
 
