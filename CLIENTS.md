@@ -297,6 +297,20 @@ mean "you have clients installed" rather than "something needs attention".
 
 ---
 
+## What creates `memory.sqlite`
+
+If you are wondering where the memory file came from: two things, and only two. Storing something — `nosyparker add`, or an agent calling
+`remember` — makes it, which is what you asked for. And an agent's client
+connecting to the server makes it at connection time, before any tool is called:
+wiring a client to a memory server is a statement of intent, and the file being
+there is what lets several agents share it.
+
+Nothing else does. `list`, `log`, `search` and `export` answer from an empty
+store held in memory when there is no file, so asking what is stored never
+creates the thing that stores it. Neither do `nosyparker --help` and
+`nosyparker --version`, nor a command it does not have, which is refused in a
+sentence and leaves nothing behind.
+
 ## If your configs are symlinks
 
 Keeping dotfiles in a repository and linking them into place is a common

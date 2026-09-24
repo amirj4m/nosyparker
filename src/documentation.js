@@ -269,9 +269,12 @@ export function checkDocumentation(root = repositoryRoot(), workingNotes = []) {
       ];
     })()),
 
-    check('the README names every client that can confirm the server started',
-      clients.filter((client) => client.verify.tier === 'A' && !readme.includes(client.name))
-        .map((client) => `the README does not name ${client.id}`)),
+    check('CLIENTS.md names every client that can confirm the server started',
+      // The README named them until cut 5 on 24 September 2026; it now says
+      // how many clients there are and points here. The claim moved, and the
+      // check moved with it rather than being dropped.
+      clients.filter((client) => client.verify.tier === 'A' && !clientsMd.includes(client.name))
+        .map((client) => `CLIENTS.md does not name ${client.id}`)),
 
     check('the README is four sections, counting the one without a heading',
       readme.split('\n## ').length - 1 === 3
@@ -419,9 +422,10 @@ export function checkDocumentation(root = repositoryRoot(), workingNotes = []) {
       return wrong;
     })()),
 
-    check('the README names the commands that do not create a memory store', (() => {
+    check('CLIENTS.md names the commands that do not create a memory store', (() => {
       // A fifth review asked that "what created this file" be answerable
-      // without reading source. The README answers it — and this keeps the
+      // without reading source. The answer was in the README until cut 2 on
+      // 24 September 2026 and is in CLIENTS.md now — and this keeps the
       // answer true, by taking the list out of `cli-main.js` rather than
       // trusting the paragraph to be updated alongside it.
       const source = read('src/cli-main.js');
@@ -435,20 +439,20 @@ export function checkDocumentation(root = repositoryRoot(), workingNotes = []) {
       // the third time a check here has been satisfied by unrelated text, and
       // the answer is the same each time: ask about the thing, not about
       // something near it.
-      const marker = readme.indexOf('What creates `memory.sqlite`');
-      if (marker === -1) return ['the README does not say what creates the memory store'];
+      const marker = clientsMd.indexOf('## What creates `memory.sqlite`');
+      if (marker === -1) return ['CLIENTS.md does not say what creates the memory store'];
 
       // To the end of that section, because the answer runs to a second
       // paragraph — and stopping at the first blank line found the sentence
       // that says what *does* create the file while missing the one that lists
       // what does not, which is the half being checked.
-      const ends = readme.indexOf('\n## ', marker);
-      const paragraph = readme.slice(marker, ends === -1 ? undefined : ends);
+      const ends = clientsMd.indexOf('\n## ', marker + 3);
+      const paragraph = clientsMd.slice(marker, ends === -1 ? undefined : ends);
 
       return [...listed[1].matchAll(/'([^']+)'/gu)]
         .map((match) => match[1])
         .filter((command) => !paragraph.replaceAll(/\s+/gu, ' ').includes(`\`${command}\``))
-        .map((command) => `the README does not say \`${command}\` leaves no store behind`);
+        .map((command) => `CLIENTS.md does not say \`${command}\` leaves no store behind`);
     })()),
 
     check('no document states one platform\'s path as if it were everyone\'s', (() => {

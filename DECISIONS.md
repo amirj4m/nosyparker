@@ -1242,9 +1242,18 @@ the same surface as the pipe defect fixed in 0.0.6.
 
 About four hundred words were identified as cuttable against the four questions
 the README exists to answer — who we are, what it can do, how to install, how to
-remove. **His decision is that the whole README is the last step of the
-project.** They are listed so the work is not redone, and **nobody should act on
-them yet.**
+remove. His decision on 4 September was that the whole README is the last step
+of the project. **On 24 September he ruled on them: cuts 1, 2, 3 and 5 are
+done, in commit `README cuts 1, 2, 3 and 5`; cut 4 stays**, in his words
+"keep the Linux paragraph, we will test Windows and macOS and then add them to
+it". So that paragraph is not cut now and must not be cut later by somebody
+reading this list: it is rewritten with measured facts once both platform
+sessions in PLATFORMS.md are done, and until then it is the one sentence in
+the README that says what has and has not been watched. Cut 2 moved the
+section to CLIENTS.md and the check that anchored on its heading moved with
+it; cut 5 kept "twenty-two clients" and moved the check that the tier-A
+clients are named from the README to CLIENTS.md, which is where the names now
+are, and no further.
 
 1. **The Cursor `--add-mcp` paragraph** (~90 words). A correctness guarantee
    about one client of twenty-two, already in `CLIENTS.md` at more length. Cut

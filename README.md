@@ -129,34 +129,17 @@ node "$(npm root -g)/nosyparker/scripts/purge.mjs" --id 4 --yes
 
 ## Installing it
 
-Install it globally rather than through `npx`. Setup writes the path it is
-running from into every config it touches, and npx keeps a separate copy per
-version in a cache — those entries would keep pointing at a copy you had moved
-on from. Setup refuses to run from there and says so, rather than writing
-twenty-two paths that quietly rot.
+Install it globally rather than through `npx`: setup writes the path it is
+running from into every config it touches, and refuses to run from an npx
+cache, where that path rots.
 
-It looks for twenty-two clients, writes its entry into the ones it finds, and sorts
-them into three groups: the ones that answered us, the ones you should check
-yourself, and the ones that did not work, with the reason.
-
-The middle group is most of them, because most of these applications offer no
-way to be asked. Five can be — Claude Code, Gemini CLI, opencode, Hermes and
-OpenClaw — and two more, Codex and Goose, will show you their own parsed
-configuration with our entry in it, which is not the same thing. For the rest,
-open the client and ask the agent something it could only know from your shared
-memory. Ten seconds, once per client.
-
-[CLIENTS.md](CLIENTS.md) lists all twenty-two and says which group each is in.
+It looks for twenty-two clients, writes its entry into the ones it finds, and
+sorts them into three groups — the ones that answered us, the ones you should
+check yourself, and the ones that did not work, with the reason.
+[CLIENTS.md](CLIENTS.md) lists all of them and says which group each is in.
 
 It only ever adds or removes its own entry, and where it edits a config file it
 keeps a copy in `~/.nosyparker/backups/` first, never replaced.
-
-One thing it does that is worth knowing: Cursor's own `--add-mcp` writes its
-server into Cursor's user settings file — on Linux `~/.config/Cursor/User/
-settings.json` — which is where Cursor also keeps your editor settings. If that
-entry is there, `uninstall` takes it out, after copying the file. It is our
-entry wherever it ended up, and leaving it behind would mean `uninstall` did not
-do what this page says it does. Nothing else in that file is touched.
 
 Linux is the only platform any of this has been watched on. The macOS and
 Windows locations are the standard ones those builds use and have not been
@@ -264,16 +247,3 @@ anything, rather than doing the whole migration and failing at the last step.
 And if a `.migrating` file is left behind, it tells you which of the two
 situations you are in: a run that changed nothing, which you can move aside and
 retry, or one it cannot account for, which it will not touch.
-
-**What creates `memory.sqlite`, if you are wondering where it came from.** Two
-things, and only two. Storing something — `nosyparker add`, or an agent calling
-`remember` — makes it, which is what you asked for. And an agent's client
-connecting to the server makes it at connection time, before any tool is called:
-wiring a client to a memory server is a statement of intent, and the file being
-there is what lets several agents share it.
-
-Nothing else does. `list`, `log`, `search` and `export` answer from an empty
-store held in memory when there is no file, so asking what is stored never
-creates the thing that stores it. Neither do `nosyparker --help` and
-`nosyparker --version`, nor a command it does not have, which is refused in a
-sentence and leaves nothing behind.

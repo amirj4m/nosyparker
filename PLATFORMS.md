@@ -98,32 +98,90 @@ whether the machine agrees, and after `setup` whether each entry landed. It
 is not in the package. The paid or evening hours go on running things and
 reading output; nothing has to be worked out live.
 
-The sequence is the same on both platforms:
+The sequence is the same on both platforms. It is written for somebody at a
+keyboard late in the day: type each line, read what it prints, write down what
+it says, move on. Nothing in it asks for a judgement until step 8, and that
+one is yes or no.
 
-```
-git clone https://github.com/amirj4m/nosyparker.git && cd nosyparker && npm ci
-npm test                                        # first finding: does the suite pass here
-node scripts/platform-check.mjs --template > results.md   # the table to fill in
-node scripts/platform-check.mjs                 # what is here, where each row would write
-npm install -g nosyparker                       # the registry copy, not the checkout
-nosyparker setup --print-config                 # the shape it would write, writes nothing
-nosyparker setup                                # writes; read the three groups
-node scripts/platform-check.mjs --after-setup   # did each entry land, does it name a real Node
-#   open each application, ask the agent something only the shared memory knows, fill the table
-nosyparker doctor
-nosyparker uninstall
-node scripts/platform-check.mjs --after-uninstall
-```
+**Before you start:** have the accounts and keys for the applications you will
+sign in to ready in a password manager, and have the applications you want
+tested installed and opened once. Quit Claude Desktop and Devin if they are
+running. Use PowerShell on Windows and Terminal on macOS; `~` below means your
+home folder.
 
-`--print-config` before `setup` is the step that settles claim 1 for a row
-without writing: the path it prints is compared with where the installed
-application actually keeps its MCP settings, which its own settings screen or
-first launch shows. Install the registry copy rather than linking the
-checkout, so the entries name a path a stranger would have.
+1. Get the code and run its tests. Let the tests run to the end even if they
+   fail — a failure is the first finding, not a reason to stop:
+   ```
+   git clone https://github.com/amirj4m/nosyparker.git
+   cd nosyparker
+   npm ci
+   npm test
+   ```
+   **Record:** the last five lines (`# tests`, `# pass`, `# fail`…), and every
+   `not ok` line, pasted verbatim.
 
-Put nothing real in the store — the sentence to store is "the test phrase is
-purple giraffe", and the question to ask each agent is "what is the test
-phrase?". Use a throwaway user account on Windows if the machine is shared.
+2. Make the results table and see what the table thinks of this machine:
+   ```
+   node scripts/platform-check.mjs --template > results.md
+   node scripts/platform-check.mjs
+   ```
+   **Record:** nothing yet. Read it. Every row says *not installed*, *file
+   exists*, *file absent*, or *installed, path unknown*; the last kind is a
+   row you can add by finding where that application keeps its MCP settings.
+
+3. Install the published copy — not the checkout — and see what it would write:
+   ```
+   npm install -g nosyparker
+   nosyparker --version
+   nosyparker setup --print-config
+   ```
+   **Record:** for each installed row, does the path `--print-config` prints
+   match where the application actually keeps its MCP settings? Open the
+   application's own settings or its documentation for the platform you are
+   on. Fill the *table path right?* column: `yes`, or `no` plus the real path
+   in the next column. This is the column the whole exercise is for.
+
+4. Wire everything:
+   ```
+   nosyparker setup
+   node scripts/platform-check.mjs --after-setup
+   ```
+   **Record:** from `setup`, which group each row landed in (answered /
+   written but unconfirmed / not done, with its reason); from the script, `ok`
+   or `FAIL` per row into *setup wrote*.
+
+5. Store the test phrase — the store is empty on a fresh machine and the agents
+   need something to find:
+   ```
+   nosyparker add "the test phrase is purple giraffe"
+   nosyparker list
+   ```
+
+6. Open each application in turn, start a new session, and ask it: *what is the
+   test phrase?* The `--after-setup` output says, per row, how to restart it.
+   For the ones a command can ask, the command is in that output too and
+   `setup` already ran it. **Record:** *agent answered* as `yes` (it said purple
+   giraffe), `no` (it did not, or said it has no such tool), or `no account`
+   (you could not sign in). A `no` is a finding; write what it said instead.
+
+7. Ask the program what it thinks now, then take everything out again:
+   ```
+   nosyparker doctor
+   nosyparker uninstall
+   node scripts/platform-check.mjs --after-uninstall
+   ```
+   **Record:** *uninstall clean* per row from the script, and whether `doctor`
+   said anything you disagree with.
+
+8. Look at `results.md`. Every row you touched has every column filled with a
+   word, not a dash. Save it, and the `npm test` output from step 1, and send
+   both back. The only judgement in the whole sheet is step 3's yes/no, and
+   the real path if no.
+
+Put nothing real in the store: "the test phrase is purple giraffe" is the only
+sentence to store, and the test store is removed afterwards with
+`nosyparker uninstall` and by deleting `~/.nosyparker`. Use a throwaway user
+account on Windows if the machine is shared.
 
 ### macOS: a rented machine, once
 
