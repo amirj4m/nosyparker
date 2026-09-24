@@ -1599,6 +1599,50 @@ and a test that reads the `on:` block and fails on any third trigger by name
 and on a release type other than `published`. 0.0.7 is the first release to go
 through it.
 
+### 0.0.7: the first release through the workflow, and where it stopped
+
+Cut on 24 September 2026 as a GitHub release, tag `v0.0.7`, on `58fc6a8`. It
+is the first tag and the first release this repository has ever had; the six
+versions before it went to npm by hand. The tarball was inspected before the
+tag: thirty-eight files, no path naming a home directory, no digit run passing
+the Luhn check other than the documented test card, and the only
+credential-shaped text is the labelled examples in comments that the gate's
+own tests need.
+
+`publish.yml` ran twice as a dry run first. The first dry run failed inside
+the suite: the job installs `npm@latest`, and npm 11 prints `npm pack --json`
+as an object keyed by package name where npm 10 printed a list, so the six
+tests that read the tarball listing read `.files` of `undefined`. That is now
+read both ways and was the first thing the workflow found — which is what a
+dry run is for. The second dry run passed end to end.
+
+**The real run reached the publish step and stopped there with `ENEEDAUTH`.**
+Everything before it passed: owner check, typecheck, suite, tag and manifest
+agree on 0.0.7, 0.0.7 not on the registry, `npm pack --dry-run`. The publish
+step has no credential to use. `NODE_AUTH_TOKEN` was empty, because no
+`NPM_TOKEN` secret exists on the repository — deliberately, after two npm
+tokens were found in plaintext on a laptop — and npm's trusted publishing,
+which the workflow is written for, is not configured for this package on
+npmjs.com. The workflow was right to refuse; the design says refusing beats
+guessing, and nothing was hand-published around it.
+
+**What has to be set up, once, by whoever owns the package on npmjs.com.**
+On npmjs.com, open the `nosyparker` package, *Settings*, *Trusted Publisher*,
+and add a GitHub Actions publisher with: owner `amirj4m`, repository
+`nosyparker`, workflow filename `publish.yml`, environment left blank. No
+token is created and nothing is stored anywhere; the job proves who it is with
+a short-lived OIDC token, which is what `id-token: write` in the workflow is
+for. The job already installs a new enough npm (12.1.0 on this run) and runs
+on a new enough Node. Then re-run the failed run — `gh run rerun 35986782960`,
+or *Re-run all jobs* on its page — and it publishes the tagged commit; the
+release does not need cutting again. The alternative, a granular access token
+with publish rights stored as the `NPM_TOKEN` secret, also works and is the
+thing this project has already been burned by twice; npm is restricting tokens
+that bypass two-factor for exactly this use.
+
+The trigger is what the phase 0 read said and what the test now holds: a
+published release, and nothing else, ever.
+
 ## What we are, and the one thing to leave room for  [record]
 
 **We are not a place. We are a gate that decides.** The storage is a SQLite file
