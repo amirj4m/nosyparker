@@ -75,7 +75,7 @@ function say(message) {
  * exclusive locking-mode write fails the same way.
  *
  * That matters because `journal_mode = DELETE` is step 6 of the swap. The
- * owner's own run passed the old check, copied his store, rewrote 154 rows, ran
+ * first real run passed the old check, copied the store, rewrote 154 rows, ran
  * all seven verifications, and only then found out it could not finish. A check
  * has to ask the question the last step will ask, or it is not a check — it is
  * a delay.

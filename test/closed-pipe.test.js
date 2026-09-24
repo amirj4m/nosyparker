@@ -147,6 +147,15 @@ test('the exit code is not a failure', (t) => {
 test('a write that fails for any other reason is still reported', (t) => {
   // The trap in the fix. A handler that swallows every write error swallows a
   // full disk with it. Only "the reader has gone" is quiet.
+  //
+  // Linux only, and skipped rather than failed elsewhere: `/dev/full` is a
+  // Linux device, and macOS has nothing that accepts an open and refuses every
+  // write. The first run on a macOS runner failed here with "this machine has
+  // no /dev/full" — a true sentence about the runner, not about the code.
+  if (!fs.existsSync('/dev/full')) {
+    t.skip('this machine has no /dev/full to fail against; the case is held on Linux');
+    return;
+  }
   const file = loudStore(t);
   const full = path.join(path.dirname(file), 'full');
   fs.mkdirSync(full);
@@ -155,7 +164,6 @@ test('a write that fails for any other reason is still reported', (t) => {
   // write to a full filesystem is not. The nearest thing a test can arrange
   // without filling a disk is /dev/full, which accepts the open and fails every
   // write with ENOSPC — the real error, from the real kernel.
-  assert.ok(fs.existsSync('/dev/full'), 'this machine has no /dev/full to fail against');
   fs.rmSync(full, { recursive: true, force: true });
 
   const run = spawnSync('/bin/sh', [

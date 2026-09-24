@@ -4,9 +4,9 @@
  * **Why this exists.** The review mechanism works and had run exactly once, on
  * 22 August, for eight minutes. Seventy-nine memories were written afterwards
  * with no review over any of them, and by the time anybody looked, roughly 19 of
- * 161 active memories were stale or in direct contradiction — one saying his
- * phone line was about to be cut off for non-payment, live beside another
- * recording that he had paid it. Nothing was broken. The review had no trigger:
+ * 161 active memories were stale or in direct contradiction — one saying a bill
+ * was still owed, live beside another recording that it had been paid. Nothing
+ * was broken. The review had no trigger:
  * the design was that an agent would go and review periodically of its own
  * accord, and that part was never built, so it only ever ran because a person
  * asked for it.
@@ -36,10 +36,10 @@ import { reviewBookkeeping } from './store.js';
 /**
  * When a review becomes overdue.
  *
- * Both numbers come from the owner's measured rate — about 2.3 memories a day
- * after his import — so they land at roughly weekly for him and move with him if
- * that rate changes. They are here, together, and nowhere else, so that somebody
- * who wants a different cadence has one place to change.
+ * Both numbers come from the rate measured on the store this was built against
+ * — about 2.3 memories a day after an initial import — so they land at roughly
+ * weekly for that rate and move with it. They are here, together, and nowhere
+ * else, so that somebody who wants a different cadence has one place to change.
  */
 export const REVIEW_IS_DUE_AFTER = {
   /** Memories stored since the last review. */

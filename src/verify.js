@@ -395,10 +395,9 @@ export function findBlockers(client, options) {
  *     case-insensitively on Windows and macOS.
  *
  * So a home directory marked `TRUST_FOLDER` covers a project inside it, which is the case the
- * old check — is the folder itself a key in the file — got wrong on the
- * owner's own machine: the file held his home directory, the folder was
- * trusted, Gemini had started the server, and setup and doctor both told him
- * to trust it.
+ * old check — is the folder itself a key in the file — got wrong on a real
+ * machine: the file held the home directory, the folder was trusted, Gemini
+ * had started the server, and setup and doctor both said to trust it.
  *
  * Two things it does not honour, said rather than hidden. The environment
  * variable `GEMINI_CLI_TRUST_WORKSPACE=true` trusts everything for one

@@ -23,8 +23,8 @@
  * only npm reads, and nobody installs this with npm yet.
  *
  * The message is deliberately plain and deliberately short, and it is not an
- * invention: a person installing command line tools has met this before — the
- * owner had it from Hermes the same week — so the expected shape is the version
+ * invention: a person installing command line tools has met this before —
+ * Hermes prints one of exactly this shape — so the expected shape is the version
  * needed, the version found, and one thing to do. It does not explain that this
  * is about SQLite, because that is our reason and not their problem, and it
  * leads with "install a newer Node" rather than with a version manager, because

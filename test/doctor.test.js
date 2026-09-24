@@ -712,11 +712,11 @@ test('doctor sees an entry in a file the client wrote for itself', (t) => {
 
 test('doctor does not read a working note of ours', (t) => {
   // A third review called this creep and was right. `doctor` is a shipped
-  // command; making what it reports depend on WINDOWS.md — a note that is
+  // command; making what it reports depend on PLATFORMS.md — a note that is
   // deliberately not in the package — means it behaves one way from a clone and
   // another from an install, for a reason the person running it cannot see.
   //
-  // This edited the tracked WINDOWS.md and put it back in an `after` hook, and
+  // This edited the tracked PLATFORMS.md and put it back in an `after` hook, and
   // a fifth review pulled that forward as a tomorrow problem: that file is the
   // run sheet a Windows session follows literally, on the platform where a
   // mid-run kill is most likely, and a suite that dies between the write and
@@ -737,14 +737,14 @@ test('doctor does not read a working note of ours', (t) => {
     fs.cpSync(path.join(real, dir), path.join(root, dir), { recursive: true });
   }
 
-  fs.writeFileSync(path.join(root, 'WINDOWS.md'),
+  fs.writeFileSync(path.join(root, 'PLATFORMS.md'),
     'Run `node src/cli.js doctor` on the Windows side.\n');
 
   /** @param {string[]} [notes] */
   const noticed = (notes) => checkDocumentation(root, notes)
     .filter((check) => !check.ok)
     .flatMap((check) => check.wrong)
-    .filter((wrong) => wrong.includes('WINDOWS.md'));
+    .filter((wrong) => wrong.includes('PLATFORMS.md'));
 
   // What doctor passes: nothing. The note is right there, and stale, and no
   // check goes near it.
@@ -753,18 +753,18 @@ test('doctor does not read a working note of ours', (t) => {
 
   // And the suite still gets what it asks for, so the rule is kept rather than
   // deleted — this is the half that would make the assertion above vacuous.
-  assert.equal(noticed(['WINDOWS.md']).length, 1,
+  assert.equal(noticed(['PLATFORMS.md']).length, 1,
     'passing the note in no longer reads it, so the check above proves nothing');
 
   // Read-only against the real repository: whatever is in the working tree,
   // doctor never names it.
   const { io, printed } = machine(t);
   reportDiagnosis(io, diagnose(io));
-  assert.doesNotMatch(printed(), /WINDOWS\.md/u, 'doctor named a note we keep for ourselves');
+  assert.doesNotMatch(printed(), /PLATFORMS\.md/u, 'doctor named a note we keep for ourselves');
 
   // Nothing of ours was written outside the copy.
   assert.equal(
-    fs.readFileSync(path.join(real, 'WINDOWS.md'), 'utf8').includes('on the Windows side'), false,
+    fs.readFileSync(path.join(real, 'PLATFORMS.md'), 'utf8').includes('on the Windows side'), false,
     'the test wrote into the tracked run sheet');
 });
 test('doctor does not tell somebody their settings hold an entry that is not there', (t) => {

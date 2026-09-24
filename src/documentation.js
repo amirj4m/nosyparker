@@ -330,7 +330,7 @@ export function checkDocumentation(root = repositoryRoot(), workingNotes = []) {
       ];
       // The four that ship, plus whatever the caller says it also wants read.
       //
-      // WINDOWS.md is a brief for a session on the other half of a dual-boot
+      // PLATFORMS.md is a brief for a session on the other half of a dual-boot
       // machine — a stranger who will follow it literally, on a platform none of
       // us can watch — so a stale instruction in it is exactly the harm this
       // check exists to prevent, and the suite passes it in for that reason.
@@ -625,8 +625,8 @@ export function checkDocumentation(root = repositoryRoot(), workingNotes = []) {
 
     check('the README says where to go if doctor did not resolve it', [
       ...(readme.includes('/issues') ? [] : ['the README does not point anywhere']),
-      // A personal address in a public repository gets scraped, and the owner
-      // has decided against one.
+      // A personal address in a public repository gets scraped; the issues
+      // page is the contact, and SECURITY.md carries the private route.
       ...(/[\w.+-]+@[\w-]+\.[\w.]+/u.test(readme) ? ['the README carries an email address'] : []),
     ]),
 

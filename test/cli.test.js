@@ -97,10 +97,8 @@ test('replacing a memory from the command line', (t) => {
 test('the tool says what it wants when it is given nonsense', (t) => {
   const run = commandRunner(t);
 
-  const noCommand = run([]);
-  assert.equal(noCommand.code, 1);
-  assert.match(noCommand.err, /No command was given/u);
-  assert.equal(noCommand.err.includes('search'), false, 'it does not list the commands');
+  // No command at all is the usage, not a refusal — see the --help test.
+  assert.equal(run([]).code, 0);
 
   assert.equal(run(['add']).code, 1);
   assert.match(run(['add']).err, /Say what you want to store/u);
@@ -374,12 +372,15 @@ test('a command it does not have creates nothing on the way to saying so', (t) =
     env: sandboxEnv(home, { NOSYPARKER_STORE: '' }),
   });
 
+  // `--help`, `-h`, `help` and nothing at all are answered now rather than
+  // refused, and the test that says so is below; what they share with a typo
+  // is that none of them may leave a store behind, which is what this holds.
   for (const argv of [['--help'], ['sertup'], ['-h'], ['help'], []]) {
     const said = run(argv);
-    assert.equal(said.status, 1, `${JSON.stringify(argv)} should have failed`);
+    assert.equal(said.status, argv[0] === 'sertup' ? 1 : 0, `${JSON.stringify(argv)} exited ${said.status}`);
 
     assert.equal(fs.existsSync(path.join(home, '.nosyparker')), false,
-      `${JSON.stringify(argv)} created ${path.join(home, '.nosyparker')} before refusing`);
+      `${JSON.stringify(argv)} created ${path.join(home, '.nosyparker')} on the way to answering`);
   }
 
   // And the refusal still names what was typed, so the fix is not "say less".
@@ -633,4 +634,36 @@ test('uninstall takes one client name, and refuses one it has never heard of', (
   const nothing = run(['uninstall', 'kiro']);
   assert.equal(nothing.status, 0);
   assert.match(nothing.stdout, /Nothing to remove/u);
+});
+
+test('--help and --version answer, exit 0, and create nothing', (t) => {
+  // The first two things a stranger types. Both used to exit 1 with "There is
+  // no command called", which was true and was the first sentence this program
+  // said to most people. Neither may open the store or touch a file.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-cli-home-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const run = (/** @type {string[]} */ args) => spawnSync(process.execPath, [CLI, ...args], {
+    encoding: 'utf8',
+    env: sandboxEnv(home, { NOSYPARKER_STORE: '' }),
+  });
+  const expected = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, '..', 'package.json'), 'utf8')).version;
+
+  for (const spelling of [['--help'], ['-h'], ['help'], []]) {
+    const help = run(spelling);
+    assert.equal(help.status, 0, `${spelling.join(' ') || '(nothing)'} exited ${help.status}`);
+    for (const command of ['setup', 'doctor', 'uninstall', 'add', 'search', 'list', 'log', 'forget', 'restore', 'undo-review', 'export']) {
+      assert.match(help.stdout, new RegExp(` ${command}\\b`, 'u'), `--help does not name ${command}`);
+    }
+    assert.match(help.stdout, /Nothing here makes a network request/u);
+    assert.equal(help.stderr, '');
+  }
+
+  for (const spelling of ['--version', '-v', 'version']) {
+    const version = run([spelling]);
+    assert.equal(version.status, 0);
+    assert.equal(version.stdout, `nosyparker ${expected}\n`);
+  }
+
+  // Nothing landed on the disk — no store, no log, no folder.
+  assert.deepEqual(fs.readdirSync(home), []);
 });

@@ -96,7 +96,7 @@ test('what is ours rather than theirs stays out of the package', () => {
 });
 
 test('a working document of ours does not ship to people who wanted a memory store', () => {
-  // WINDOWS.md is a brief for a session that will run on the other half of a
+  // PLATFORMS.md is a brief for a session that will run on the other half of a
   // dual-boot laptop. It names our commit, our unverified table columns and the
   // things we have not measured yet — a note between the people building this,
   // and noise on the disk of somebody who installed a memory store.
@@ -112,7 +112,7 @@ test('a working document of ours does not ship to people who wanted a memory sto
     'a markdown file that is ours rather than theirs is in the package');
 
   // And it is here to be excluded, rather than absent and trivially passing.
-  assert.ok(fs.existsSync(path.join(ROOT, 'WINDOWS.md')), 'WINDOWS.md is gone');
+  assert.ok(fs.existsSync(path.join(ROOT, 'PLATFORMS.md')), 'PLATFORMS.md is gone');
 });
 
 test('nothing in the package names the machine it was built on', () => {

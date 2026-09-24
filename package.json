@@ -1,8 +1,12 @@
 {
   "name": "nosyparker",
   "version": "0.0.7",
-  "description": "One memory for every AI agent on your machine: tell one, and the rest know. A gate, not a store \u2014 it decides what gets in, and why.",
+  "description": "One memory for every AI agent on your machine: tell one, and the rest know. A gate, not a store — it decides what gets in, and why.",
   "license": "MIT",
+  "author": {
+    "name": "amirj4m",
+    "url": "https://github.com/amirj4m"
+  },
   "type": "module",
   "bin": {
     "nosyparker": "src/cli.js"
@@ -40,7 +44,7 @@
     "access": "public"
   },
   "scripts": {
-    "test": "node --test 'test/*.test.js'",
+    "test": "node --test \"test/*.test.js\"",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

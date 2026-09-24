@@ -36,10 +36,9 @@ const SECRET_WORDS = [
   'पासवर्ड', 'कुंजी',
   // Chinese, Japanese, Korean
   '密码', '密碼', 'パスワード', '秘密鍵', '비밀번호',
-  // Greek. Not a general widening of the list — this owner lives in Athens,
-  // writes his correspondence in Greek, and his bank, hospital and tax records
-  // are Greek, so its absence was not the list's known incompleteness but a
-  // gap in the one language he uses every day.
+  // Greek. Not a general widening of the list — it was missing from a store
+  // whose everyday correspondence and records are in Greek, so its absence was
+  // not the list's known incompleteness but a gap in a language in daily use.
   'κωδικός', 'κωδικό', 'συνθηματικό', 'μυστικό', 'κλειδί',
   // Spanish, French, German, Portuguese, Italian, Russian, Turkish
   'contraseña', 'clave', 'mot de passe', 'passwort', 'geheimnis',
@@ -79,7 +78,7 @@ const SHAPES = [
   //
   // The words are a list, and a list is the weakest kind of rule here: it is
   // only ever as wide as the languages somebody thought of. It was English
-  // only, in a store whose owner writes Persian, so `رمز عبور: hunter2` was
+  // only, in a store that holds Persian, so `رمز عبور: hunter2` was
   // stored in plain text — the same defect as the card, wearing the other half
   // of its clothes. The languages below are the ones this store actually sees
   // and the largest few beyond them.
@@ -213,9 +212,9 @@ export function detectCredential(text) {
   // regular expression.
   //
   // The stripped view is looked at rather than the text being refused or
-  // rewritten, because `U+200C` is ordinary Persian orthography and this
-  // store's owner writes Persian. Refusing it would turn away his sentences to
-  // catch a rare one. See `stripInvisible`.
+  // rewritten, because `U+200C` is ordinary Persian orthography and Persian is
+  // one of the languages this store holds. Refusing it would turn away ordinary
+  // sentences to catch a rare one. See `stripInvisible`.
   const views = [text];
   const bare = stripInvisible(text);
   if (bare !== text) views.push(bare);

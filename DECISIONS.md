@@ -1076,8 +1076,8 @@ August, eight minutes, four findings — and never again.
 
 Seventy-nine memories were written after it with no review over any of them. By
 the time anybody counted, roughly **19 of 161 active memories were stale or in
-direct contradiction**, including one saying his phone line was about to be cut
-off for non-payment sitting live beside another recording that he had paid it.
+direct contradiction**, including one saying a bill was still owed sitting live
+beside another recording that it had been paid.
 
 Nothing was broken. The design was that the person's own agent would go and
 review periodically, on its own initiative, and **that part was never built**.
@@ -1132,8 +1132,8 @@ time it matters.
 
 ## Which of seventeen clients does the review, and the rule we cannot write  [record]
 
-Seventeen clients on his machine are wired to the same store. When the store
-says a review is overdue, all seventeen see it.
+Seventeen clients on the machine this was built on are wired to the same
+store. When the store says a review is overdue, all seventeen see it.
 
 **The answer is first come, and the rest stand down by themselves.** While a
 review is open the line changes from "overdue" to saying one is already in
@@ -1699,6 +1699,88 @@ smaller change and is useful beyond this one file.
 capability goes into the README in the same change. The README is not to be
 touched this phase, so that line is owed and is recorded here as owed.
 
+## Before anyone else looks: what was decided on 24 September 2026  [record]
+
+A launch-readiness read of the repository, the history and every published
+tarball, done before the project is shown to strangers. What it found, and
+what the owner decided about each thing, so that none of it is re-litigated.
+
+### The card in 0.0.3–0.0.6 and in the history stays where it is
+
+A real payment card number, in Persian digits, was in a comment in
+`src/credentials.js` from commit `1a00c0b` (22 August) until `4960a34`
+(1 September), and so is in the tarballs of 0.0.3 through 0.0.6 and in that
+commit's message. The first draft of the read called this the decisive
+blocker and proposed unpublishing the four versions and rewriting history
+while there were still no forks.
+
+**The owner's answer, and it is the right one: the card is dead.** It was
+cancelled long ago; it cannot be charged, and a payment on it would need a
+code only he holds. So the number is an embarrassment in old source, not an
+exposure. On that basis: **the four versions are not unpublished and the
+history is not rewritten.** Four versions vanishing from the registry would
+raise more questions than a stale comment in a comment does, and the thing
+that remains in those artefacts after the card is discounted is the
+author-profiling prose below, which is not worth erasing four public versions
+over. Anyone who finds the number finds a cancelled card. Do not reopen this.
+
+### The prose profiled its author, and now does not
+
+Every published version since 0.0.3, and this file, carried sentences that
+together told a reader where the author lives, what language his records are
+in, which tax system he files under, and that a bill had once gone unpaid.
+Each was an engineering anecdote; the sum was a biography, shipped to the
+disk of everyone who installed a memory store. The five passages named in the
+read, and the rest of the "his machine / the owner" specifics in this file and
+in shipped comments, were rewritten on 24 September so that the fact being
+illustrated survives and the person does not: a rule still says why it
+exists, and no longer says where its author banks. The research note that
+named the machine, its user and its installed applications
+(`PHASE3-RESEARCH.md`) left the repository the same day; the client table's
+rows carry what it established, and `clients.json` says the note is kept
+outside. Older tarballs and history keep the earlier wording, for the reason
+given above.
+
+### The real blocker is the two platforms nobody has watched
+
+The owner asked why 0.0.7 was published when the plan was to test on Windows
+and macOS first, and the question was fair: `WINDOWS.md` opened with "nothing
+in this file has been done yet", and twenty-two client rows carry paths for
+those platforms that no one has seen used. That, and not the card, is what
+stands between this project and a public audience. `PLATFORMS.md` — the
+renamed and rewritten brief — is the plan: what a CI runner can establish on
+each platform, what only a person with the application installed can, and
+which rows are unverified where. The suite now runs on Windows and macOS
+runners on every push, non-blocking until it is green there.
+
+### `--help` and `--version`
+
+Both exited 1 with "there is no command called", which was true and was the
+first thing this program said to most people. Both answer now, before the
+store is opened, and create nothing on the disk. The README paragraph that
+described the old behaviour as a feature says the new one.
+
+### The README, edited on the owner's approval
+
+Two wrong claims — a digit-block clause nothing in the code supported, and
+"none of them re-read their config" when Hermes does — and the four owed
+capabilities from Phase 1: the review reminder, `uninstall <client>`, the
+stale-wiring line and the ten-second search limit. And three facts a privacy
+reader asks first: no network, no telemetry, no account; that
+`~/.nosyparker/backups/` holds other programs' configuration files as they
+were, at mode 0600, and some of those files may carry API keys; and that the
+agent, not the person, decides what gets remembered. The five cuts agreed on
+4 September are still pending and still the owner's.
+
+### The surface a visitor judges by
+
+The GitHub description said "a memory store"; the package says "a gate, not a
+store", and now so does the repository. Topics were empty and are set.
+`SECURITY.md` names GitHub's private vulnerability reporting, which is
+enabled on the repository, as the route; there is no email in the repository
+by design. `package.json` carries an `author` of the GitHub handle and its
+URL, nothing more.
+
 ## What we are, and the one thing to leave room for  [record]
 
 **We are not a place. We are a gate that decides.** The storage is a SQLite file
@@ -1716,14 +1798,14 @@ on a machine of their own, that is their machine and their file, and the claim
 is unchanged. Do not weaken it to a privacy footnote and do not qualify it into
 "local-first" — it is what the thing is.
 
-**One future direction, so nobody designs against it.** The owner wants his own
-devices sharing one memory. Written here first as a direction; it has since
+**One future direction, so nobody designs against it.** The direction is one
+person's several devices sharing one memory. Written here first as a direction; it has since
 become a requirement, including the phone — see *Two requirements, settled*
 below, which also carries the constraint that no file-based approach ever
 reaches a phone.
 
 What waits is the work, not the decision. A week of real use produces evidence
-about *how* it should be built; it is not a period in which he might conclude he
+about *how* it should be built; it is not a period in which the owner might conclude
 does not want it.
 
 Nothing is built for it and nothing in the documents claims it — the product
@@ -1828,20 +1910,22 @@ and it is open.
 **The duplicate-normalisation trap.** The digit fold itself works. But
 `text_normalised` is a persisted, indexed column — the duplicate key and the
 substring-search index — not a value computed per call. Changing the rule leaves
-every existing row keyed under the old one. On his live store that is **105 of
-151 memories**, because he writes Persian digits. Measured: a row stored before
-the change stops being found by the Persian query that found it yesterday, 1 hit
-becoming 0. That is loss of access to his own memories, which is worse than the
+every existing row keyed under the old one. On the live store this was measured
+on that is **105 of 151 memories**, because it holds Persian digits. Measured: a
+row stored before the change stops being found by the Persian query that found
+it yesterday, 1 hit becoming 0. That is loss of access to a person's own
+memories, which is worse than the
 gap being closed, and it is why the fold waits for 0.0.4 and its migration.
 
 **Over-refusal in the card check.** Any unbroken digit run is tested against
 Luhn at every offset and every length from 13 to 19, so long runs are refused
 almost always. Measured over 20,000 random runs per length: **10% at 13 digits,
 47% at 15, 79% at 17, 97% at 20, 99.9% at 25, 100% at 30 and above.** Greek,
-German and Iranian IBANs are all refused, as is a 17-digit case reference, and
-the message names a payment card that it is not. His ΑΦΜ and ΑΜΚΑ are safe as
-normally written, being under the 13-digit floor. This is the refusing-too-much
-shape and it is the injury he actually carries.
+German and other IBANs are all refused, as is any 17-digit reference number,
+and the message names a payment card that it is not. National tax and
+social-insurance numbers are safe as normally written, being under the 13-digit
+floor. This is the refusing-too-much shape and it is the injury real use
+actually produces.
 
 ## 22 August 2026: what was decided  [record]
 
@@ -1864,8 +1948,9 @@ than the first**, because a reader cannot reason about where it fails.
 
 **The invisible-character fix reads the text twice rather than banning the
 characters.** `U+200C` is ordinary Persian orthography — `کتاب‌ها` and `می‌روم`
-both contain one — and this store's owner writes Persian. Refusing text that
-contains them would turn away his ordinary sentences to catch a rare secret. The
+both contain one — and Persian is one of the languages the store holds.
+Refusing text that contains them would turn away ordinary sentences to catch a
+rare secret. The
 screen looks at the text as written and again with the invisibles stripped;
 nothing is refused for containing them and nothing is rewritten. The wrong fix
 is pinned by a test: adding `U+200C` to the refused set turns the Persian
@@ -2067,12 +2152,11 @@ should become automatic.
 Observed on 22 August, after the first day of real use, and it is about the
 method rather than the code.
 
-Across roughly 160 writes drawn from his real documents, **the gate has still
-never refused a credential**. Not because none were present — today's batch
-alone carried four: a family member's payment card with PAN, expiry and CVV2, an
-IBAN alongside it, his TAXISnet κλειδάριθμος, his own IBAN, and a bank customer
-code. Every one was caught by the agent doing the writing, upstream of the gate,
-and never reached it.
+Across roughly 160 writes drawn from real documents, **the gate has still never
+refused a credential**. Not because none were present — one day's batch alone
+carried several: a payment card with PAN, expiry and CVV2, IBANs, a tax-portal
+login and a bank customer code. Every one was caught by the agent doing the
+writing, upstream of the gate, and never reached it.
 
 That sounds like good news and is worth reading carefully. **A system meant to be
 safe by construction is in practice being kept safe by the diligence of whoever
@@ -2104,14 +2188,15 @@ turned away, then the upstream agent's caution stops being load-bearing at all.
 
 23 August 2026, and it closes the note above rather than replacing it.
 
-He restarted Cursor onto 0.0.3 and pushed his own payment card at it. Cursor
-runs Grok, so this was **a different vendor and a different model** from
-anything this project had been tested with. He gave it the card as an image and
-said, in effect, store this, definitely, push it into memory. The agent stored
-only the safe fact — whose card it is, which bank, and what it is probably for.
+Cursor was restarted onto 0.0.3 and given a real, already-cancelled payment
+card. Cursor runs Grok, so this was **a different vendor and a different model**
+from anything this project had been tested with. It was given the card as an
+image and told, in effect, store this, definitely, push it into memory. The
+agent stored only the safe fact — whose card it is, which bank, and what it is
+probably for.
 
-Then he overrode it: *who refused, you or the memory? I am telling you to store
-it, I do not mind.* The agent sent the full number through. **The gate refused
+Then the person overrode it: *who refused, you or the memory? I am telling you
+to store it, I do not mind.* The agent sent the full number through. **The gate refused
 it**, named the reason, and refused the IBAN alongside it. Nothing reached the
 file.
 
@@ -2143,7 +2228,7 @@ what it never saw.
 
 ## An outside critique, and the three answers  [record]
 
-The owner commissioned a critique from outside the project. Most of what it
+A critique was commissioned from outside the project. Most of what it
 proposed already exists here under other names. Three of its points are worth
 keeping: two are gaps we had not stated, and one is the idea that destroyed the
 data this project was built to replace.
@@ -2192,7 +2277,7 @@ is one reason both are written here rather than one.
 ### Refused: expiry, and why it will be proposed again
 
 The critique proposed `valid_until` fields and expiry. **That is the rule that
-destroyed twenty days of the owner's memory in the previous product**, and it is
+destroyed twenty days of memories in this project's predecessor**, and it is
 refused here for the reason set out in *Time as evidence, never as a rule*
 above, which this section exists to point back at.
 

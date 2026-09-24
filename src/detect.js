@@ -2,8 +2,8 @@
  * Is this client on the machine, and does it have a config file yet.
  *
  * Those are two questions and the answers are three states, kept apart because
- * running them together is a documented way to lose a client. The owner's
- * previous project treated "no config file" as "not installed" and silently
+ * running them together is a documented way to lose a client. This project's
+ * predecessor treated "no config file" as "not installed" and silently
  * skipped Cursor for everyone — Cursor creates `~/.cursor/` on install and does
  * not create `mcp.json` until something writes one, so a fresh Cursor looks
  * exactly like no Cursor to a detector that only looks for the file. The same

@@ -40,6 +40,50 @@ const STORE_COMMANDS = [
   'add', 'search', 'list', 'log', 'forget', 'restore', 'undo-review', 'export',
 ];
 
+/** The spellings of "what can this do", and of "which one is this". */
+const HELP = ['--help', '-h', 'help'];
+const VERSION = ['--version', '-v', 'version'];
+
+/**
+ * The commands, one line each, in the order somebody meets them.
+ *
+ * Printed for `--help` and for no command at all. It says what each one does
+ * in a few words and where the longer answer is; it is not the README.
+ *
+ * @returns {string}
+ */
+function usage() {
+  const run = invocation();
+  return [
+    `nosyparker ${version()} — one memory for every AI agent on your machine.`,
+    '',
+    `  ${run} setup                     wire every AI client on this machine to the shared memory`,
+    `  ${run} setup --print-config [id] print the entry to paste, for a client setup does not know`,
+    `  ${run} doctor                    say what is wired, what is broken, and what to do`,
+    `  ${run} uninstall [client]        take the entry out of every client, or of one`,
+    '',
+    `  ${run} add "<text>"              store one fact; --replaces <id> retires an older one`,
+    `  ${run} search "<words>"          find memories; every word has to match`,
+    `  ${run} list                      everything currently shown, oldest first`,
+    `  ${run} log                       every decision ever made, and the rule that made it`,
+    `  ${run} forget <id> "<reason>"    stop showing a memory; it stays in the file`,
+    `  ${run} restore <id>              show it again`,
+    `  ${run} undo-review <number>      put back everything one review changed`,
+    `  ${run} export [file]             every memory, review and decision, as JSON`,
+    '',
+    `  ${run} --version`,
+    '',
+    'Memories live in ~/.nosyparker/memory.sqlite, or wherever NOSYPARKER_STORE points.',
+    'Nothing here makes a network request. https://github.com/amirj4m/nosyparker',
+    '',
+  ].join('\n');
+}
+
+/** @returns {string} */
+function version() {
+  return JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+}
+
 /**
  * The ones that only ever read.
  *
@@ -64,7 +108,18 @@ main(process.argv.slice(2));
 function main(argv) {
   const [command, ...rest] = argv;
 
-  if (!command) fail('No command was given.');
+  // `--help` and `--version` first, before anything is opened or detected.
+  // They were the two things a stranger typed first and both exited 1 saying
+  // there was no such command — technically true, and the first sentence this
+  // program said to most people. Neither touches the store or any file.
+  if (command === undefined || HELP.includes(command)) {
+    process.stdout.write(usage());
+    return;
+  }
+  if (VERSION.includes(command)) {
+    process.stdout.write(`nosyparker ${version()}\n`);
+    return;
+  }
 
   // Wiring this machine's agents up to the store, unwiring them, and asking
   // whether the wiring still holds are the three commands that have nothing to
@@ -82,7 +137,7 @@ function main(argv) {
   // even less to do with it — but it fell past that check into `openStore` and
   // only met the `default:` below once a memory file existed.
   //
-  // Which is how three files turned up in the owner's home on a machine that
+  // Which is how three files turned up in a home directory on a machine that
   // had been wiped and called clean: `--help`, asked by somebody finding out
   // what the commands were, made a store 77 milliseconds before printing that
   // there is no such command. A typo did the same. This program spends twenty

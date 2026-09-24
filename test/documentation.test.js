@@ -183,7 +183,7 @@ test('both arms of the stale-path guard are held, and both directions of the com
   }
 
   /** @param {string} file */
-  const noticedIn = (file) => checkDocumentation(root, ['WINDOWS.md'])
+  const noticedIn = (file) => checkDocumentation(root, ['PLATFORMS.md'])
     .filter((check) => !check.ok)
     .flatMap((check) => check.wrong)
     .some((wrong) => wrong.includes(file));
@@ -203,7 +203,7 @@ test('both arms of the stale-path guard are held, and both directions of the com
   assert.ok(noticedIn('src/cli-main.js'), 'the sources arm of the stale-path guard is not held');
   fs.writeFileSync(cli, cliWas);
 
-  // WINDOWS.md, which does not ship. It is a brief for a session on the other
+  // PLATFORMS.md, which does not ship. It is a brief for a session on the other
   // half of a dual-boot machine, written for somebody who will follow it
   // literally on a platform none of us can watch — the exact reader this check
   // protects. The fixture starts without it, so this also proves the file is
@@ -213,14 +213,14 @@ test('both arms of the stale-path guard are held, and both directions of the com
   // `doctor`: a shipped command should not report differently because of a note
   // we keep for ourselves. The reason for reading it is real; the coupling was
   // not.
-  const windows = path.join(root, 'WINDOWS.md');
-  assert.equal(noticedIn('WINDOWS.md'), false, 'a file that is not there was reported on');
+  const windows = path.join(root, 'PLATFORMS.md');
+  assert.equal(noticedIn('PLATFORMS.md'), false, 'a file that is not there was reported on');
 
   fs.writeFileSync(windows, 'Run `node src/cli.js setup` on the Windows side.\n');
-  assert.ok(noticedIn('WINDOWS.md'), 'the stale-path guard does not read WINDOWS.md');
+  assert.ok(noticedIn('PLATFORMS.md'), 'the stale-path guard does not read PLATFORMS.md');
 
   fs.writeFileSync(windows, 'It is wired with `nosyparker setup`.\n');
-  assert.equal(noticedIn('WINDOWS.md'), false,
+  assert.equal(noticedIn('PLATFORMS.md'), false,
     'the current command form was reported as stale');
   fs.rmSync(windows);
 

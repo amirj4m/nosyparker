@@ -1,7 +1,7 @@
 {
   "tableVersion": 1,
   "serverName": "nosyparker",
-  "sourceOfTruth": "PHASE3-RESEARCH.md, 2026-08-17. Addenda A, D and E supersede sections 2.5, 2.6, 2.7 and D.6 where they disagree.",
+  "sourceOfTruth": "Installed and measured on a real machine, 2026-08-17 to 2026-09-24; the research notes are kept outside the repository, and each row's why, traps and lastVerified carry what they established.",
   "evidenceLegend": {
     "MACHINE": "verified against a real installation on the research machine",
     "BINARY": "read out of the installed application's own shipped code",

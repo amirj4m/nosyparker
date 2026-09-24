@@ -16,8 +16,8 @@
  *
  * The risk here runs the opposite way to the card's. There, a miss meant
  * something was stored that should not have been. Here, a miss means something
- * is *refused* that should have been stored — which is nearer this owner's
- * actual injury, so the tests weigh the over-reaching direction at least as
+ * is *refused* that should have been stored — which is the injury real use
+ * actually produced, so the tests weigh the over-reaching direction at least as
  * heavily: different numbers, same number with different units, and the
  * identifiers that live in this store must all stay distinct.
  */
@@ -107,8 +107,8 @@ const CONTROL_CHARACTER = /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/u;
  *
  * Refusing these outright is the obvious fix and it is wrong. `U+200C` is
  * ordinary Persian orthography — `کتاب‌ها` and `می‌روم` both contain one — and
- * this store's owner writes Persian. A rule that refused them would turn away
- * his ordinary sentences to catch a rare one, which is the direction of failure
+ * Persian is one of the languages this store holds. A rule that refused them
+ * would turn away ordinary sentences to catch a rare one, which is the direction of failure
  * this project is least willing to accept.
  *
  * So nothing is refused for containing these and nothing is rewritten. The

@@ -17,16 +17,22 @@ To know it worked, open one of your agents and ask it something only your
 shared memory would know.
 
 **The file is yours, wherever it is.** No account, nothing to sign up for,
-nothing hosted. We never run a server and we never hold anyone's data.
+nothing hosted, no network requests and no telemetry: the only server here is
+the small one your agents start on your own machine to read that file, and
+nothing it holds ever leaves it.
 
 ## What it can do
 
-Every agent on your machine reads and writes the same file. Ten things an agent
-can do:
+Every agent on your machine reads and writes the same file. The agent decides
+what is worth keeping: it is told, when it connects, to store what it learns
+about you that will still be true next week, and to say so when it does. Ten
+things an agent can do:
 
 - **remember** a fact about you, replacing an older one if you have changed
   your mind.
-- **recall** what it already knows, before it asks you something twice.
+- **recall** what it already knows, before it asks you something twice. A
+  search that runs for more than ten seconds is stopped and told to narrow,
+  rather than answered with part of a result.
 - **list** everything currently known about you.
 - **forget** something, with a reason. This puts it away rather than deleting
   it: it stops being shown and stays in the file.
@@ -50,9 +56,9 @@ leave the file. Every one is written down with the rule that decided it.
 
 Digits are read as digits, not only ASCII ones: ۴۱۱۱ ۱۱۱۱ ۱۱۱۱ ۱۱۱۱ is the same
 card as 4111 1111 1111 1111 and both are refused. That is verified for Persian,
-Arabic-Indic, Devanagari, Bengali, Tamil, Thai and full-width; a few rare digit
-blocks are still read wrongly and are being fixed. It is a screen rather than a
-guarantee — it catches the careless case, which is the one that happens.
+Arabic-Indic, Devanagari, Bengali, Tamil, Thai and full-width. It is a screen
+rather than a guarantee — it catches the careless case, which is the one that
+happens.
 
 ### Where a secret goes instead
 
@@ -92,6 +98,12 @@ What it cannot do matters more:
 - **"I could not tell" is a real answer.** If two memories disagree and nothing
   says which came first, the agent says so and changes nothing. Its reasoning is
   recorded either way, so you can judge afterwards whether it thought well.
+
+Nothing runs a review on a schedule. What the store does instead is say, at the
+end of every answer it gives an agent, when one is overdue — twenty memories
+since the last review, or a week — and which agent is already doing one, so the
+others stand down. That line is counting the store's own record of what it did
+and when; it never reads a memory's date.
 
 A review can put away a large part of a store in one pass, and nothing will
 mention it unless the agent does or you run `doctor`. `nosyparker undo-review <number>`
@@ -151,8 +163,9 @@ Windows locations are the standard ones those builds use and have not been
 seen working here, so on those two `uninstall` looks for a file it has never
 been shown, finds nothing, and says nothing either way.
 
-The last thing it prints is which applications to close and reopen. None of them
-re-read their config while running.
+The last thing it prints is which applications to close and reopen. All but
+one of them read their config only at startup; Hermes watches its file and
+reloads by itself, and setup says so.
 
 If it does not know your client, `nosyparker setup --print-config` prints the exact thing
 to paste, and naming one it does know (`nosyparker setup --print-config zed`) prints that
@@ -171,6 +184,11 @@ review was left open, and what the recent reviews did. The commonest answer is a
 changed Node version, and running `nosyparker setup` again fixes it. It changes
 nothing.
 
+You do not have to remember to run it for that one. Setup writes down which
+Node, and which copy of nosyparker, each entry was written with, and the next
+time you run any command that opens the store on a machine where that path has
+gone, it says so in one line on stderr and names `setup` and `doctor`.
+
 If that does not resolve it, the
 [issues page](https://github.com/amirj4m/nosyparker/issues) is the place to say
 so.
@@ -183,7 +201,8 @@ nosyparker uninstall
 
 Takes its entry out of every client that has one, including the one Cursor's own
 command writes, and changes nothing else in those files. Running it twice is not
-an error.
+an error. `nosyparker uninstall kiro` does the same for one client and leaves
+the rest alone; the names are the ids in [CLIENTS.md](CLIENTS.md).
 
 One thing it does delete, and it belongs here rather than in the engineering
 notes: a configuration file that existed **only** because setup created it, and
@@ -203,6 +222,12 @@ folder:
 
 Delete the folder and all of it is gone. `NOSYPARKER_STORE` moves the memories
 elsewhere; the other two stay here.
+
+One thing to know about that last folder: the copies in it are other programs'
+configuration files exactly as they were, and some of those files are allowed
+to hold API keys. The copies are written readable by you alone (mode 0600) and
+are never read back by anything here; they exist so that an edit can be
+undone. If you would rather not keep them, they are yours to delete.
 
 **Searching for a number finds it in any script.** `search 2026` and
 `search ۲۰۲۶` return the same memories, and so do `search 10` and `search ۱۰`.
@@ -248,6 +273,6 @@ there is what lets several agents share it.
 
 Nothing else does. `list`, `log`, `search` and `export` answer from an empty
 store held in memory when there is no file, so asking what is stored never
-creates the thing that stores it. Neither does a command it does not have —
-`nosyparker --help` will tell you there is no such command and leave nothing
-behind.
+creates the thing that stores it. Neither do `nosyparker --help` and
+`nosyparker --version`, nor a command it does not have, which is refused in a
+sentence and leaves nothing behind.

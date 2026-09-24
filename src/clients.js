@@ -4,8 +4,9 @@
  * and say what the row is allowed to claim.
  *
  * The table itself is `clients.json` and it is data, not code. Everything in it
- * comes from PHASE3-RESEARCH.md, which is the result of installing each client
- * on one machine and testing it. Nothing in it was taken from documentation
+ * comes from a research record kept outside this repository — the result of
+ * installing each client on one machine and testing it — and the row's own
+ * `why`, `traps` and `lastVerified` fields carry what that record established. Nothing in it was taken from documentation
  * where the research measured something different, and where the research could
  * not establish a value the field is `null` rather than a guess. A null path
  * means we do not install that client on that operating system and say so.

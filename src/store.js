@@ -444,10 +444,11 @@ END;
  * agreed, because two characters is below what a trigram index can match and
  * both fell through to looking at `text_normalised` directly; and `search ۲۰۲۶`
  * and `search 2026` did not, because four characters went to the raw index. On
- * the owner's store that was 70 results against 4, for the same number.
+ * the store this was measured on that was 70 results against 4, for the same
+ * number.
  *
  * Measured before choosing to read only this one rather than both: across 3130
- * distinctive terms from his own store in three digit scripts, and 30 more
+ * distinctive terms from that store in three digit scripts, and 30 more
  * built to break it — fullwidth forms, ligatures, roman numerals, ℃, ㍿, soft
  * hyphens, runs of whitespace — the raw index never once found a memory this
  * one misses, and this one found 643 the raw index missed. It cannot be
