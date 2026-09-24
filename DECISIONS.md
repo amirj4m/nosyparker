@@ -1495,6 +1495,56 @@ safe; the quit rule exists because a *write* is overwritten from memory. An
 entry that is there and stale — a moved interpreter — still waits for the
 quit, because that one is a write.
 
+### The Gemini caveat, told to somebody whose folder Gemini already trusted
+
+His `~/.gemini/trustedFolders.json` holds his home directory as
+`TRUST_FOLDER` and, since 12:57 local time on 24 September, the project folder
+as well. Both
+`setup` and `doctor` that morning told him to trust the project folder, while
+`gemini mcp list` had started the server and said connected. The file was
+modified after both runs, so which of the two keys was there at 09:48 cannot
+be established from here; the ancestor rule is a gap either way, and the
+instruction printed is the likeliest reason the second key exists.
+
+**Gemini's rules, read out of the installed 0.56.0 rather than assumed**, from
+`packages/core/src/utils/trust.js` in its bundle. Folder trust is on unless
+`security.folderTrust.enabled` is `false` in `settings.json`. A rule covers a
+path if the path is the rule's path or inside it; `TRUST_PARENT` on a path
+covers that path's parent. Of the covering rules, the longest path string
+wins: `DO_NOT_TRUST` there means untrusted, either trust level means trusted,
+and no covering rule means Gemini asks — which for a server configured for the
+whole account means it is not started. Paths go through `realpath` where they
+exist and are compared case-insensitively on Windows and macOS. So a trusted
+home covers every folder under it, and the old check — is the folder itself a
+key in the file — was wrong about exactly that. `gemini mcp list` does not
+consult trust before connecting, which is why connected and the caveat could
+be printed together and why connected is not used to suppress it.
+
+**The fix is the same algorithm in `verify.js`**, as a check kind of its own,
+`gemini-folder-trust`, since it is not a key lookup and pretending it was one
+is what went wrong. Nine tests hold it to Gemini's precedence, including the
+owner's file. Two things it does not honour, said in the code: the
+`GEMINI_CLI_TRUST_WORKSPACE=true` environment variable, which lasts one shell
+and is not a fact about the machine; and a trust file Gemini cannot parse,
+which makes Gemini refuse to start and so keeps the caveat.
+
+**Other caveats that could be checked the same way, listed rather than fixed.**
+Every blocker in the table was read again for this. All eight are conditional
+on something read from disk; none prints unconditionally. One is worth the
+owner's decision: Claude Desktop's *"organisation-level extension allowlist
+… whether it gates a hand-written mcpServers entry was never established"*
+fires on his machine, because his `config.json` has the `dxt:allowlistEnabled`
+key — and his `~/.config/Claude/logs/mcp-server-nosyparker.log` shows Claude
+Desktop starting this server and listing its tools on 23 September. That is
+the measurement the sentence says nobody has made. Establishing it properly
+means one more launch with the log watched; then the hedge comes out of the
+row, or the check reads that log. It is not done here because a log line from
+one machine on one day is evidence for that machine, and the row's claim is
+general. The Zed restart line ("writing settings.json while Zed was running
+produced nothing") is unconditional prose in `restart` and cannot be checked
+from a file; the interpreter paragraph in the setup report is unconditional
+and is information rather than a caveat.
+
 ## What we are, and the one thing to leave room for  [record]
 
 **We are not a place. We are a gate that decides.** The storage is a SQLite file

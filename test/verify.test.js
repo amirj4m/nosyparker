@@ -662,3 +662,101 @@ test('no printed advice hardcodes a command name the row resolves for itself', (
 
   assert.deepEqual(wrong, []);
 });
+
+/**
+ * A home with a Gemini trust file saying this, and the options to check it in
+ * a working folder under that home.
+ *
+ * @param {import('node:test').TestContext} t
+ * @param {((home: string, cwd: string) => string)|null} trustFile the file's text, built
+ *   from the paths this helper chooses, or null for no file
+ * @param {string} [settingsText] Gemini's own settings.json, which is our config path
+ * @returns {{client: any, opts: any, home: string, cwd: string}}
+ */
+function geminiHome(t, trustFile, settingsText = '{"mcpServers": {}}') {
+  const dir = directory(t);
+  const home = path.join(dir, 'home');
+  const cwd = path.join(home, 'Claude', 'project');
+  fs.mkdirSync(path.join(home, '.gemini'), { recursive: true });
+  fs.mkdirSync(cwd, { recursive: true });
+  if (trustFile !== null) fs.writeFileSync(path.join(home, '.gemini', 'trustedFolders.json'), trustFile(home, cwd));
+  fs.writeFileSync(path.join(home, '.gemini', 'settings.json'), settingsText);
+
+  const client = clientById('gemini-cli');
+  const opts = options(client, {
+    configPath: path.join(home, '.gemini', 'settings.json'),
+    machine: { home, platform: 'linux', cwd, pathDirs: [], exists: () => false, readdir: () => [], processes: () => [] },
+    run: saying('✓ nosyparker: node /srv/mcp-server.js (stdio) - Connected\n'),
+  });
+  return { client, opts, home, cwd };
+}
+
+test('a trusted ancestor covers the folder, as it does in Gemini', (t) => {
+  // The owner's own ~/.gemini/trustedFolders.json: his home directory
+  // trusted, which in Gemini's own precedence covers everything under it. The
+  // old check asked whether the folder itself was a key, said no, and both
+  // setup and doctor told him to trust a folder Gemini had already started
+  // the server in.
+  const { client, opts } = geminiHome(t, (home) => JSON.stringify({ [home]: 'TRUST_FOLDER' }));
+
+  assert.deepEqual(verifyClient(client, opts).blockers, []);
+});
+
+test('the folder itself, trusted, still clears it — the case the old check handled', (t) => {
+  const { client, opts } = geminiHome(t, (_home, cwd) => JSON.stringify({ [cwd]: 'TRUST_FOLDER' }));
+  assert.deepEqual(verifyClient(client, opts).blockers, []);
+});
+
+test('the longest matching rule wins, so DO_NOT_TRUST on the folder beats a trusted ancestor', (t) => {
+  // Read out of Gemini 0.56.0's trust.js: of the rules that cover a path, the
+  // one with the longest path string decides. A trusted home with the project
+  // explicitly distrusted is distrusted, and the other way round is trusted.
+  const { client, opts, home, cwd } = geminiHome(t,
+    (h, c) => JSON.stringify({ [h]: 'TRUST_FOLDER', [c]: 'DO_NOT_TRUST' }));
+  assert.match(verifyClient(client, opts).blockers.join(' '), /in a folder it does not trust/u);
+
+  fs.writeFileSync(path.join(home, '.gemini', 'trustedFolders.json'),
+    JSON.stringify({ [home]: 'DO_NOT_TRUST', [cwd]: 'TRUST_FOLDER' }));
+  assert.deepEqual(verifyClient(client, opts).blockers, []);
+});
+
+test('TRUST_PARENT on a sibling trusts the parent, which covers this folder', (t) => {
+  const { client, opts } = geminiHome(t,
+    (_home, cwd) => JSON.stringify({ [path.join(path.dirname(cwd), 'other')]: 'TRUST_PARENT' }));
+  assert.deepEqual(verifyClient(client, opts).blockers, []);
+});
+
+test('a rule for a folder that merely shares a prefix does not cover this one', (t) => {
+  // /home/p/Claude/proj is not an ancestor of /home/p/Claude/project, however
+  // it looks as a string.
+  const { client, opts } = geminiHome(t, (_home, cwd) => JSON.stringify({ [cwd.slice(0, -3)]: 'TRUST_FOLDER' }));
+  assert.match(verifyClient(client, opts).blockers.join(' '), /in a folder it does not trust/u);
+});
+
+test('with folder trust switched off in Gemini\'s settings there is nothing to warn about', (t) => {
+  const { client, opts } = geminiHome(t, null, '{"mcpServers": {}, "security": {"folderTrust": {"enabled": false}}}');
+  assert.deepEqual(verifyClient(client, opts).blockers, []);
+});
+
+test('no trust file, and a trust file Gemini could not read, both keep the caveat', (t) => {
+  // No file means no rule, and Gemini asks; a file it cannot parse means Gemini
+  // refuses to start at all. Neither is a reason to say nothing.
+  const none = geminiHome(t, null);
+  assert.match(verifyClient(none.client, none.opts).blockers.join(' '), /in a folder it does not trust/u);
+
+  const broken = geminiHome(t, () => '{"/home": TRUST_FOLDER');
+  assert.match(verifyClient(broken.client, broken.opts).blockers.join(' '), /in a folder it does not trust/u);
+});
+
+test('a value that is not a trust level is ignored rather than trusted', (t) => {
+  const { client, opts } = geminiHome(t, (home) => JSON.stringify({ [home]: 'yes' }));
+  assert.match(verifyClient(client, opts).blockers.join(' '), /in a folder it does not trust/u);
+});
+
+test('the Gemini blocker is the one kind of check that is not a key lookup, and the row says so', () => {
+  const [blocker, ...rest] = clientById('gemini-cli').blockers;
+  assert.deepEqual(rest, []);
+  assert.equal(blocker.check, 'gemini-folder-trust');
+  assert.equal('key' in blocker, false, 'a key would say the check is a lookup, and it is not');
+  assert.match(blocker.why, /longest matching path wins/u);
+});

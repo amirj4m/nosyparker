@@ -52,6 +52,7 @@
  * check, and the table records that per client rather than assuming it.
  */
 
+import fs from 'node:fs';
 import path from 'node:path';
 
 import { expandPath, fillTokens } from './clients.js';
@@ -356,6 +357,14 @@ export function findBlockers(client, options) {
       .replaceAll('{{cwd}}', options.machine.cwd ?? '')
       .replaceAll('{{clientCommand}}', typeable(options.clientCommand, client, options.machine));
 
+    // Gemini's folder trust is not a key to look up; it is a set of rules with
+    // a precedence, and the question is whether they cover the folder. Read
+    // as Gemini reads them, below, rather than as a JSON key.
+    if (blocker.check === 'gemini-folder-trust') {
+      if (geminiFolderUntrusted(file, settings, options)) found.push(says);
+      continue;
+    }
+
     if (settings === null) {
       if (blocker.check === 'json-key-absent') found.push(says);
       continue;
@@ -365,6 +374,85 @@ export function findBlockers(client, options) {
   }
 
   return found;
+}
+
+/**
+ * Would Gemini treat the folder the person is in as untrusted.
+ *
+ * Answered the way Gemini 0.56.0 answers it, read out of its own
+ * `packages/core/src/utils/trust.js` rather than out of its documentation,
+ * because this project has six recorded cases of the two disagreeing:
+ *
+ *   - The feature is on unless `security.folderTrust.enabled` is `false` in
+ *     the settings file — the same file our entry is in.
+ *   - A rule covers a folder if the folder is the rule's path or is inside it.
+ *     `TRUST_PARENT` on a path covers that path's parent instead.
+ *   - Of the rules that cover it, the one with the longest path string wins.
+ *     `DO_NOT_TRUST` there means untrusted; `TRUST_FOLDER` or `TRUST_PARENT`
+ *     means trusted; no rule at all means Gemini asks, which for a server
+ *     configured for the whole account means it is not started.
+ *   - Paths are resolved through symlinks where they exist, and compared
+ *     case-insensitively on Windows and macOS.
+ *
+ * So a home directory marked `TRUST_FOLDER` covers a project inside it, which is the case the
+ * old check — is the folder itself a key in the file — got wrong on the
+ * owner's own machine: the file held his home directory, the folder was
+ * trusted, Gemini had started the server, and setup and doctor both told him
+ * to trust it.
+ *
+ * Two things it does not honour, said rather than hidden. The environment
+ * variable `GEMINI_CLI_TRUST_WORKSPACE=true` trusts everything for one
+ * session and is not read here, because a setting that lasts one shell is not
+ * a fact about the machine. And a trust file Gemini cannot parse makes Gemini
+ * refuse to start at all — worse than untrusted — so an unreadable file keeps
+ * the caveat rather than clearing it.
+ *
+ * @param {string} trustFile
+ * @param {any} settings the parsed trust file, or null if it could not be read
+ * @param {VerifyOptions} options
+ * @returns {boolean}
+ */
+function geminiFolderUntrusted(trustFile, settings, options) {
+  const geminiSettings = parseOrNull(withoutBom(stripComments(readOrEmpty(options.configPath))));
+  if (geminiSettings?.security?.folderTrust?.enabled === false) return false;
+
+  if (settings === null || typeof settings !== 'object' || Array.isArray(settings)) return true;
+
+  const caseless = options.machine.platform === 'win32' || options.machine.platform === 'darwin';
+  const normalise = (/** @type {string} */ location) => {
+    let real = location;
+    try {
+      real = fs.realpathSync(location);
+    } catch {
+      // Not there, or not reachable: Gemini uses the path as written too.
+    }
+    const resolved = path.resolve(real);
+    return caseless ? resolved.toLowerCase() : resolved;
+  };
+  const inside = (/** @type {string} */ parent, /** @type {string} */ child) => {
+    const relative = path.relative(parent, child);
+    return !relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative);
+  };
+
+  const folder = normalise(options.machine.cwd ?? '');
+  let longest = -1;
+  /** @type {unknown} */
+  let winner;
+
+  for (const [rulePath, level] of Object.entries(settings)) {
+    if (level !== 'TRUST_FOLDER' && level !== 'TRUST_PARENT' && level !== 'DO_NOT_TRUST') continue;
+    const effective = level === 'TRUST_PARENT' ? path.dirname(rulePath) : rulePath;
+    if (!inside(normalise(effective), folder)) continue;
+    if (rulePath.length > longest) {
+      longest = rulePath.length;
+      winner = level;
+    }
+  }
+
+  // Unused on purpose: the file's own name is in the sentence the row carries.
+  void trustFile;
+
+  return winner !== 'TRUST_FOLDER' && winner !== 'TRUST_PARENT';
 }
 
 /**

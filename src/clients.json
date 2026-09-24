@@ -165,10 +165,10 @@
       },
       "blockers": [
         {
-          "check": "json-key-absent",
+          "check": "gemini-folder-trust",
           "file": "~/.gemini/trustedFolders.json",
-          "key": "{{cwd}}",
-          "says": "Gemini disables every MCP server, including ones configured for your whole account, in a folder it does not trust. Start `{{clientCommand}}` in {{cwd}} and run `/permissions trust`, or add \"{{cwd}}\": \"TRUST_FOLDER\" to ~/.gemini/trustedFolders.json."
+          "says": "Gemini disables every MCP server, including ones configured for your whole account, in a folder it does not trust. Start `{{clientCommand}}` in {{cwd}} and run `/permissions trust`, or add \"{{cwd}}\": \"TRUST_FOLDER\" to ~/.gemini/trustedFolders.json.",
+          "why": "Read as Gemini 0.56.0 reads it, out of its own trust.js: a rule covers the folder or anything inside it, TRUST_PARENT covers the rule's parent, the longest matching path wins, and `security.folderTrust.enabled: false` in settings.json switches the whole thing off. Until 2026-09-24 this asked whether the folder itself was a key in the file, so a person whose home directory was trusted — which covers everything under it — was told to trust a folder Gemini already trusted, while Gemini had started the server."
         }
       ],
       "traps": [
@@ -182,7 +182,7 @@
         "configPaths": "2026-08-17",
         "write": "2026-08-17",
         "verify": "2026-08-27",
-        "blockers": "2026-08-18",
+        "blockers": "2026-09-24",
         "traps": "2026-08-27"
       },
       "upstreamId": "gemini-cli"

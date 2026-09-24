@@ -44,7 +44,9 @@ configured for your whole account**, and it does not announce this — it opens
 normally and mentions it in passing. If setup reports Gemini as blocked, start
 `gemini` in that folder and run `/permissions trust`. Writing the folder into
 `~/.gemini/trustedFolders.json` by hand does the same thing; setup prints the
-exact line.
+exact line. Setup reads that file the way Gemini does — a trusted folder covers
+everything under it, and the longest matching rule wins — so a home directory
+already trusted is not reported as a folder to trust.
 
 **opencode.** An open-source terminal agent. Its `opencode mcp list` genuinely
 connects and reports success or failure with the reason, so confirmation here is
