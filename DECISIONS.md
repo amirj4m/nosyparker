@@ -1785,6 +1785,16 @@ were, at mode 0600, and some of those files may carry API keys; and that the
 agent, not the person, decides what gets remembered. The five cuts agreed on
 4 September are still pending and still the owner's.
 
+### 0.0.8, through the workflow, second time
+
+Tag `v0.0.8` on `ad72e43`, run 36011513726, first attempt: every guard
+passed, `npm publish` succeeded with a provenance statement in the Sigstore
+transparency log, and `nosyparker@0.0.8` was `latest` on the registry at
+14:19:16 UTC on 24 September 2026 — about two minutes after the step said
+so, which is the registry's propagation and not a fault. Same path as 0.0.7
+and no hand in it. The tarball was scanned before the tag for the material
+this section is about and carries none of it.
+
 ### The surface a visitor judges by
 
 The GitHub description said "a memory store"; the package says "a gate, not a
