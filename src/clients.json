@@ -497,31 +497,21 @@
       "transports": [
         "stdio"
       ],
-      "format": "jsonc",
-      "rootKey": "servers",
+      "format": "json",
+      "rootKey": "mcpServers",
       "configPaths": {
-        "linux": "~/.config/Kiro/User/mcp.json",
+        "linux": "~/.kiro/settings/mcp.json",
         "darwin": null,
         "win32": null
       },
-      "extraConfigPaths": [
-        {
-          "path": "~/.kiro/settings/mcp.json",
-          "rootKey": "mcpServers",
-          "status": "the product's own, and the only one that works",
-          "says": "Kiro's own agent reads this file. Measured on 2026-08-27 by putting a server into both surfaces under different names and launching Kiro: this one connected within four seconds of the window opening, with no sign-in and no panel, and the inherited VS Code surface that we write spawned nothing at all. The earlier reading of this row said whether the agent read it was not established; it is established, and in the direction that makes what we write inert. Until the write target changes, this is the file to add it to by hand."
-        }
-      ],
+      "extraConfigPaths": [],
       "entry": {
-        "type": "stdio",
         "command": "{{command}}",
         "args": [
           "{{serverPath}}"
         ]
       },
-      "requiredFields": [
-        "type"
-      ],
+      "requiredFields": [],
       "detect": {
         "commands": [
           "kiro"
@@ -536,42 +526,56 @@
         ]
       },
       "write": {
-        "method": "cli",
-        "argv": [
-          "kiro",
-          "--add-mcp",
-          "{{entryJsonWithName}}"
-        ],
-        "why": "Kiro is a VS Code fork and ships the same --add-mcp, described in its own --help as adding a server definition to the user profile. Using it means the profile question is answered by the application rather than guessed at."
+        "method": "file",
+        "argv": null,
+        "why": "This row wrote ~/.config/Kiro/User/mcp.json through `kiro --add-mcp` until 2026-09-24, and that file is one Kiro's agent does not read. Measured on 2026-08-27 by putting a server into both surfaces under different names and launching Kiro: the one in ~/.kiro/settings/mcp.json connected within four seconds of the window opening, with no sign-in and no panel, and the inherited VS Code surface that --add-mcp writes spawned nothing at all. So the file Kiro reads is written directly, the way Cursor's and Kimi's are, and --add-mcp is not used for anything. Its documented behaviour is accurate about where it writes; where it writes is simply not where Kiro looks."
       },
       "remove": {
         "method": "file",
         "argv": null
       },
       "verify": {
-        "tier": "B",
+        "tier": "C",
         "method": "file-reread",
         "argv": null,
         "connected": null,
         "failed": null,
-        "proves": "the entry is in mcp.json after the app's own CLI wrote it",
-        "cannotProve": "that Kiro loads it. It does not: measured on 2026-08-27, the file this row writes is not read by Kiro's agent at all, and ~/.kiro/settings/mcp.json is. There is no list command either."
+        "proves": "our entry is in mcp.json and the rest of the file is unchanged",
+        "cannotProve": "that Kiro loads it on this run. There is no list command. What is known is that this is the file Kiro reads: a server placed in it by hand connected on 2026-08-27. Kiro keeps a structured MCP log at ~/.kiro/logs/<stamp>/mcp.log, and that is where to look if it does not."
       },
       "blockers": [],
+      "alsoRemoveFrom": [
+        {
+          "path": {
+            "linux": {
+              "at": "~/.config/Kiro/User/mcp.json",
+              "inferred": false
+            },
+            "darwin": null,
+            "win32": null
+          },
+          "rootKey": "servers",
+          "format": "jsonc",
+          "measuredOn": [
+            "linux"
+          ],
+          "loaded": false,
+          "why": "Written by `kiro --add-mcp`, which is what setup used until 2026-09-24, so a machine set up before then has our entry here. Kiro does not read this file — established on 2026-08-27, see `write.why` — so an entry in it is inert rather than harmful, and uninstall takes it out because an entry we caused to exist is one we have to be able to take away. Cleaning only ever acts on a file that is there and holds our entry under this key."
+        }
+      ],
       "traps": [
-        "The surface this row writes was watched receiving nothing. A server placed in ~/.kiro/settings/mcp.json connected; the same server placed in the inherited VS Code file was never started. Writing here is what `kiro --add-mcp` does, and it is not what Kiro reads.",
-        "Two configuration surfaces, the second time a VS Code fork with its own agent has had them — Devin was the first. The inherited one is written by --add-mcp; the product's own is ~/.kiro/settings/mcp.json.",
+        "Two configuration surfaces, the second time a VS Code fork with its own agent has had them — Devin was the first. The product's own is ~/.kiro/settings/mcp.json on Linux and is the one Kiro reads. The inherited VS Code one, ~/.config/Kiro/User/mcp.json on Linux, is what `kiro --add-mcp` writes, and Kiro's agent does not read it: a server placed there was never started, measured on 2026-08-27. Setup wrote that file until 2026-09-24; `doctor` says so if an entry is still there, and `uninstall` takes it out.",
         "The shipped code also references .cursor/mcp.json and .vscode/mcp.json, so Kiro reads other clients' files as VS Code does and the server may appear more than once.",
         "macOS and Windows paths were not established. This client is Linux-only in this table.",
         "Kiro keeps a structured MCP log at ~/.kiro/logs/<stamp>/mcp.log on Linux, one JSON object per line, with `\"message\":\"Connected\"` and `serverName`. A failure is `\"level\":\"error\",\"message\":\"Failed to connect\"` — followed immediately by `\"Connection closed successfully\"`, so anything matching on the word `successfully` reads the failure as a success."
       ],
       "restart": "Quit and reopen Kiro.",
       "lastVerified": {
-        "configPaths": "2026-08-17",
-        "extraConfigPaths": "2026-08-27",
-        "write": "2026-08-17",
+        "configPaths": "2026-08-27",
+        "write": "2026-08-27",
         "verify": "2026-08-27",
-        "traps": "2026-08-27"
+        "traps": "2026-09-24",
+        "alsoRemoveFrom": "2026-08-27"
       },
       "upstreamId": "kiro"
     },

@@ -204,19 +204,20 @@ test('a client driven through its own command is recorded, and not copied', (t) 
 });
 
 test('no copy of any file is taken for any client we do not edit ourselves', () => {
-  // Six rows are driven by their own command, and none of them may be copied.
+  // Five rows are driven by their own command, and none of them may be copied.
   // Claude Code is the one that made the rule; Codex, VS Code and Devin were
-  // being copied for the same non-reason, and Kiro would have been. OpenClaw
-  // joined the list because its own `mcp add` connects to the server before it
-  // saves and refuses if it cannot, which is a stronger guarantee than any file
-  // we could write ourselves.
+  // being copied for the same non-reason. OpenClaw joined the list because its
+  // own `mcp add` connects to the server before it saves and refuses if it
+  // cannot, which is a stronger guarantee than any file we could write
+  // ourselves. Kiro left it on 2026-09-24: its `--add-mcp` writes a file Kiro
+  // does not read, so the file Kiro does read is written by hand like Cursor's.
   const driven = loadClients().clients
     .filter((client) => client.write.method === 'cli')
     .map((client) => client.id);
 
   assert.deepEqual(
     driven.sort(),
-    ['claude-code', 'codex-cli', 'devin-desktop', 'kiro', 'openclaw', 'vscode'],
+    ['claude-code', 'codex-cli', 'devin-desktop', 'openclaw', 'vscode'],
   );
 });
 

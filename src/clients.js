@@ -351,6 +351,17 @@ function validateTable(table) {
           + 'nobody has watched work is inference and has to be labelled as such.',
         );
       }
+      // Whether the client reads this file at all. Absent means yes, which is
+      // what a second surface normally is: a real file the client's own
+      // command wrote. `false` is the Kiro case — a file `--add-mcp` writes
+      // and the agent never opens — and it has to be a boolean rather than a
+      // sentence in `why`, because `doctor` picks its words from it and a
+      // sentence is not something code can pick from.
+      if ('loaded' in surface && typeof surface.loaded !== 'boolean') {
+        throw new Error(
+          `"${client.id}" gives a second surface a "loaded" that is not true or false.`,
+        );
+      }
       for (const platform of PLATFORMS) {
         if (!(platform in surface.path)) {
           throw new Error(

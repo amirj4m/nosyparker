@@ -280,10 +280,11 @@ test('each root key is that client\'s own, and three of them are not mcpServers'
   assert.equal(row('goose').rootKey, 'extensions');
   assert.equal(row('codex-cli').rootKey, 'mcp_servers');
 
-  assert.equal(row('kiro').rootKey, 'servers');
   assert.equal(row('opencode').rootKey, 'mcp');
 
-  for (const id of ['claude-code', 'claude-desktop', 'cursor', 'gemini-cli', 'kimi-code',
+  // Kiro was `servers` while the row wrote the VS Code file it inherited. The
+  // file Kiro actually reads is its own, and that one is `mcpServers`.
+  for (const id of ['claude-code', 'claude-desktop', 'cursor', 'gemini-cli', 'kimi-code', 'kiro',
     'cline', 'continue', 'warp', 'junie', 'lmstudio', 'roo-code', 'amazon-q']) {
     assert.equal(row(id).rootKey, 'mcpServers', id);
   }
@@ -311,7 +312,7 @@ test('the verification tiers are the ones the research earned, not one green tic
     goose: 'B+',
     'copilot-cli': 'C',
     opencode: 'A',
-    kiro: 'B',
+    kiro: 'C',
     lmstudio: 'C',
     'roo-code': 'C',
     'amazon-q': 'C',
@@ -560,7 +561,13 @@ test('what has been watched is data, and the sentence people read is built from 
   /** @param {(surface: any) => void} damage */
   const refused = (damage) => {
     const broken = structuredClone(table);
-    const client = broken.clients.find((/** @type {any} */ c) => c.alsoRemoveFrom?.length);
+    // The surface with a path on every platform, so that each of the three
+    // edits below has something to edit. Kiro's second surface is Linux-only
+    // and sits earlier in the table; the first one found was it, and the
+    // darwin edit landed on a null.
+    const client = broken.clients.find((/** @type {any} */ c) =>
+      (c.alsoRemoveFrom ?? []).some((/** @type {any} */ s) =>
+        PLATFORMS.every((platform) => s.path[platform] !== null)));
     damage(client.alsoRemoveFrom[0]);
     fs.writeFileSync(url, JSON.stringify(broken));
     return () => loadClients(url);
@@ -614,6 +621,45 @@ test('a table with an incomplete second surface is refused on load', (t) => {
   // Measured somewhere, by somebody. A row nobody has ever run is a row that
   // edits a stranger's editor settings on a guess.
   assert.throws(refused((s) => { s.measuredOn = []; }), /which platform its second surface was measured on/u);
+
+  // Whether the client reads the file is a boolean or absent, never a word.
+  // `doctor` chooses a sentence from it, and a sentence cannot choose from a
+  // sentence.
+  assert.throws(refused((s) => { s.loaded = 'no'; }), /"loaded" that is not true or false/u);
+});
+
+test('Kiro is written where Kiro reads, and the file it does not read is marked so', () => {
+  // The row wrote ~/.config/Kiro/User/mcp.json through `kiro --add-mcp` for
+  // five weeks after 2026-08-27, the day it was measured that Kiro's agent
+  // never opens that file and does open ~/.kiro/settings/mcp.json. The table
+  // recorded the measurement in `cannotProve` and in a trap, and went on
+  // writing the dead file, and setup went on telling people to check it
+  // themselves. This holds the row to the measurement.
+  const kiro = row('kiro');
+
+  assert.equal(kiro.write.method, 'file');
+  assert.equal(kiro.configPaths.linux, '~/.kiro/settings/mcp.json');
+  assert.equal(kiro.rootKey, 'mcpServers');
+  assert.equal(kiro.format, 'json');
+  assert.deepEqual(kiro.extraConfigPaths, [], 'the file Kiro reads is the primary, not an extra');
+
+  // The inherited surface stays in the table as something uninstall cleans,
+  // and is the one surface in the table marked as never read.
+  const [inherited, ...rest] = kiro.alsoRemoveFrom;
+  assert.deepEqual(rest, []);
+  assert.equal(surfacePath(inherited, 'linux'), '~/.config/Kiro/User/mcp.json');
+  assert.equal(inherited.rootKey, 'servers');
+  assert.equal(inherited.loaded, false);
+  assert.equal(provenance(inherited), 'measured on Linux');
+
+  // And nothing in the row still says to use the command that writes the
+  // dead file.
+  assert.equal(kiro.write.argv, null);
+  assert.equal(kiro.remove.argv, null);
+  for (const trap of kiro.traps) {
+    assert.doesNotMatch(trap, /whether .* was never established|not established whether/iu,
+      'a trap still hedges a measurement the row has made');
+  }
 });
 
 test('a second surface is a per-OS path like every other path in the table', () => {

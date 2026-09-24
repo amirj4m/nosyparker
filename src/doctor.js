@@ -259,13 +259,21 @@ export function diagnose(io) {
   // have been set up" with seven installed — and the count in the action log
   // was inflated with it. A finding is a client here, not a file.
   for (const client of loadClients().clients) {
-    const lines = secondSurfacesOf(client, io);
+    const { lines, unread } = secondSurfacesOf(client, io);
     if (lines.length === 0) continue;
 
     const already = findings.find((finding) => finding.client === client.id);
     if (already !== undefined) already.says.push(...lines);
     else {
-      findings.push({ client: client.id, name: client.name, state: NOT_ASKABLE, says: lines });
+      // An entry that sits only in a file the client never opens is a client
+      // somebody believes is wired up and is not. That is the one thing this
+      // command exists to say, so it is broken rather than merely unaskable.
+      findings.push({
+        client: client.id,
+        name: client.name,
+        state: unread ? BROKEN : NOT_ASKABLE,
+        says: lines,
+      });
     }
   }
 
@@ -292,16 +300,23 @@ export function diagnose(io) {
  * contradicting each other, in the one whose whole job is saying what is true
  * of the machine.
  *
- * Not called broken. An entry there is a working entry; it is simply somewhere
- * we do not install and most people would never look.
+ * Usually not called broken. An entry there is a working entry; it is simply
+ * somewhere we do not install and most people would never look. The exception
+ * is a surface the row marks `loaded: false` — a file the client never opens.
+ * This said "It works" about Kiro's inherited VS Code file for a month after
+ * the table recorded that Kiro does not read it, because the sentence was one
+ * sentence for every surface. Now the row decides which sentence, and an entry
+ * that is only in an unread file is reported as the broken install it is.
  *
  * @param {any} client
  * @param {import('./setup.js').Io} io
- * @returns {string[]}
+ * @returns {{lines: string[], unread: boolean}} what to say, and whether any
+ *   of it is about a file the client does not read
  */
 function secondSurfacesOf(client, io) {
   /** @type {string[]} */
-  const says = [];
+  const lines = [];
+  let unread = false;
 
   for (const surface of client.alsoRemoveFrom ?? []) {
     const wanted = surfacePath(surface, io.machine.platform);
@@ -315,13 +330,24 @@ function secondSurfacesOf(client, io) {
       name: io.name, rootKey: surface.rootKey, format: surface.format, entry: {},
     })) continue;
 
-    says.push(
+    if (surface.loaded === false) {
+      unread = true;
+      lines.push(
+        `${client.name} has an entry in ${file}, and ${client.name} does not read that file — `
+        + 'an earlier version of setup wrote it there. It does nothing where it is. '
+        + `\`${invocation()} setup\` writes the file ${client.name} does read, and `
+        + `\`${invocation()} uninstall\` takes this one out.`,
+      );
+      continue;
+    }
+
+    lines.push(
       `${client.name} also has an entry in ${file}, which its own command writes rather than `
       + `this one. It works, and \`${invocation()} uninstall\` takes it out along with ours.`,
     );
   }
 
-  return says;
+  return { lines, unread };
 }
 
 /**

@@ -679,18 +679,88 @@ test('--print-config names the traps, so a hand install hits none of them', (t) 
 });
 
 test('--print-config names the second file, for the clients that have one', (t) => {
-  // Two clients have two configuration files apiece, and both are VS Code forks
-  // that added their own agent — Devin first, then Kiro. That is a pattern
-  // rather than a quirk, and it costs no code: the second surface is a field on
-  // the row, so the second client to have one needed a row and nothing else.
+  // VS Code forks that added their own agent tend to have two configuration
+  // files — Devin, Kiro, Cursor. Where the second one is real and we do not
+  // write it, the row names it as an extra path and this prints it, so a person
+  // who cannot find the entry knows the other file exists. Devin is the one
+  // left with an extra path: Kiro's second file turned out to be the only one
+  // it reads, so that became its primary and is printed as one below.
+  const { io, printed } = machine(t, {});
+
+  printConfig(io, 'devin-desktop');
+
+  assert.match(printed(), /Devin Desktop \(formerly Windsurf\) has a second MCP configuration file/u);
+  assert.match(printed(), /\.codeium\/windsurf\/mcp_config\.json/u);
+  assert.match(printed(), /\(key "mcpServers"\)/u);
+});
+
+test('--print-config for Kiro prints the file Kiro reads, and warns off the one it does not', (t) => {
   const { io, printed } = machine(t, {});
 
   printConfig(io, 'kiro');
 
-  assert.match(printed(), /Kiro has a second MCP configuration file/u);
-  assert.match(printed(), /\.kiro\/settings\/mcp\.json/u);
-  assert.match(printed(), /\(key "mcpServers"\)/u);
-  assert.match(printed(), /this is the file to add it to by hand/u);
+  assert.match(printed(), /Add this under "mcpServers" in .*\/\.kiro\/settings\/mcp\.json/u);
+  assert.doesNotMatch(printed(), /Kiro has a second MCP configuration file/u);
+  assert.match(printed(), /\.config\/Kiro\/User\/mcp\.json/u, 'the dead file is not named as a trap');
+  assert.match(printed(), /does not read it/u);
+});
+
+test('Kiro is written to the file its agent reads, by file, and never through --add-mcp', (t) => {
+  // Measured on 2026-08-27: a server placed in ~/.kiro/settings/mcp.json
+  // connected within four seconds of Kiro opening, and the same server placed
+  // in ~/.config/Kiro/User/mcp.json by `kiro --add-mcp` was never started. The
+  // row went on using --add-mcp for five weeks after that, and setup reported
+  // Kiro as written-but-unconfirmed and told people to check it themselves,
+  // which is asking them to verify something the table already knew was dead.
+  /** @type {string[][]} */
+  const ran = [];
+  const { io, home } = machine(t, {
+    files: ['.kiro/extensions/', '.local/Kiro/bin/kiro'],
+    run: (argv) => { ran.push(argv); return { status: 0, stdout: '', stderr: '' }; },
+  });
+
+  const outcomes = install(io);
+  const kiro = outcomes.find((outcome) => outcome.client.id === 'kiro');
+
+  assert.equal(kiro?.written?.outcome, 'written');
+  assert.equal(kiro?.written?.method, 'file');
+  assert.equal(kiro?.written?.path, path.join(home, '.kiro', 'settings', 'mcp.json'));
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(path.join(home, '.kiro', 'settings', 'mcp.json'), 'utf8')),
+    { mcpServers: { nosyparker: { command: '/usr/bin/node', args: ['/srv/mcp-server.js'] } } },
+  );
+
+  // Nothing of Kiro's was run, and the inherited file was not created.
+  assert.deepEqual(ran.filter((argv) => argv[0].endsWith('kiro')), []);
+  assert.equal(fs.existsSync(path.join(home, '.config', 'Kiro', 'User', 'mcp.json')), false);
+});
+
+test('uninstall takes Kiro\'s entry out of the file an earlier setup wrote and Kiro never read', (t) => {
+  // The machine this project was built on has exactly this file, written by
+  // `kiro --add-mcp` on 2026-08-21. It is the second surface now, marked as one
+  // Kiro does not read, and uninstall cleans it the way it cleans Cursor's.
+  const { io, home, printed } = machine(t, { files: ['.kiro/extensions/', '.config/Kiro/User/'] });
+
+  const inherited = path.join(home, '.config', 'Kiro', 'User', 'mcp.json');
+  fs.writeFileSync(inherited, [
+    '{',
+    '\t"servers": {',
+    '\t\t"nosyparker": {',
+    '\t\t\t"type": "stdio",',
+    '\t\t\t"command": "/usr/bin/node",',
+    '\t\t\t"args": ["/srv/mcp-server.js"]',
+    '\t\t}',
+    '\t},',
+    '\t"inputs": []',
+    '}',
+  ].join('\n'));
+
+  reportRemoval(io, uninstall(io));
+
+  assert.equal(fs.readFileSync(inherited, 'utf8').includes('nosyparker'), false,
+    'the file kiro --add-mcp wrote is still holding the entry');
+  assert.doesNotThrow(() => JSON.parse(fs.readFileSync(inherited, 'utf8')));
+  assert.match(printed(), /Kiro — also removed from a file its own command wrote/u);
 });
 
 test('--print-config for opencode prints the shape that is unlike all the others', (t) => {

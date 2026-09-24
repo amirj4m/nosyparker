@@ -253,9 +253,12 @@ unknown path, wrong answer for the person.
   `mcp.servers`, `measuredOn: ["linux"]`. That `inferred: true` is the table
   saying, in the only form a test can check, that nobody has watched this path
   work. Measuring it is what turns the flag over.
-- **`kiro.extraConfigPaths`** — `~/.kiro/settings/mcp.json`. A single string with
-  no per-OS map at all, so it resolves under `%USERPROFILE%` on Windows whether
-  that is right or not.
+- **Kiro's second surface** — `alsoRemoveFrom[0]` is the inherited VS Code file
+  `~/.config/Kiro/User/mcp.json`, Linux only, `measuredOn: ["linux"]`, and
+  marked `loaded: false` because Kiro's agent does not read it. Its primary,
+  `~/.kiro/settings/mcp.json`, is the one Kiro reads and is `null` on Windows
+  and macOS (§6.2): upstream says `%USERPROFILE%\.kiro\settings\mcp.json`,
+  which is the value to confirm or refute.
 - **`devin-desktop.extraConfigPaths`** — `~/.codeium/windsurf/mcp_config.json`.
   Same shape, same caveat. We do not write this one; we name it.
 

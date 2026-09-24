@@ -1268,6 +1268,56 @@ holds the workflow to its three properties — the two triggers, the two checks,
 and a Node the program starts on — read from the file as text, the same way the
 publish workflow's condition is held.
 
+### Kiro was wired to a file Kiro does not read
+
+The row wrote `~/.config/Kiro/User/mcp.json` — the Linux path; nothing about
+Kiro is measured anywhere else — through `kiro --add-mcp`. On 2026-08-27 it
+was measured — a server in each of Kiro's two files under
+different names, Kiro opened — that the agent starts the one in
+`~/.kiro/settings/mcp.json` within four seconds and never opens the inherited
+VS Code file at all. The table recorded that, in `cannotProve`, in a trap, and
+in an `extraConfigPaths` note ending "until the write target changes, this is
+the file to add it to by hand". The write target did not change. For five weeks
+setup wrote the dead file, reported Kiro under "written, but unconfirmed", and
+told the person to open Kiro and check — asking them to verify what the row
+already said would fail. `extraConfigPaths` reached the terminal only through
+`--print-config`, which nobody runs after a setup that reported success.
+
+**The row now writes the file Kiro reads**, by file, like Cursor and Kimi:
+`~/.kiro/settings/mcp.json` on Linux, root key `mcpServers`, tier C. `--add-mcp` is not
+used for anything. That is also what the community table said all along — it
+named that file and that root key from the start, and the three Kiro
+divergences accepted in `vendor/clients.meta.json` were the table defending a
+row that was wrong. They are gone.
+
+**The inherited file stays in the table as a second surface**, the way Cursor's
+`settings.json` does, so `uninstall` takes out what the earlier setup wrote —
+including on the machine this project was built on, which has exactly that
+file. It carries a new flag, `loaded: false`, a boolean rather than a sentence
+because `doctor` chooses its words from it: an entry found there is reported as
+a file Kiro does not read, and if that is the only entry Kiro has, the client
+is reported broken and the exit code says so. Before this, `doctor` said "It
+works" about that file, because it had one sentence for every second surface
+and nothing to choose with.
+
+What this does not do, said so it is not mistaken for an oversight: `setup`
+does not clean the dead file on install. It writes the live one and leaves the
+other for `uninstall`, and `doctor` names it in the meantime. Cleaning on
+install would be the first time `setup` removed anything from a file, and that
+is a bigger rule to change than this fix needed.
+
+macOS and Windows paths stay null. Upstream gives the same
+`~/.kiro/settings/mcp.json` on macOS and Windows as on Linux, which is
+plausible and unmeasured, and this table does not write to a plausible path.
+
+The installer's own write into the new file has not been watched with Kiro
+open. What was watched on 2026-08-27 is that a hand-placed entry in that file
+connects, and the write is the same code path every JSON client uses. The
+`lastVerified` dates on the row say 2026-08-27 for that reason, and the next
+person with Kiro open should run `setup` and read `~/.kiro/logs/<stamp>/mcp.log`
+for the `Connected` line, which is what turns this from a row built on one
+measurement into a row built on two.
+
 ## What we are, and the one thing to leave room for  [record]
 
 **We are not a place. We are a gate that decides.** The storage is a SQLite file

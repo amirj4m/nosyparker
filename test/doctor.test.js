@@ -788,3 +788,53 @@ test('doctor does not tell somebody their settings hold an entry that is not the
   assert.doesNotMatch(printed(), /settings\.json/u,
     'doctor named a file of theirs that holds nothing of ours');
 });
+
+test('an entry that sits only in a file the client never reads is a broken install, and says so', (t) => {
+  // The owner's machine, from 2026-08-21 to 2026-09-24: `kiro --add-mcp` had
+  // put the entry in ~/.config/Kiro/User/mcp.json, the table had recorded on
+  // 2026-08-27 that Kiro's agent never opens that file, and doctor said of it
+  // "It works" — one sentence for every second surface, chosen by nothing.
+  // Now the row says whether the client reads the file and the sentence
+  // follows from that, and an install that exists only in an unread file is
+  // reported as the broken install it is rather than as an aside.
+  const { io, home, printed } = machine(t, { files: ['.kiro/extensions/'] });
+
+  const inherited = path.join(home, '.config', 'Kiro', 'User', 'mcp.json');
+  fs.mkdirSync(path.dirname(inherited), { recursive: true });
+  fs.writeFileSync(inherited,
+    '{\n\t"servers": {\n\t\t"nosyparker": { "type": "stdio", "command": "/usr/bin/node" }\n\t},\n\t"inputs": []\n}\n');
+
+  const found = diagnose(io);
+  const code = reportDiagnosis(io, found);
+
+  const kiro = found.findings.find((finding) => finding.client === 'kiro');
+  assert.equal(kiro?.state, BROKEN);
+  assert.match(kiro?.says.join(' ') ?? '', /Kiro does not read that file/u);
+  assert.doesNotMatch(kiro?.says.join(' ') ?? '', /It works/u,
+    'doctor still vouches for a file the client never opens');
+  assert.match(printed(), /setup` writes the file Kiro does read/u);
+  assert.equal(code, 1, 'an install nothing reads exited as though nothing were wrong');
+
+  // Read-only, like the rest of the command.
+  assert.match(fs.readFileSync(inherited, 'utf8'), /nosyparker/u, 'doctor changed something');
+});
+
+test('once the file Kiro reads is written, the unread one is a note rather than a fault', (t) => {
+  const { io, home } = machine(t, { files: ['.kiro/extensions/'] });
+
+  const inherited = path.join(home, '.config', 'Kiro', 'User', 'mcp.json');
+  fs.mkdirSync(path.dirname(inherited), { recursive: true });
+  fs.writeFileSync(inherited,
+    '{\n\t"servers": {\n\t\t"nosyparker": { "type": "stdio", "command": "/usr/bin/node" }\n\t}\n}\n');
+
+  // Setup, as it is now, writes the file Kiro reads and leaves the old one.
+  install({ ...io, out: () => {} });
+
+  const found = diagnose(io);
+  const kiro = found.findings.find((finding) => finding.client === 'kiro');
+
+  assert.notEqual(kiro?.state, BROKEN);
+  assert.match(kiro?.says.join(' ') ?? '', /does not read that file/u,
+    'the stale entry is not mentioned, so nobody learns to run uninstall on it');
+  assert.equal(found.findings.filter((finding) => finding.client === 'kiro').length, 1);
+});
