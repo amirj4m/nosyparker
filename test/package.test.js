@@ -37,7 +37,13 @@ function packed() {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
   });
-  return new Set(JSON.parse(out)[0].files.map((/** @type {{path: string}} */ f) => f.path));
+  // npm 10 prints a list with one entry; npm 11 prints an object keyed by
+  // package name. The publish workflow installs npm@latest before running
+  // this, and the first dry run of that workflow was the first run of this
+  // file under npm 11 — six tests failed reading `.files` of undefined.
+  const parsed = JSON.parse(out);
+  const first = Array.isArray(parsed) ? parsed[0] : Object.values(parsed)[0];
+  return new Set(first.files.map((/** @type {{path: string}} */ f) => f.path));
 }
 
 test('everything the program reads at run time is in the package', () => {
