@@ -1545,6 +1545,60 @@ produced nothing") is unconditional prose in `restart` and cannot be checked
 from a file; the interpreter paragraph in the setup report is unconditional
 and is information rather than a caveat.
 
+### A path is not a token
+
+He offered a sentence with a quarantine folder's full path in it and was
+refused with "this looks like a long opaque token". The same sentence without
+the path stored. The cause is one character: `/` is in the base64 alphabet, so
+it was in the opaque-token alphabet, so a path such as
+`/srv/somebody/Documents/Quarantine/ReportFinal2026` was thirty-two characters
+of mixed case with a digit in one unbroken run — the token shape exactly. Three
+shapes of real path reproduced it, and a URL did too.
+
+**The fix, and what it rests on.** Two facts about the encodings rather than a
+guess about paths. Standard base64 uses `+` and `/`; base64url uses `-` and
+`_`; neither uses `.` or `~`. So a run that mixes a slash with a dash, an
+underscore, a dot or a tilde cannot be one encoded token, and the token rule
+is not run on it. And a run that begins as a path begins — `/`, `~/`, `./`,
+`../` — and reaches a second slash is read as a path. `=` splits a run before
+the test, because an encoding only has `=` at its end, so `NAME=/path` is a
+name and a path. The token pattern itself is unchanged, `\b`-anchored and
+ASCII, and runs over each piece exactly as it ran over the whole; the wide
+scan in front of it is one linear pass, so the one-megabyte guard in
+`test/mcp.test.js` holds.
+
+**The trade, made visible.** What now passes: a bare base64 secret that
+happens to start with `/` and contain another slash, with no label and no
+access key beside it — about one in three hundred AWS secret keys, pasted
+naked. With its label, `secret key: …` catches it; beside its access key,
+`AKIA…` catches it; both are tested. What is still refused wrongly: a path
+segment run with no dot, dash, underscore or leading slash that is itself
+thirty-two mixed-case characters with a digit — `cache/Quarantine/
+ReportFinal2026xx` after a dotfolder has split the run. That residual is
+narrower than before by every real path tried, and it is written here rather
+than closed, because closing it means judging whether slashed text is
+"wordlike", which is a heuristic, and the point of this fix is that it is not
+one. Splitting on `/` outright was rejected: it lets a forty-character AWS
+secret through as three short pieces, and a false negative here is the worse
+direction.
+
+### The publish trigger, read rather than rebuilt
+
+Under a previous name this project published a version on every push until
+the count ran away and the name was abandoned. `publish.yml` was read again
+with that in mind. Its triggers are exactly two: a GitHub release with
+`types: [published]`, and `workflow_dispatch`, whose only publish-capable step
+carries `if: github.event_name == 'release'` and so never publishes from a
+manual run. Before the publish step it runs the typecheck, the suite, a check
+that the release tag and `package.json` agree, and a check that the version is
+not already on the registry. That is already the right shape, and it had never
+run: no tag or release has ever been cut, and every version on npm went out by
+hand. So it is not rebuilt. Two things were added so it cannot regress: a
+block at the top of the file saying in capitals what it must never start on,
+and a test that reads the `on:` block and fails on any third trigger by name
+and on a release type other than `published`. 0.0.7 is the first release to go
+through it.
+
 ## What we are, and the one thing to leave room for  [record]
 
 **We are not a place. We are a gate that decides.** The storage is a SQLite file

@@ -109,11 +109,84 @@ const SHAPES = [
   // theoretical and the cost was the guard that `test/mcp.test.js` exists to
   // hold. The card check is where non-ASCII digits actually turn up, and it is
   // a scan rather than a backtracking match.
-  shape(
-    'a long opaque token',
-    /\b(?=[A-Za-z0-9+/=_-]*[a-z])(?=[A-Za-z0-9+/=_-]*[A-Z])(?=[A-Za-z0-9+/=_-]*\d)[A-Za-z0-9+/=_-]{32,}\b/u,
-  ),
+  { label: 'a long opaque token', find: containsOpaqueToken },
 ];
+
+/**
+ * The shape of a long opaque token, on its own.
+ *
+ * Kept exactly as it was — ASCII, `\b`-anchored, the three lookaheads — for
+ * the reason in the comment above: on a one megabyte query the anchors are
+ * what make it return at all. What changed is what it is run over. See
+ * {@link containsOpaqueToken}.
+ */
+const OPAQUE_TOKEN =
+  /\b(?=[A-Za-z0-9+/=_-]*[a-z])(?=[A-Za-z0-9+/=_-]*[A-Z])(?=[A-Za-z0-9+/=_-]*\d)[A-Za-z0-9+/=_-]{32,}\b/u;
+
+/**
+ * A run of the characters a token or a path is made of, wider than the token
+ * alphabet by the three a path has and an encoding never does: `.`, `~` and
+ * the slash-separated structure they sit in.
+ */
+const TOKEN_OR_PATH = /[A-Za-z0-9+/=_.~-]+/gu;
+
+/**
+ * Is there a long opaque token in the text — as opposed to a long file path.
+ *
+ * `/` is in the base64 alphabet, so it was in the token alphabet, so a path
+ * was a token: `/srv/somebody/Documents/Quarantine/ReportFinal2026` is
+ * thirty-two characters of mixed case with a digit in one unbroken run, and
+ * the gate refused to store a sentence about where a file had been moved to,
+ * in a confident sentence about a secret. The same sentence without the path
+ * stored. That is the one direction this rule must never be wrong in: a
+ * refusal here quietly costs a person a memory.
+ *
+ * The fix is two facts about the encodings, not a guess about paths. Standard
+ * base64 uses `+` and `/`; base64url uses `-` and `_`; neither uses `.` or
+ * `~`. So a run that mixes a slash with a dash, an underscore, a dot or a
+ * tilde is not a single encoded token of either kind — it is a path, a
+ * version string, a date in a folder name — and the token rule is not run on
+ * it at all. And a run that begins the way a path begins — `/`, `~/`, `./`,
+ * `../` — and goes on to a second slash is read as the path it is.
+ *
+ * What that costs, said so the trade is visible. A bare base64 secret that
+ * happens to start with `/` and contain another slash — about one in three
+ * hundred forty-character AWS secret keys, pasted with no label beside them —
+ * now passes this rule. Pasted with its label, `secret key: …` catches it
+ * still, and pasted beside its access key, `AKIA…` does. A path that is
+ * thirty-two characters of mixed case and digits with no dot, dash,
+ * underscore or leading slash inside one segment run — `cache/Quarantine/
+ * ReportFinal2026xx` after a dotfolder has split the run — is still refused,
+ * and is the residual this does not close.
+ *
+ * `=` splits a run before the token test, because an encoding only ever has
+ * `=` at its end: `path=/home/…` is a name, a sign and a path, not one token.
+ *
+ * Linear. The wide scan is one pass with no lookahead, and the token pattern
+ * runs over each piece exactly as it ran over the whole text before.
+ *
+ * @param {string} text
+ * @returns {boolean}
+ */
+function containsOpaqueToken(text) {
+  for (const run of text.match(TOKEN_OR_PATH) ?? []) {
+    for (const piece of run.split(/=(?=[^=])/u)) {
+      if (looksLikePath(piece)) continue;
+      if (OPAQUE_TOKEN.test(piece)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * @param {string} piece
+ * @returns {boolean}
+ */
+function looksLikePath(piece) {
+  if (!piece.includes('/')) return false;
+  if (/[-_.~]/u.test(piece)) return true;
+  return /^(?:~|\.{1,2})?\/.*\//su.test(piece);
+}
 
 /**
  * @param {string} label

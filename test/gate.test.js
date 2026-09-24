@@ -326,6 +326,61 @@ test('a labelled secret is labelled in more than one language', (t) => {
   }
 });
 
+test('rule 1 does not read a long file path as a token', (t) => {
+  // The owner offered a sentence with a quarantine folder's full path in it
+  // and was told "this looks like a long opaque token, so it was not stored".
+  // The same sentence without the path stored. `/` is in the base64 alphabet,
+  // so a path was thirty-two characters of mixed case with a digit in one run,
+  // which is the token shape. A refusal here costs a memory and says a
+  // confident, wrong thing about why — the one direction this rule must not
+  // be wrong in.
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const paths = [
+    'the file was moved to /srv/amir/Documents/Quarantine/ReportFinal2026 on Monday',
+    'quarantined at ~/.local/share/Quarantine/2026-09-20_Report_Final',
+    'see /var/lib/clamav/quarantine/Invoice_ACME_2026_September/report',
+    'it is under ./build/Output/Quarantine/ReportFinal2026Again/x',
+    'and ../shared/Output/Quarantine/ReportFinal2026Again/x',
+    'set QUARANTINE=/srv/amir/Documents/Quarantine/ReportFinal2026',
+    'relative Quarantine/2026-09-20_ReportFinal_v2_ACME/notes is fine too',
+    'the download is at https://files.example.org/Quarantine/ReportFinal2026Again/x',
+  ];
+
+  for (const text of paths) {
+    const result = submit(store, { owner: OWNER, text });
+    assert.equal(result.verdict, 'stored', `should have been stored: ${text}`);
+  }
+  assert.equal(listMemories(store, OWNER).length, paths.length);
+});
+
+test('rule 1 still refuses the tokens the path fix could have let through', (t) => {
+  // The other direction, and the more important one. Built from pieces at
+  // runtime like the shapes test above. An AWS secret key is the real secret
+  // that looks most like a path — forty characters of standard base64, which
+  // has `/` in it — so it is here in several positions, including starting
+  // with a slash beside its access key and under its label.
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const tokens = [
+    ['wJalrXUtnFEMI/K7MDENG/', 'bPxRfiCYEXAMPLEKEY'],
+    ['dGhpcyBpcyBhIHRlc3Qgb2Yg', 'YmFzZTY0IGVuY29kaW5n'],
+    ['dGhpcyBpcyBhIHRlc3Qgb2YgYmFzZTY0IGVuY29kaW5n', 'Cg=='],
+    ['dGhpc19pc19hX3Rlc3Rfb2Zf', 'YmFzZTY0dXJs-_Ab3'],
+    ['secret key: /K7MDENG/', 'bPxRfiCYEXAMPLEKEYwJalrXUtnFEMI'],
+    ['AKIA', 'IOSFODNN7EXAMPLE and /K7MDENG/bPxRfiCYEXAMPLEKEYwJalrXUtnFEMI'],
+    ['token=', 'dGhpcyBpcyBhIHRlc3Qgb2YgYmFzZTY0IGVuY29kaW5n'],
+  ].map((parts) => parts.join(''));
+
+  for (const token of tokens) {
+    const result = submit(store, { owner: OWNER, text: token });
+    assert.equal(result.rule, 'credential', `should have been refused: ${token.slice(0, 16)}`);
+  }
+  assert.equal(listMemories(store, OWNER).length, 0);
+});
+
 test('rule 1 leaves ordinary sentences about secrets alone', (t) => {
   const store = temporaryStore();
   t.after(() => store.close());

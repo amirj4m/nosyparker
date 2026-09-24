@@ -15,6 +15,13 @@
 # being untested at the moment it matters — and the condition on the publish
 # step used to let a manual run through, skipping the tag check, which only runs
 # on a release. That was the one route to the registry with no version guard.
+#
+# NEVER ON PUSH. NEVER ON A PULL REQUEST. NEVER ON A SCHEDULE. The previous
+# project under a different name published a version on every push; the count
+# ran away and the name was abandoned. This workflow has exactly two triggers,
+# a published release and a manual run that cannot publish, and a test in
+# test/package.test.js fails if a third one is added or if the publish step's
+# condition is loosened. Read that test before touching `on:` below.
 name: publish
 
 on:

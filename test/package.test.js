@@ -198,6 +198,18 @@ test('the one change that can reach a public registry is held by something', () 
 
   // And the publish step has to come after them, not beside them.
   assert.ok(yaml.indexOf('- name: publish') > yaml.indexOf('that version must not already be published'));
+
+  // The triggers, written out in full. Under a previous name this project
+  // published on every push, the version count ran away, and the name was
+  // abandoned. A published release and a manual run that cannot publish are
+  // the only two ways this workflow may ever start, and a third one — push,
+  // pull_request, schedule, a tag pattern — fails here by name.
+  const triggers = /^on:\n((?:[ \t]+.*\n)+)/mu.exec(yaml);
+  assert.ok(triggers, 'the publish workflow has no `on:` block');
+  const events = [...triggers[1].matchAll(/^ {2}(\w+):/gmu)].map((match) => match[1]).sort();
+  assert.deepEqual(events, ['release', 'workflow_dispatch'],
+    'the publish workflow starts on something other than a published release');
+  assert.match(triggers[1], /^ {4}types: \[published\]$/mu, 'it must be a *published* release, not a draft or a tag');
 });
 
 test('every commit runs the suite and the typechecker, on a Node that has node:sqlite', () => {
