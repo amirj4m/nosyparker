@@ -225,9 +225,10 @@ elsewhere; the other two stay here.
 
 One thing to know about that last folder: the copies in it are other programs'
 configuration files exactly as they were, and some of those files are allowed
-to hold API keys. The copies are written readable by you alone (mode 0600) and
-are never read back by anything here; they exist so that an edit can be
-undone. If you would rather not keep them, they are yours to delete.
+to hold API keys. The copies are written readable by you alone — mode 0600 on
+Linux and macOS; on Windows, whatever your user folder allows — and are never
+read back by anything here; they exist so that an edit can be undone. If you
+would rather not keep them, they are yours to delete.
 
 **Searching for a number finds it in any script.** `search 2026` and
 `search ۲۰۲۶` return the same memories, and so do `search 10` and `search ۱۰`.

@@ -1743,6 +1743,19 @@ given above.
 
 ### The real blocker is the two platforms nobody has watched
 
+What the first day of runners established is in `PLATFORMS.md` and is
+summarised here so the shape is not lost: macOS runs the whole suite green
+(one Linux-only test skipped), which vouches for the program's own behaviour
+there and for nothing about the fourteen macOS paths; Windows found three
+real things — the repository needed `.gitattributes` for line endings, the
+`0600` file-mode claim needed platform wording, and one test passed an
+argument longer than Windows allows — and fifty-nine harness assumptions
+that are a day of test work. The Windows column ran zero tests on its first
+pass and reported success, because PowerShell handed Node a single-quoted
+glob; that is the kind of green tick this project exists to distrust, and it
+was caught by reading the log rather than the badge.
+
+
 The owner asked why 0.0.7 was published when the plan was to test on Windows
 and macOS first, and the question was fair: `WINDOWS.md` opened with "nothing
 in this file has been done yet", and twenty-two client rows carry paths for

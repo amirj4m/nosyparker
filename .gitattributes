@@ -1,0 +1,4 @@
+# Line endings are part of what the checks read: DECISIONS.md and CLIENTS.md are
+# split on blank lines, and vendor/clients.json is hashed against a recorded
+# sum. A Windows checkout with autocrlf turned both red. Everything is LF.
+* text=auto eol=lf
