@@ -613,3 +613,24 @@ test('a store command says on stderr when the entries name an interpreter that h
   assert.doesNotMatch(run(['setup', '--print-config']).stderr, /not there any more/u);
   assert.doesNotMatch(run(['--help']).stderr, /not there any more/u);
 });
+
+test('uninstall takes one client name, and refuses one it has never heard of', (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-cli-home-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const run = (/** @type {string[]} */ args) => spawnSync(process.execPath, [CLI, ...args], {
+    encoding: 'utf8',
+    env: sandboxEnv(home),
+  });
+
+  const unknown = run(['uninstall', 'kirro']);
+  assert.equal(unknown.status, 1, 'a typo exited as though something had been removed');
+  assert.match(unknown.stderr, /There is no client called "kirro"/u);
+  assert.match(unknown.stderr, /kiro/u, 'the list of names it does take is missing');
+
+  assert.match(run(['uninstall', 'kiro', 'zed']).stderr, /takes at most one client name/u);
+
+  // A known name on a machine with nothing on it is a clean nothing.
+  const nothing = run(['uninstall', 'kiro']);
+  assert.equal(nothing.status, 0);
+  assert.match(nothing.stdout, /Nothing to remove/u);
+});

@@ -139,7 +139,9 @@ the Linux file it inherited from VS Code and the one its own `kiro --add-mcp`
 writes — a server placed there started nothing at all. Setup used `--add-mcp`
 until 24 September 2026, so a machine set up before then has an entry in the
 inherited file that does nothing; `nosyparker doctor` says so, and
-`nosyparker uninstall` takes it out. That second path is measured on Linux; the
+`nosyparker uninstall kiro` takes it out along with Kiro's live entry and
+nothing else — run `nosyparker setup` again afterwards to put the live one
+back. That second path is measured on Linux; the
 macOS and Windows locations of either file were not established, so on those
 two setup reports Kiro as a client it has no path for.
 
@@ -242,6 +244,20 @@ have to be a hosted server with a public address rather than a program on your
 own machine.
 
 ---
+
+## Taking one client out
+
+```
+nosyparker uninstall kiro
+```
+
+The same as `uninstall`, for one client: its entry comes out of the file setup
+writes and out of any second file its own command wrote, and every other client
+is left exactly alone. The name is one of the ids in this table, and a name the
+table does not have is refused with the list rather than quietly removing
+nothing. It exists because `doctor` sometimes has one file of one client to
+point at, and "run uninstall" for that would have cost sixteen other clients
+their entry.
 
 ## Checking later that it still works
 

@@ -404,7 +404,7 @@ function cleanSecondSurfaces(client, io) {
 }
 
 /**
- * Take our entry out of every client that has one.
+ * Take our entry out of every client that has one — or out of one client.
  *
  * Every client, not only the ones the manifest says we wrote to: an install may
  * have happened from a different copy of this project, or on a machine that has
@@ -414,16 +414,26 @@ function cleanSecondSurfaces(client, io) {
  * And not only the files we write: a client whose own command writes a
  * different file gets that one cleaned too. See {@link cleanSecondSurfaces}.
  *
+ * One client, when asked. `doctor` had been telling the owner that `uninstall`
+ * would take a dead Kiro file out, which was true and left out that it would
+ * take sixteen other clients' entries out with it. A sentence that sends
+ * somebody to a command that does more than the problem is the family of
+ * defect this project has been closing all week, and the narrow command is
+ * the fix rather than a narrower sentence: it takes that client's entries out
+ * — the file we write and any second surface — and touches nothing else.
+ *
  * @param {Io} io
+ * @param {string|null} [only] a client id, to leave every other client alone
  * @returns {Outcome[]}
  */
-export function uninstall(io) {
+export function uninstall(io, only = null) {
   /** @type {Outcome[]} */
   const outcomes = [];
 
-  io.log.record('run', { clients: loadClients().clients.length, cwd: io.machine.cwd });
+  const clients = loadClients().clients.filter((client) => only === null || client.id === only);
+  io.log.record('run', { clients: clients.length, only: only ?? undefined, cwd: io.machine.cwd });
 
-  for (const client of loadClients().clients) {
+  for (const client of clients) {
     const found = detect(client, io.machine);
 
     // Before the detection gate, deliberately. `detect` returns a null

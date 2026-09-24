@@ -25,7 +25,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { beginReview, closeReview, review, submit, undoReview } from '../src/gate.js';
 import { LOCAL_OWNER, monotonicClock } from '../src/config.js';
 import { listMemories, openStore } from '../src/store.js';
-import { clientById } from '../src/clients.js';
+import { clientById, loadClients } from '../src/clients.js';
 import { defaultLogPath, openLog } from '../src/log.js';
 import { defaultIo, install } from '../src/setup.js';
 
@@ -105,7 +105,7 @@ test('an interpreter that has gone away is found, which nothing could do before'
 
   assert.equal(gemini?.state, BROKEN);
   assert.match(gemini?.says.join(' ') ?? '', /is not there any more/u);
-  assert.match(gemini?.says.join(' ') ?? '', /Run setup again to rewrite it/u);
+  assert.match(gemini?.says.join(' ') ?? '', /Run `.*setup` to rewrite it/u);
 });
 
 test('a client this never installed into is not reported at all', (t) => {
@@ -837,4 +837,74 @@ test('once the file Kiro reads is written, the unread one is a note rather than 
   assert.match(kiro?.says.join(' ') ?? '', /does not read that file/u,
     'the stale entry is not mentioned, so nobody learns to run uninstall on it');
   assert.equal(found.findings.filter((finding) => finding.client === 'kiro').length, 1);
+});
+
+test('a broken entry for a client that cannot be written while it runs says to quit it first', (t) => {
+  // The loop the owner walked twice: doctor said "run setup", setup said "quit
+  // Claude Desktop and run this again", and neither sentence mentioned the
+  // other. Which clients this applies to comes from the row, not from a name.
+  const { io, home, printed, interpreter } = machine(t, { files: ['.config/Claude/claude_desktop_config.json'] });
+  fs.writeFileSync(path.join(home, '.config', 'Claude', 'claude_desktop_config.json'), '{"preferences": {}}\n');
+  // Setup once, so the manifest knows this file; then make the entry stale the
+  // way the owner's was — same interpreter, a server path from an older copy.
+  install({ ...io, out: () => {} });
+  fs.writeFileSync(path.join(home, '.config', 'Claude', 'claude_desktop_config.json'),
+    `{"mcpServers": {"nosyparker": {"command": ${JSON.stringify(interpreter)}, "args": ["/old/mcp-server.js"]}}}\n`);
+
+  const found = diagnose(io);
+  reportDiagnosis(io, found);
+  const desktop = found.findings.find((finding) => finding.client === 'claude-desktop');
+
+  assert.equal(desktop?.state, BROKEN);
+  const said = desktop?.says.join(' ') ?? '';
+  assert.match(said, /not the one setup would write now/u);
+  assert.match(said, /Quit Claude Desktop first/u, 'the step that has to come first is missing');
+  assert.match(said, /then run `.*setup` to bring it up to date/u);
+  assert.match(printed(), /Quit Claude Desktop before you do/u, 'the closing instruction does not say it either');
+
+  // A client that can be written while it runs is told nothing about quitting.
+  for (const client of loadClients().clients) {
+    if (client.writeRequiresQuit === undefined) continue;
+    assert.ok(['claude-desktop', 'devin-desktop'].includes(client.id), `${client.id} now needs a quit and this test has not met it`);
+  }
+});
+
+test('a broken entry for an ordinary client is not told to quit anything', (t) => {
+  const { io, home, printed, interpreter } = machine(t, { files: ['.gemini/'] });
+  install({ ...io, out: () => {} });
+  fs.writeFileSync(path.join(home, '.gemini', 'settings.json'),
+    `{"mcpServers": {"nosyparker": {"command": ${JSON.stringify(interpreter)}, "args": ["/old/mcp-server.js"]}}}\n`);
+
+  reportDiagnosis(io, diagnose(io));
+
+  assert.match(printed(), /Run `.*setup` to bring it up to date/u);
+  assert.doesNotMatch(printed(), /Quit/u);
+});
+
+test('the dead Kiro file is pointed at an uninstall of Kiro alone, and says what that costs', (t) => {
+  const { io, home } = machine(t, { files: ['.kiro/extensions/'] });
+  const inherited = path.join(home, '.config', 'Kiro', 'User', 'mcp.json');
+  fs.mkdirSync(path.dirname(inherited), { recursive: true });
+  fs.writeFileSync(inherited, '{\n\t"servers": {\n\t\t"nosyparker": { "type": "stdio", "command": "/usr/bin/node" }\n\t}\n}\n');
+
+  const kiro = diagnose(io).findings.find((finding) => finding.client === 'kiro');
+  const said = kiro?.says.join(' ') ?? '';
+
+  assert.match(said, /uninstall kiro` takes Kiro's entries out/u);
+  assert.match(said, /no other client's/u);
+  assert.doesNotMatch(said, /uninstall` takes this one out/u, 'the sentence still names the command that removes everything');
+});
+
+test('an interpreter that has gone is also told to quit first, for the clients that need it', (t) => {
+  // Found by the fixture above landing on this branch by accident: "run setup
+  // again to rewrite it" had the same loop in it.
+  const { io, home, dir } = machine(t, { files: ['.config/Claude/claude_desktop_config.json'] });
+  fs.writeFileSync(path.join(home, '.config', 'Claude', 'claude_desktop_config.json'), '{"preferences": {}}\n');
+  install({ ...io, out: () => {} });
+  fs.rmSync(path.join(dir, 'runtime'), { recursive: true, force: true });
+
+  const desktop = diagnose(io).findings.find((finding) => finding.client === 'claude-desktop');
+  assert.equal(desktop?.state, BROKEN);
+  assert.match(desktop?.says.join(' ') ?? '', /is not there any more/u);
+  assert.match(desktop?.says.join(' ') ?? '', /Quit Claude Desktop first .* then run `.*setup` to rewrite it/u);
 });

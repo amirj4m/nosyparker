@@ -1643,6 +1643,60 @@ that bypass two-factor for exactly this use.
 The trigger is what the phase 0 read said and what the test now holds: a
 published release, and nothing else, ever.
 
+**Published.** The owner configured the trusted publisher — repository
+`amirj4m/nosyparker`, workflow `publish.yml`, permissions `npm publish` and
+`npm stage publish` — and re-ran the failed run. Attempt 2 of run 35986782960
+succeeded; `nosyparker@0.0.7` reached the registry at 11:43:53 UTC on
+24 September 2026 and `latest` points at it. The `beta` tag still says 0.0.6
+and nothing here moves it.
+
+**Why trusted publishing, so it is not revisited blindly.** npm is restricting
+tokens that bypass two-factor authentication: for account changes from August
+2026, for direct publishing from January 2027. A workflow publishing with a
+long-lived token in a secret is on the wrong side of that date; OIDC trusted
+publishing is on the right side, uses no stored secret, and is what this
+repository was written for after two tokens were found on a laptop. There is
+no `NPM_TOKEN` secret and there should not be one.
+
+**How the owner installed it, and what that means.** He ran
+`npm install -g` against the checkout, which npm satisfies with a symlink from
+`node_modules/nosyparker` into the working tree. Node resolves that link, so
+`serverCommand()` now names `…/Claude/nosyparker/src/mcp-server.js` and every
+entry setup rewrote points into the git checkout. That works, and it means
+`git pull` changes what sixteen clients run, and deleting or moving the
+checkout breaks them all — which `stale.js` would now say at the next store
+command, since it records that path. It also explains the next finding.
+
+### Doctor said run setup; setup said quit the app; nobody said both
+
+Claude Desktop's entry named the old `lib/node_modules` server path; setup now
+writes the checkout path; so `doctor` said the entry is not what setup would
+write, correctly, and sent him to `setup`. Setup found Claude Desktop running,
+refused to write — also correctly, it rewrites that file from memory — and sent
+him back to quit it. Twice. This is not a regression of the unchanged-entry
+fix earlier today: that fix stands down when the file already says what setup
+would say, and this file genuinely did not. It is the two sentences not
+knowing about each other. `doctor` now builds its "run setup" from the row:
+for a client with `writeRequiresQuit` — Claude Desktop and Devin, the two
+caught rewriting their files — it says quit it first, why, and then setup, in
+one sentence, and the closing instruction at the bottom names them again.
+
+### `uninstall` was all of them, and doctor pointed at it for one file
+
+`doctor` told him `nosyparker uninstall` takes the dead Kiro file out. It
+would — along with sixteen other clients' entries. `uninstall <client>` now
+takes one client's entries out, the file setup writes and any second surface,
+and leaves every other client alone; an unknown name is refused with the
+list. The doctor sentence names it and says what it costs: Kiro's live entry
+goes with the dead one, and `setup` puts it back. The alternative, having
+`setup` clean a surface marked `loaded: false` on its own, was set aside
+again for the reason given under Kiro above; the narrow command is the
+smaller change and is useful beyond this one file.
+
+`uninstall <client>` is a capability, and the standing rule is that a
+capability goes into the README in the same change. The README is not to be
+touched this phase, so that line is owed and is recorded here as owed.
+
 ## What we are, and the one thing to leave room for  [record]
 
 **We are not a place. We are a gate that decides.** The storage is a SQLite file

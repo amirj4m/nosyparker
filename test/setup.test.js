@@ -1301,3 +1301,32 @@ test('setup and doctor agree about a wired client whose application happens to b
   assert.doesNotMatch(again, /Quit Claude Desktop and run this again/u);
   assert.match(again, /Written, but unconfirmed — Claude Desktop/u);
 });
+
+test('uninstall of one client takes out that client\'s entries and nobody else\'s', (t) => {
+  // The owner was told `uninstall` would take a dead Kiro file out. It would,
+  // along with every other client on the machine. `uninstall kiro` is the
+  // instruction that is true: Kiro's live file, Kiro's dead file, and nothing
+  // of Gemini's.
+  const { io, home, printed } = machine(t, { files: ['.gemini/', '.kiro/extensions/', '.config/Kiro/User/'] });
+  const inherited = path.join(home, '.config', 'Kiro', 'User', 'mcp.json');
+  fs.writeFileSync(inherited, '{\n\t"servers": {\n\t\t"nosyparker": { "type": "stdio", "command": "/usr/bin/node" }\n\t}\n}\n');
+
+  install({ ...io, out: () => {} });
+  const gemini = path.join(home, '.gemini', 'settings.json');
+  const live = path.join(home, '.kiro', 'settings', 'mcp.json');
+  assert.match(fs.readFileSync(gemini, 'utf8'), /nosyparker/u);
+  assert.match(fs.readFileSync(live, 'utf8'), /nosyparker/u);
+
+  reportRemoval(io, uninstall(io, 'kiro'));
+
+  assert.match(fs.readFileSync(gemini, 'utf8'), /nosyparker/u, 'Gemini was touched by an uninstall of Kiro');
+  assert.equal(fs.existsSync(live), false, 'the live file we created was not taken away');
+  assert.doesNotMatch(fs.readFileSync(inherited, 'utf8'), /nosyparker/u, 'the dead file still holds the entry');
+  assert.match(printed(), /Kiro — removed/u);
+  assert.match(printed(), /Kiro — also removed from a file its own command wrote/u);
+  assert.doesNotMatch(printed(), /Gemini/u);
+
+  // And setup afterwards puts the live one back, which is the whole round trip.
+  install({ ...io, out: () => {} });
+  assert.match(fs.readFileSync(live, 'utf8'), /nosyparker/u);
+});

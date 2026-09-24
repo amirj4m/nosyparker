@@ -79,6 +79,28 @@ import { defaultStorePath, LOCAL_OWNER, systemClock, monotonicClock } from './co
 import { openPasses, openStore } from './store.js';
 import { reviewSummaries } from './gate.js';
 
+/**
+ * "Run setup", said so that it can be followed.
+ *
+ * Two clients rewrite their configuration from memory while they run, so
+ * `setup` refuses to write them until they are closed — correctly. This
+ * command told the owner to run `setup` for one of them; `setup` told him to
+ * quit the application and run it again; he did, twice, and read the same two
+ * sentences twice. Each was true and together they were a loop, because the
+ * instruction here left out the step that has to come first. The row knows
+ * which clients this is, so the sentence is built from the row and not from a
+ * client's name.
+ *
+ * @param {any} client
+ * @param {string} then what setup will do, as the end of the sentence
+ * @returns {string}
+ */
+function runSetup(client, then) {
+  if (client.writeRequiresQuit === undefined) return `Run \`${invocation()} setup\` ${then}.`;
+  return `Quit ${client.name} first — it rewrites this file from memory while it runs, so setup `
+    + `will not write it until it is closed — then run \`${invocation()} setup\` ${then}.`;
+}
+
 /** Everything it looked at is as it should be. */
 export const SOUND = 'sound';
 
@@ -162,7 +184,7 @@ export function diagnose(io) {
             ? 'Nothing here can read it, so nothing can say whether the entry is still there. Check who is allowed to read that file.'
             : unparseable
               ? `Setup will not touch a file it cannot parse, so that has to be put right first — then \`${invocation()} setup\` will add the entry back.`
-              : `Run \`${invocation()} setup\` to put it back.`,
+              : runSetup(client, 'to put it back'),
         ],
       });
       continue;
@@ -181,8 +203,8 @@ export function diagnose(io) {
       state = BROKEN;
       says.push(`This wrote into ${wasTarget}, which ${found.configPath} used to point at. It does not any more`
         + `${isTarget === found.configPath ? ' — it is a plain file now' : `, it points at ${isTarget}`}.`);
-      says.push(`Whatever reads ${wasTarget} is no longer seeing this entry. Putting the link back and running `
-        + `\`${invocation()} setup\` restores both.`);
+      says.push(`Whatever reads ${wasTarget} is no longer seeing this entry. Put the link back, then: `
+        + runSetup(client, 'to restore both'));
     }
 
     const named = interpreterIn(text, client, io.name);
@@ -197,7 +219,7 @@ export function diagnose(io) {
     } else if (!fs.existsSync(named)) {
       state = BROKEN;
       says.push(`Its entry names ${named}, which is not there any more — so nothing can start the server from this client.`);
-      says.push('That is what happens when a Node version is switched or removed. Run setup again to rewrite it.');
+      says.push(`That is what happens when a Node version is switched or removed. ${runSetup(client, 'to rewrite it')}`);
     } else if (named !== io.command) {
       says.push(`Its entry names ${named}, which exists but is not the interpreter running now (${io.command}).`);
     }
@@ -211,7 +233,7 @@ export function diagnose(io) {
     if (client.write.method === 'file') {
       if (state !== BROKEN && insertEntry(text, request) !== text) {
         state = BROKEN;
-        says.push(`Its entry is not the one setup would write now. Run \`${invocation()} setup\` to bring it up to date.`);
+        says.push(`Its entry is not the one setup would write now. ${runSetup(client, 'to bring it up to date')}`);
       }
     } else {
       says.push(`${client.name} writes this file with its own command, so this checks that the entry is there and points somewhere real, and not how it is laid out.`);
@@ -337,8 +359,9 @@ function secondSurfacesOf(client, io) {
       lines.push(
         `${client.name} has an entry in ${file}, and ${client.name} does not read that file — `
         + 'an earlier version of setup wrote it there. It does nothing where it is. '
-        + `\`${invocation()} setup\` writes the file ${client.name} does read, and `
-        + `\`${invocation()} uninstall\` takes this one out.`,
+        + `\`${invocation()} setup\` writes the file ${client.name} does read. `
+        + `\`${invocation()} uninstall ${client.id}\` takes ${client.name}'s entries out — this file's `
+        + `and the live one together, and no other client's — and \`${invocation()} setup\` puts the live one back.`,
       );
       continue;
     }
@@ -658,6 +681,16 @@ export function reportDiagnosis(io, { findings, documents, store }) {
 
   if (broken.length > 0) {
     io.out(`Run \`${invocation()} setup\` to rewrite the broken entries.\n`);
+    // The same step, at the bottom where the eye lands, for the clients that
+    // need it. Said by name from the row, not by a name written here.
+    const mustQuit = broken
+      .map((finding) => loadClients().clients.find((client) => client.id === finding.client))
+      .filter((client) => client?.writeRequiresQuit !== undefined)
+      .map((client) => client.name);
+    if (mustQuit.length > 0) {
+      io.out(`Quit ${mustQuit.join(' and ')} before you do: setup will not write `
+        + `${mustQuit.length === 1 ? 'it' : 'them'} while ${mustQuit.length === 1 ? 'it is' : 'they are'} running.\n`);
+    }
     io.out('This command does not change anything itself.\n\n');
   }
 

@@ -23,7 +23,7 @@ import { defaultBackupDir } from './backup.js';
 import { defaultStorePath, LOCAL_OWNER, systemClock, monotonicClock } from './config.js';
 import { exportAll, writeExport } from './export.js';
 import { forget, restore, screenQuery, submit, undoReview } from './gate.js';
-import { invocation, serverCommand } from './clients.js';
+import { clientById, invocation, loadClients, serverCommand } from './clients.js';
 import { staleWiring } from './stale.js';
 import { diagnose, reportDiagnosis } from './doctor.js';
 import { defaultIo, install, ioWithLog, printConfig, Refusal, report, reportRemoval, uninstall } from './setup.js';
@@ -182,7 +182,22 @@ function runSetup(command, args) {
     return;
   }
 
-  if (args.length > 0) fail(`"${command}" does not take ${args[0]}.`);
+  // `uninstall <client>` takes one client's entries out and leaves the rest.
+  // The id is checked here, before anything is detected or read, and an
+  // unknown one is a failure with the list: a typo must not quietly become
+  // "nothing matched, nothing removed" with an exit code that says it worked.
+  /** @type {string|null} */
+  let only = null;
+  if (command === 'uninstall' && args.length > 0) {
+    if (args.length > 1) fail(`"uninstall" takes at most one client name.`);
+    if (clientById(args[0]) === null) {
+      fail(`There is no client called "${args[0]}". ${invocation()} uninstall takes one of: `
+        + `${loadClients().clients.map((client) => client.id).join(', ')} — or no name, for all of them.`);
+    }
+    only = args[0];
+  } else if (args.length > 0) {
+    fail(`"${command}" does not take ${args[0]}.`);
+  }
 
   // `install` refuses outright when it is running somewhere its own path would
   // rot — an npx cache. That is a sentence a person acts on, not a stack trace.
@@ -194,7 +209,7 @@ function runSetup(command, args) {
   try {
     if (command === 'doctor') process.exit(reportDiagnosis(io, diagnose(io)));
     else if (command === 'setup') report(io, install(io));
-    else reportRemoval(io, uninstall(io));
+    else reportRemoval(io, uninstall(io, only));
   } catch (error) {
     if (!(error instanceof Refusal)) throw error;
     fail(error.message);
