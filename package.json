@@ -1,6 +1,6 @@
 {
   "name": "nosyparker",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "One memory for every AI agent on your machine: tell one, and the rest know. A gate, not a store — it decides what gets in, and why.",
   "license": "MIT",
   "author": {
