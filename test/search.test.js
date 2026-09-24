@@ -5,14 +5,18 @@
  */
 
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
 import test from 'node:test';
 
 import { forget, submit } from '../src/gate.js';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-import { openStore, searchMemories, SEARCH_QUERY_LIMIT } from '../src/store.js';
+import { listDecisions, openStore, recordDecision, searchMemories, SEARCH_QUERY_LIMIT, SEARCH_TIME_LIMIT_MS } from '../src/store.js';
+import { TOOLS } from '../src/tools.js';
 import { OWNER, runWatched, temporaryStore } from './helpers.js';
+import { monotonicClock } from '../src/config.js';
 
 const STORE_MODULE = new URL('../src/store.js', import.meta.url).href;
 const GATE_MODULE = new URL('../src/gate.js', import.meta.url).href;
@@ -272,7 +276,7 @@ test('a query the store will not run is refused before it costs anything', async
       const { openStore, searchMemories } = await import(${JSON.stringify(STORE_MODULE)});
       const { submit } = await import(${JSON.stringify(GATE_MODULE)});
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-bound-'));
-      const store = openStore({ file: path.join(dir, 'memory.sqlite'), now: () => new Date().toISOString() });
+      const store = openStore({ file: path.join(dir, 'memory.sqlite'), now: () => new Date().toISOString(), elapsed: () => performance.now() });
 
       // An ordinary memory for the query to work against. Repeated characters
       // are refused as a file now, which is right and is not what this is
@@ -414,7 +418,7 @@ test('the short-term path is bounded too, and nothing rests on it being cheap', 
     (async () => {
       const { openStore, searchMemories, recordDecision } = await import(${JSON.stringify(STORE_MODULE)});
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-short-'));
-      const store = openStore({ file: path.join(dir, 'memory.sqlite'), now: () => new Date().toISOString() });
+      const store = openStore({ file: path.join(dir, 'memory.sqlite'), now: () => new Date().toISOString(), elapsed: () => performance.now() });
 
       // Written straight through the store's own action, past the gate, so
       // this is the worst case even a store that predates the rule could hold.
@@ -525,7 +529,7 @@ test('a store written before the folded index existed gets one, and finds things
     /** @type {unknown} */ (raw.prepare('PRAGMA user_version').get())).user_version;
   raw.close();
 
-  const store = openStore({ file, now: () => new Date().toISOString() });
+  const store = openStore({ file, now: () => new Date().toISOString(), elapsed: monotonicClock });
   t.after(() => store.close());
 
   assert.equal(searchMemories(store, OWNER, '2026').length, 2, 'the index was not filled on open');
@@ -580,4 +584,148 @@ test('the raw index is still maintained, which is what lets older code read this
   assert.equal(asOldCodeWould('night'), 1, 'an archived memory fell out of the raw index');
   assert.doesNotThrow(() => raw.exec("INSERT INTO memories_fts(memories_fts) VALUES('integrity-check')"));
   assert.doesNotThrow(() => raw.exec("INSERT INTO memories_fts_folded(memories_fts_folded) VALUES('integrity-check')"));
+});
+
+test('results come back in the order SQLite would have ranked them, to the row', (t) => {
+  // The store used to say `ORDER BY rank` and now selects `rank` as a column
+  // and sorts here, because under `ORDER BY rank` FTS5 produced no row until it
+  // had matched every document and nothing per row could stop it. The sort has
+  // to reproduce SQLite's order exactly — rank, then the order rows arrived in,
+  // which is by id — or a search would quietly rank differently from the day
+  // this changed. Compared here against the ordered query run on the same
+  // file, over a store built to have thousands of ties.
+  const store = temporaryStore();
+  t.after(() => store.close());
+
+  const words = ['coffee', 'morning', 'berlin', 'meeting', 'prefers', 'quiet', 'office', 'tea'];
+  for (let index = 0; index < 1500; index += 1) {
+    /** @type {string[]} */
+    const said = [];
+    for (let word = 0; word < 3 + (index % 7); word += 1) said.push(words[(index * 3 + word) % words.length]);
+    recordDecision(store, (actions, at) => {
+      actions.insertMemory({
+        owner: OWNER, at, supersedes: null,
+        text: `memory ${index}: ${said.join(' ')}${index % 5 === 0 ? ' coffee coffee' : ''}`,
+      });
+      return { owner: OWNER, verdict: 'stored', rule: 'keep', explanation: '.', input_excerpt: '' };
+    });
+  }
+
+  const raw = new DatabaseSync(store.file, { readOnly: true });
+  t.after(() => raw.close());
+
+  for (const query of ['coffee', 'coffee morning', 'tea', 'mem', 'quiet office', 'ing']) {
+    const terms = query.split(' ').map((term) => `"${term}"`).join(' AND ');
+    const ordered = /** @type {{id: number}[]} */ (raw.prepare(`
+      SELECT m.id FROM memories_fts_folded f JOIN memories m ON m.id = f.rowid
+       WHERE memories_fts_folded MATCH ? AND m.owner = ? AND m.state = 'active'
+       ORDER BY rank`).all(terms, OWNER)).map((row) => row.id);
+
+    const ours = searchMemories(store, OWNER, query);
+    assert.ok(ours.length > 100, `"${query}" should match plenty: ${ours.length}`);
+    assert.deepEqual(ours.map((memory) => memory.id), ordered, `"${query}" is ranked differently`);
+    assert.equal('nosyparker_rank' in ours[0], false, 'the rank column leaks out of the store');
+  }
+});
+
+/**
+ * Twenty memories of the worst shape the write-side limits allow: a dense run
+ * that costs tens of milliseconds to match against a dense query, with enough
+ * varied filler to pass the repetition rule. Written past the gate for speed;
+ * the gate would take them.
+ *
+ * @param {import('../src/store.js').Store} store
+ */
+function fillWithDenseMemories(store) {
+  for (let index = 0; index < 20; index += 1) {
+    const filler = Array.from({ length: 160 }, (_, word) => (index * 7919 + word * 104729).toString(36)).join(' ');
+    recordDecision(store, (actions, at) => {
+      actions.insertMemory({ owner: OWNER, text: `${'x'.repeat(9050)} ${filler}`.slice(0, 10_000), at, supersedes: null });
+      return { owner: OWNER, verdict: 'stored', rule: 'keep', explanation: '.', input_excerpt: '' };
+    });
+  }
+}
+
+test('a search that runs past its time is stopped between memories, says so, and leaves the store whole', (t) => {
+  // The clock is one the test controls, advanced by one second every time the
+  // store reads it, so the deadline falls on a known row rather than on how
+  // fast this machine happens to be. Every row the search produces reads the
+  // clock once, so a limit of 2,500 ms is passed at the third memory.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-deadline-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  let ticks = 0;
+  const store = openStore({
+    file: path.join(dir, 'memory.sqlite'),
+    now: () => '2026-09-24T10:00:00.000Z',
+    elapsed: () => { ticks += 1; return ticks * 1000; },
+  });
+  t.after(() => store.close());
+  fillWithDenseMemories(store);
+
+  ticks = 0;
+  assert.throws(
+    () => searchMemories(store, OWNER, 'x'.repeat(999), { timeLimitMs: 2500 }),
+    /ran for more than 2\.5 seconds and was stopped, so nothing was returned rather than part of an answer/u,
+  );
+  // One read to set the deadline, then one per row until the fourth reading
+  // (4,000 ms) is the first past 3,500. Twenty rows would be twenty-one.
+  assert.ok(ticks < 8, `the search read the clock ${ticks} times, so it was not stopped between memories`);
+
+  // Nothing about the store is left in the state the throw found it in: no
+  // transaction is open, the next search answers, and a decision commits.
+  assert.equal(searchMemories(store, OWNER, 'x'.repeat(999), { timeLimitMs: 60_000 }).length, 20);
+  assert.equal(submit(store, { owner: OWNER, text: 'and an ordinary sentence after it' }).verdict, 'stored');
+  assert.equal(searchMemories(store, OWNER, 'ordinary sentence').length, 1);
+
+  // A refused search is not a decision about a memory: nothing in the log.
+  assert.equal(listDecisions(store, OWNER).filter((row) => row.rule !== 'keep').length, 0);
+});
+
+test('the short-term path is stopped by the same clock', (t) => {
+  let ticks = 0;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-deadline-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = openStore({
+    file: path.join(dir, 'memory.sqlite'),
+    now: () => '2026-09-24T10:00:00.000Z',
+    elapsed: () => { ticks += 1; return ticks * 1000; },
+  });
+  t.after(() => store.close());
+
+  for (const text of ['ab first', 'ab second', 'ab third', 'ab fourth']) submit(store, { owner: OWNER, text });
+
+  ticks = 0;
+  assert.throws(
+    () => searchMemories(store, OWNER, 'ab', { timeLimitMs: 1500 }),
+    /was stopped, so nothing was returned/u,
+  );
+  assert.equal(searchMemories(store, OWNER, 'ab').length, 4, 'and it answers again with the real limit');
+});
+
+test('stopping is measured to be real: it ends well before the search would have', (t) => {
+  // The one timing assertion, with a wide margin. The unbounded search of the
+  // same store is measured first in this process, so a slow machine slows both
+  // sides; what is asserted is the ratio, and the stopped search overruns by
+  // one memory's cost at most.
+  const store = temporaryStore();
+  t.after(() => store.close());
+  fillWithDenseMemories(store);
+
+  const started = performance.now();
+  assert.equal(searchMemories(store, OWNER, 'x'.repeat(999)).length, 20);
+  const whole = performance.now() - started;
+
+  const stoppedAt = performance.now();
+  assert.throws(() => searchMemories(store, OWNER, 'x'.repeat(999), { timeLimitMs: 1 }), /was stopped/u);
+  const stopped = performance.now() - stoppedAt;
+
+  assert.ok(stopped < whole / 2, `stopping took ${stopped.toFixed(0)} ms against ${whole.toFixed(0)} ms for the whole search`);
+});
+
+test('the time limit is one number, and the tool that searches tells the agent it', () => {
+  assert.equal(SEARCH_TIME_LIMIT_MS, 10_000);
+
+  const recall = TOOLS.find((tool) => tool.name === 'recall');
+  assert.ok(recall);
+  assert.match(recall.description, new RegExp(`more than ${['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'][SEARCH_TIME_LIMIT_MS / 1000]} seconds is\\s+stopped`, 'u'));
 });

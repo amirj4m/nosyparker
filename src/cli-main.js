@@ -20,7 +20,7 @@
 import fs from 'node:fs';
 
 import { defaultBackupDir } from './backup.js';
-import { defaultStorePath, LOCAL_OWNER, systemClock } from './config.js';
+import { defaultStorePath, LOCAL_OWNER, systemClock, monotonicClock } from './config.js';
 import { exportAll, writeExport } from './export.js';
 import { forget, restore, screenQuery, submit, undoReview } from './gate.js';
 import { invocation, serverCommand } from './clients.js';
@@ -122,7 +122,7 @@ function main(argv) {
     const file = defaultStorePath();
     const absent = !fs.existsSync(file) && READ_ONLY_COMMANDS.includes(command);
 
-    store = openStore({ file: absent ? ':memory:' : file, now: systemClock });
+    store = openStore({ file: absent ? ':memory:' : file, now: systemClock, elapsed: monotonicClock });
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));
   }

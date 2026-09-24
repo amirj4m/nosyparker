@@ -12,6 +12,7 @@ import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 
 import { openStore } from '../src/store.js';
+import { monotonicClock } from '../src/config.js';
 
 export const OWNER = 'tester';
 
@@ -197,6 +198,6 @@ export function temporaryStore(options = {}) {
     clock += 1000;
   };
 
-  const store = openStore({ file, now });
+  const store = openStore({ file, now, elapsed: monotonicClock });
   return Object.assign(store, { tick, dir });
 }

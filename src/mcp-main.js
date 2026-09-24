@@ -34,7 +34,7 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
-import { defaultStorePath, LOCAL_OWNER, systemClock } from './config.js';
+import { defaultStorePath, LOCAL_OWNER, systemClock, monotonicClock } from './config.js';
 import { reviewStanding } from './review-due.js';
 import { openStore } from './store.js';
 import { TOOLS } from './tools.js';
@@ -102,7 +102,7 @@ const INSTRUCTIONS = [
 /** @type {import('./store.js').Store} */
 let store;
 try {
-  store = openStore({ file: defaultStorePath(), now: systemClock });
+  store = openStore({ file: defaultStorePath(), now: systemClock, elapsed: monotonicClock });
 } catch (error) {
   process.stderr.write(
     `nosyparker: ${error instanceof Error ? error.message : String(error)}\n`,
@@ -156,9 +156,10 @@ let inTurn = Promise.resolve();
  * abandoned by the client ending kept the server working for 912 ms after it
  * had gone, and that grows with the queue.
  *
- * A search cannot be stopped once it has started — the binding has no
- * interrupt — so not starting one is the only lever there is, and it only
- * works if the leaving is noticed. That is what this watches for.
+ * A search that has started runs until its time limit — the binding has no
+ * interrupt, and the clock the store reads between memories is the only lever
+ * inside one — so not starting the next is the lever here, and it only works
+ * if the leaving is noticed. That is what this watches for.
  */
 let clientPresent = true;
 
@@ -184,9 +185,9 @@ server.setRequestHandler(CallToolRequestSchema, (request, extra) => {
     // fifteen seconds after it stopped listening, and an agent that retries
     // makes that worse rather than better.
     //
-    // This does not stop a search already running. It cannot: the binding has
-    // no interrupt and no progress handler. It stops the ones behind it that
-    // nobody is waiting for any more.
+    // This does not stop a search already running; the store's own time limit
+    // is what bounds that one. It stops the ones behind it that nobody is
+    // waiting for any more.
     if (!clientPresent) {
       return said('The client had already gone, so nothing was done.', true);
     }

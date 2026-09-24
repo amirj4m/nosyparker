@@ -19,6 +19,7 @@ import { residentMB, watchResident } from './helpers.js';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { monotonicClock } from '../src/config.js';
 
 const SERVER = path.join(import.meta.dirname, '..', 'src', 'mcp-server.js');
 
@@ -640,7 +641,7 @@ test('calls an agent has given up on do not keep the server busy', async (t) => 
   // it is slow for the reason Item 15 records and cannot be interrupted:
   // node:sqlite is synchronous and its binding exposes no way to stop a
   // running statement. What can be stopped is starting the next one.
-  const store = openStore({ file, now: () => new Date().toISOString() });
+  const store = openStore({ file, now: () => new Date().toISOString(), elapsed: monotonicClock });
   for (let index = 0; index < 16; index += 1) {
     recordDecision(store, (actions, at) => {
       actions.insertMemory({ owner: 'local', text: 'x'.repeat(10_000), at, supersedes: null });
@@ -781,7 +782,7 @@ test('a client that goes away does not leave the server working', async (t) => {
   // past the gate, because text like this is refused as a file now — which is
   // right, and is not what this is about. It is about a search that cannot be
   // interrupted once it starts never being started for nobody.
-  const store = openStore({ file, now: () => new Date().toISOString() });
+  const store = openStore({ file, now: () => new Date().toISOString(), elapsed: monotonicClock });
   for (let index = 0; index < 200; index += 1) {
     recordDecision(store, (actions, at) => {
       actions.insertMemory({ owner: 'local', text: 'x'.repeat(10_000), at, supersedes: null });

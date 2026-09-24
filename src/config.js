@@ -56,3 +56,21 @@ export function defaultStorePath() {
 export function systemClock() {
   return new Date().toISOString();
 }
+
+/**
+ * Milliseconds from a clock that only goes forward, for measuring how long
+ * something has been running.
+ *
+ * Not a date and not comparable with one: it counts from an arbitrary point,
+ * so it can say that a search has run for ten seconds and can never say that a
+ * memory is old. That is the whole reason it is a separate function from
+ * `systemClock`, and the reason it lives here. The store is handed it at the
+ * door, the way it is handed `systemClock`, and the guard that keeps every
+ * clock off the memory path stays intact: `store.js` reads a function it was
+ * given and names no clock of its own.
+ *
+ * @returns {number}
+ */
+export function monotonicClock() {
+  return performance.now();
+}

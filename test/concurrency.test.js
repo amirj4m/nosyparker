@@ -15,6 +15,7 @@ import { spawn } from 'node:child_process';
 import test from 'node:test';
 
 import { listDecisions, listMemories, openStore } from '../src/store.js';
+import { monotonicClock } from '../src/config.js';
 
 const CLI = path.join(import.meta.dirname, '..', 'src', 'cli.js');
 const CLI_OWNER = 'local';
@@ -31,7 +32,7 @@ test('twenty five agents offering the same sentence at once store it once', asyn
     assert.equal(result.code, 0, result.output);
   }
 
-  const store = openStore({ file, now: () => new Date().toISOString() });
+  const store = openStore({ file, now: () => new Date().toISOString(), elapsed: monotonicClock });
   t.after(() => store.close());
 
   const memories = listMemories(store, CLI_OWNER, { includeArchived: true });
@@ -55,7 +56,7 @@ test('agents offering different sentences at once all get stored', async (t) => 
     assert.equal(result.code, 0, result.output);
   }
 
-  const store = openStore({ file, now: () => new Date().toISOString() });
+  const store = openStore({ file, now: () => new Date().toISOString(), elapsed: monotonicClock });
   t.after(() => store.close());
 
   assert.equal(listMemories(store, CLI_OWNER).length, 12);
@@ -75,7 +76,7 @@ test('agents all replacing the same memory at once leave no dangling pointer', a
     assert.equal(result.code, 0, result.output);
   }
 
-  const store = openStore({ file, now: () => new Date().toISOString() });
+  const store = openStore({ file, now: () => new Date().toISOString(), elapsed: monotonicClock });
   t.after(() => store.close());
 
   const decisions = listDecisions(store, CLI_OWNER);
@@ -109,7 +110,7 @@ test('agents forgetting and restoring the same memory at once leave it consisten
     assert.equal(result.code, 0, result.output);
   }
 
-  const store = openStore({ file, now: () => new Date().toISOString() });
+  const store = openStore({ file, now: () => new Date().toISOString(), elapsed: monotonicClock });
   t.after(() => store.close());
 
   const memories = listMemories(store, CLI_OWNER, { includeArchived: true });
@@ -162,7 +163,7 @@ function assertPointersAgree(memories) {
 function freshStoreFile(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-race-'));
   const file = path.join(dir, 'memory.sqlite');
-  openStore({ file, now: () => new Date().toISOString() }).close();
+  openStore({ file, now: () => new Date().toISOString(), elapsed: monotonicClock }).close();
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   return file;
 }

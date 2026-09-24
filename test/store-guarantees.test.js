@@ -24,6 +24,7 @@ import {
   SCHEMA_VERSION,
 } from '../src/store.js';
 import { OWNER, temporaryStore } from './helpers.js';
+import { monotonicClock } from '../src/config.js';
 
 test('a store hands out no database handle', (t) => {
   const store = temporaryStore();
@@ -275,7 +276,7 @@ test('a store older than this code is refused at the door, not on the first writ
   // This used to open, list and search quite happily, and then die on the
   // first write with "no such column: text_normalised".
   assert.throws(
-    () => openStore({ file, now: () => '2026-01-01T00:00:00.000Z' }),
+    () => openStore({ file, now: () => '2026-01-01T00:00:00.000Z', elapsed: monotonicClock }),
     (error) => {
       const message = /** @type {Error} */ (error).message;
       assert.match(message, /older version of nosyparker/u);
@@ -308,7 +309,7 @@ test('a store newer than this code is refused too, and says so differently', (t)
 
   // A perfectly ordinary store, stamped by a version of nosyparker that does
   // not exist yet. This is what a Phase 2 file looks like to Phase 1 code.
-  const made = openStore({ file, now: () => '2026-01-01T00:00:00.000Z' });
+  const made = openStore({ file, now: () => '2026-01-01T00:00:00.000Z', elapsed: monotonicClock });
   submit(made, { owner: OWNER, text: 'written by a later version' });
   made.close();
 
@@ -317,7 +318,7 @@ test('a store newer than this code is refused too, and says so differently', (t)
   ahead.close();
 
   assert.throws(
-    () => openStore({ file, now: () => '2026-01-01T00:00:00.000Z' }),
+    () => openStore({ file, now: () => '2026-01-01T00:00:00.000Z', elapsed: monotonicClock }),
     (error) => {
       const message = /** @type {Error} */ (error).message;
       assert.match(message, /newer version of nosyparker/u);
@@ -350,4 +351,19 @@ test('a closed store cannot be used again', (t) => {
 
   assert.throws(() => listMemories(store, OWNER), { name: 'TypeError' });
   t.diagnostic('a closed store forgets its handle rather than leaving it lying about');
+});
+
+test('a store cannot be opened without the clock its searches are timed against', (t) => {
+  // `elapsed` is required beside `now`. Optional, it would default to a store
+  // whose searches never stop, for whichever caller forgot — a bound at an
+  // entrance, which this project has had walked past three times.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-no-clock-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  assert.throws(
+    // @ts-expect-error — the whole point is what happens without it
+    () => openStore({ file: path.join(dir, 'memory.sqlite'), now: () => '2026-01-01T00:00:00.000Z' }),
+    /needs an `elapsed` clock as well as `now`/u,
+  );
+  assert.equal(fs.existsSync(path.join(dir, 'memory.sqlite')), false, 'it made the file before refusing');
 });

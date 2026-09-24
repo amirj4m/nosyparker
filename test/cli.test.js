@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 
 import { runWatched, sandboxEnv } from './helpers.js';
 import { beginReview, closeReview, review } from '../src/gate.js';
-import { LOCAL_OWNER, systemClock } from '../src/config.js';
+import { LOCAL_OWNER, systemClock, monotonicClock } from '../src/config.js';
 import { openStore } from '../src/store.js';
 
 const CLI = path.join(import.meta.dirname, '..', 'src', 'cli.js');
@@ -450,7 +450,7 @@ test('a person can undo a whole review from the terminal, and the log tells them
   // The review itself is an agent's work, so it is done through the gate the
   // way an agent would; what is being tested here is the one part of it a
   // person reaches from a terminal.
-  const store = openStore({ file: run.file, now: systemClock });
+  const store = openStore({ file: run.file, now: systemClock, elapsed: monotonicClock });
   const started = beginReview(store, { owner: LOCAL_OWNER, reviewer: 'an agent' });
   const pass = /** @type {number} */ (started.pass_id);
   review(store, {

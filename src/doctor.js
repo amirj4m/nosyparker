@@ -75,7 +75,7 @@ import { checkDocumentation } from './documentation.js';
 import { editRequest, readOrEmpty, resolveTarget } from './write.js';
 import { manifestRowFor } from './backup.js';
 import { CONFIG_CONFIRMED, CONNECTED, verifyClient } from './verify.js';
-import { defaultStorePath, LOCAL_OWNER, systemClock } from './config.js';
+import { defaultStorePath, LOCAL_OWNER, systemClock, monotonicClock } from './config.js';
 import { openPasses, openStore } from './store.js';
 import { reviewSummaries } from './gate.js';
 
@@ -379,7 +379,7 @@ function checkStore(io) {
   /** @type {import('./store.js').Store} */
   let store;
   try {
-    store = openStore({ file, now: systemClock });
+    store = openStore({ file, now: systemClock, elapsed: monotonicClock });
   } catch (error) {
     // The upgrade case. A store written by Phase 3 does not open under Phase 4,
     // and the sentence `openStore` throws names the file and says what to do,

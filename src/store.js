@@ -75,6 +75,31 @@ const MIN_SEARCH_LENGTH = 3;
 export const SEARCH_QUERY_LIMIT = 1000;
 
 /**
+ * The longest a search may run before it is stopped.
+ *
+ * Wall-clock, not a prediction. Three attempts at predicting a search's cost
+ * from the query or the store are recorded in DECISIONS.md, "Bounding what a
+ * search can cost", and none of them separated a slow search from an ordinary
+ * one. A clock does not need to: it refuses the searches that actually took
+ * too long, and no others.
+ *
+ * Ten seconds is not a number an ordinary search reaches. Two thousand
+ * ordinary memories answer in 112 to 175 ms; the worst single memory the
+ * write-side limits allow costs 40 to 80 ms to search; so this is a store of
+ * a hundred and fifty of those, all matching one query. Everything under it
+ * behaves exactly as it did.
+ *
+ * It is enforced between memories, not within one. FTS5 hands rows out one
+ * document at a time, and the clock is read as each arrives; a memory already
+ * being matched finishes. So a stopped search overruns by about the cost of
+ * one memory, which the write-side limits bound. How the search is arranged so
+ * that rows arrive one at a time at all — they did not, under `ORDER BY rank`
+ * — is in DECISIONS.md, "Why a search could not be interrupted, and how it is
+ * stopped now".
+ */
+export const SEARCH_TIME_LIMIT_MS = 10_000;
+
+/**
  * How much a memory may repeat itself before it is refused as a file.
  *
  * The number is how many times the average three-character run occurs: the
@@ -278,6 +303,9 @@ export const OVERTAKEN = 'overtaken';
  * @typedef {object} Handle
  * @property {DatabaseSync} db
  * @property {boolean} deciding whether a decision is open on this store
+ * @property {() => number} elapsed the monotonic clock handed in at the door, in milliseconds
+ * @property {number|null} deadline the reading of that clock at which the running search must stop, or null outside one
+ * @property {boolean} expired whether the running search was stopped by that clock
  */
 
 /**
@@ -579,12 +607,31 @@ CREATE INDEX IF NOT EXISTS decisions_by_pass ON decisions(pass_id);
 /**
  * Open the store, creating the file and the tables if they are not there yet.
  *
+ * Two clocks, both handed in and neither read here. `now` stamps what is
+ * written. `elapsed` is what a search is timed against, and it is a separate
+ * argument rather than derived from `now` because the two must not be the same
+ * kind of thing: a reading of `elapsed` is a count of milliseconds from
+ * nowhere in particular, and there is no arithmetic that turns it into a
+ * verdict about a memory's date. Both are required. A store that could be
+ * opened without the second would be a store whose searches never stop, for
+ * whichever caller forgot — the shape of defect this project has had three
+ * times with a bound at the entrances.
+ *
  * @param {object} options
  * @param {string} options.file absolute path to the SQLite file
  * @param {() => string} options.now clock, returns an ISO 8601 timestamp
+ * @param {() => number} options.elapsed monotonic clock, in milliseconds
  * @returns {Store}
  */
-export function openStore({ file, now }) {
+export function openStore({ file, now, elapsed }) {
+  if (typeof elapsed !== 'function') {
+    throw new TypeError(
+      'openStore needs an `elapsed` clock as well as `now`: a function returning milliseconds ' +
+        'from a clock that only goes forward, which is what a search is timed against. ' +
+        '`monotonicClock` in config.js is the one to hand it.',
+    );
+  }
+
   fs.mkdirSync(path.dirname(file), { recursive: true });
 
   const db = new DatabaseSync(file);
@@ -598,6 +645,9 @@ export function openStore({ file, now }) {
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA foreign_keys = ON');
 
+  /** @type {Handle} */
+  const handle = { db, deciding: false, elapsed, deadline: null, expired: false };
+
   try {
     prepareSchema(db, file);
 
@@ -607,6 +657,23 @@ export function openStore({ file, now }) {
     // Created in `temp`, on purpose: they belong to this connection and
     // nothing about the file on disk changes, so no schema version moves and a
     // store written by this code still opens under the version before it.
+
+    // The clock a search is read against, as a function SQLite calls once per
+    // row it produces. This is the only lever `node:sqlite` leaves: it has no
+    // interrupt and no progress handler, but a function that throws ends the
+    // statement it was called from, cleanly, with the connection intact and
+    // no transaction left open — measured before it was relied on. It is not
+    // deterministic, so SQLite cannot fold it into a constant and skip the
+    // call, and it is direct-only, so nothing in a trigger or a view can
+    // reach it. Outside a search `deadline` is null and it costs one
+    // comparison per row.
+    db.function(DEADLINE, { deterministic: false, directOnly: true }, () => {
+      if (handle.deadline !== null && handle.elapsed() > handle.deadline) {
+        handle.expired = true;
+        throw new Error('the search ran past its time limit');
+      }
+      return 1;
+    });
   } catch (error) {
     // Nothing is handed back, so nothing else can close this.
     db.close();
@@ -623,9 +690,12 @@ export function openStore({ file, now }) {
     },
   };
 
-  handles.set(store, { db, deciding: false });
+  handles.set(store, handle);
   return store;
 }
+
+/** The SQL function that reads the search clock. See `openStore`. */
+const DEADLINE = 'nosyparker_deadline';
 
 /**
  * Put the tables in a new file, or refuse one this code does not match.
@@ -1106,34 +1176,39 @@ export function listMemories(store, owner, options = {}) {
  * person reading it. What this does instead, when a search would cost too
  * much, is refuse it and say so.
  *
- * Two things it does not do, known and decided rather than missed.
- *
- * A search cannot be stopped once it has started: `node:sqlite` exposes no
- * interrupt and no progress handler, and it is synchronous, so nothing else in
- * the process runs meanwhile.
- *
- * And what a search costs is bounded in memory but not in time. Two limits do
- * the bounding between them: no memory may be longer than
- * {@link TEXT_LIMIT}, and none may repeat itself past
+ * What a search costs is bounded in memory by two write-side limits: no memory
+ * may be longer than {@link TEXT_LIMIT}, and none may repeat itself past
  * {@link REPETITION_LIMIT}. The worst that fits inside both is about nine and a
  * half thousand dense characters in one memory, and one search of it costs
- * around 91 MB. Ordinary stores answer in 112 to 175 ms at 36 MB.
+ * around 91 MB. Ordinary stores answer in 112 to 175 ms at 36 MB. Both limits
+ * are gate rules, so every caller passes them — the tools, the terminal, and
+ * anything that calls `submit` directly.
  *
- * Time is the half that is not bounded, because that cost is multiplied by how
- * many memories match and nothing caps how many there are. A thousand memories
- * at the worst shape both limits allow take 92 seconds for one search, and it
- * cannot be interrupted.
+ * Time is bounded by {@link SEARCH_TIME_LIMIT_MS}, read between memories. The
+ * per-memory cost is multiplied by how many memories match and nothing caps how
+ * many there are — a thousand at the worst allowed shape took 92 seconds — so
+ * the clock is what stops it, and a stopped search is a refusal in a sentence,
+ * never a shorter answer. A memory already being matched finishes, so the
+ * overrun is one memory's cost, which the limits above bound.
  *
- * Both limits are gate rules, so every caller passes them — the tools, the
- * terminal, and anything that calls `submit` directly.
+ * The ordering is done here rather than by `ORDER BY rank`, and that is what
+ * makes the clock work. Under `ORDER BY rank` FTS5 produced no row until it had
+ * matched every document, so nothing per row could stop it and the whole
+ * search cost about twice as much besides. Selecting `rank` as a column and
+ * sorting afterwards hands rows out one document at a time, and gives the
+ * same order to the byte: by rank, then by id, which is the order the rows
+ * arrive in and the order SQLite's stable sorter kept. Measured on seven
+ * queries over three thousand memories with thousands of ties before it was
+ * relied on.
  *
- * What was tried, what each costs, and what fixing either would mean:
- * DECISIONS.md, "Why a search cannot be interrupted".
+ * What was tried before this, what each cost, and what is still true:
+ * DECISIONS.md, "Why a search could not be interrupted, and how it is stopped
+ * now".
  *
  * @param {Store} store
  * @param {string} owner
  * @param {string} query
- * @param {{includeArchived?: boolean}} [options]
+ * @param {{includeArchived?: boolean, timeLimitMs?: number}} [options]
  * @returns {Memory[]}
  */
 export function searchMemories(store, owner, query, options = {}) {
@@ -1199,22 +1274,71 @@ export function searchMemories(store, owner, query, options = {}) {
   // of real words are shorter than that: 柏林 is Berlin, 東京 is Tokyo. Falling
   // back to looking through the text is slower, and on a personal store that
   // does not matter nearly as much as being able to find your own words.
+  const timeLimitMs = options.timeLimitMs ?? SEARCH_TIME_LIMIT_MS;
+
   if (terms.some((term) => [...term].length < MIN_SEARCH_LENGTH)) {
-    return searchBySubstring(store, owner, terms, includeArchived);
+    return underDeadline(store, timeLimitMs, () =>
+      searchBySubstring(store, owner, terms, includeArchived));
   }
 
+  // `rank` as a column and no ORDER BY, for the reason given above. The
+  // column is named so that it cannot collide with one of the memory's own,
+  // and it is taken off again before the rows leave here: a search returns
+  // memories, and a memory has no rank.
   const sql = `
-    SELECT m.*
+    SELECT m.*, rank AS nosyparker_rank
       FROM memories_fts_folded f
       JOIN memories m ON m.id = f.rowid
      WHERE memories_fts_folded MATCH ?
        AND m.owner = ?
        ${includeArchived ? '' : "AND m.state = 'active'"}
-     ORDER BY rank`;
+       AND ${DEADLINE}()`;
 
-  return /** @type {Memory[]} */ (
-    /** @type {unknown} */ (handleOf(store).db.prepare(sql).all(asMatch(terms), owner))
-  );
+  const ranked = underDeadline(store, timeLimitMs, () =>
+    /** @type {(Memory & {nosyparker_rank: number})[]} */ (
+      /** @type {unknown} */ (handleOf(store).db.prepare(sql).all(asMatch(terms), owner))
+    ));
+
+  ranked.sort((a, b) => a.nosyparker_rank - b.nosyparker_rank || a.id - b.id);
+
+  return ranked.map(({ nosyparker_rank, ...memory }) => memory);
+}
+
+/**
+ * Run one search with the clock set, and turn the clock's throw into a
+ * sentence.
+ *
+ * The function SQLite calls cannot tell the person anything itself — what it
+ * throws is caught inside the binding and comes back out as the statement's
+ * error, so the sentence is composed here, where the limit that was applied is
+ * known. Anything else the statement throws is not the clock's and is passed
+ * on as it is.
+ *
+ * @template T
+ * @param {Store} store
+ * @param {number} timeLimitMs
+ * @param {() => T} run
+ * @returns {T}
+ */
+function underDeadline(store, timeLimitMs, run) {
+  const handle = handleOf(store);
+  handle.deadline = handle.elapsed() + timeLimitMs;
+  handle.expired = false;
+
+  try {
+    return run();
+  } catch (error) {
+    if (!handle.expired) throw error;
+    throw new Error(
+      `That search ran for more than ${(timeLimitMs / 1000).toLocaleString('en')} ` +
+        `${timeLimitMs === 1000 ? 'second' : 'seconds'} and was stopped, so nothing was returned ` +
+        'rather than part of an answer. Nothing in the store was changed. Add a word that ' +
+        'narrows it: every word has to match, so a more specific search stops sooner.',
+    );
+  } finally {
+    handle.deadline = null;
+    handle.expired = false;
+  }
 }
 
 /**
@@ -1248,6 +1372,7 @@ function searchBySubstring(store, owner, terms, includeArchived) {
      WHERE owner = ?
        ${includeArchived ? '' : "AND state = 'active'"}
        AND ${conditions}
+       AND ${DEADLINE}()
      ORDER BY id`;
 
   // Already folded by the caller, which is where the length test needed them

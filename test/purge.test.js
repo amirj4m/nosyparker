@@ -21,6 +21,7 @@ import {
   openStore,
   supersededReason,
 } from '../src/store.js';
+import { monotonicClock } from '../src/config.js';
 
 const CLI = path.join(import.meta.dirname, '..', 'src', 'cli.js');
 const PURGE = path.join(import.meta.dirname, '..', 'scripts', 'purge.mjs');
@@ -225,7 +226,7 @@ test('it explains itself in a sentence when an agent is holding the store', (t) 
 
   // An agent, connected and holding the store open, which is the ordinary
   // state of this tool rather than an unusual one.
-  const agent = openStore({ file, now: () => new Date().toISOString() });
+  const agent = openStore({ file, now: () => new Date().toISOString(), elapsed: monotonicClock });
   t.after(() => {
     try {
       agent.close();
@@ -292,7 +293,7 @@ function workspace(t) {
     purge: (args) => start(PURGE, args),
     /** @param {(store: import('../src/store.js').Store) => void} inspect */
     read: (inspect) => {
-      const store = openStore({ file, now: () => new Date().toISOString() });
+      const store = openStore({ file, now: () => new Date().toISOString(), elapsed: monotonicClock });
       try {
         inspect(store);
       } finally {

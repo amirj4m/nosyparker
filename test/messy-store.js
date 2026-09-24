@@ -44,6 +44,7 @@ import path from 'node:path';
 import { forget, submit } from '../src/gate.js';
 import { openStore } from '../src/store.js';
 import { OWNER } from './helpers.js';
+import { monotonicClock } from '../src/config.js';
 
 /**
  * The last moment in the fixture's world. A reviewer reading this store is
@@ -145,7 +146,7 @@ export function messyStore(t) {
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
   let clock = WRITTEN[0].at;
-  const store = openStore({ file: path.join(dir, 'memory.sqlite'), now: () => clock });
+  const store = openStore({ file: path.join(dir, 'memory.sqlite'), now: () => clock, elapsed: monotonicClock });
   t.after(() => store.close());
 
   /** @type {number[]} */

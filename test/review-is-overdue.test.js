@@ -31,6 +31,7 @@ import {
 } from '../src/review-due.js';
 import { openStore, reviewBookkeeping } from '../src/store.js';
 import { OWNER, temporaryStore } from './helpers.js';
+import { monotonicClock } from '../src/config.js';
 
 const SERVER = path.join(import.meta.dirname, '..', 'src', 'mcp-server.js');
 
@@ -343,7 +344,7 @@ test('a review that keeps working is never called abandoned', (t) => {
   /** @param {number} n @returns {string} */
   const minutes = (n) => new Date(START + n * 60_000).toISOString();
 
-  const store = openStore({ file: path.join(dir, 'memory.sqlite'), now: () => new Date(at).toISOString() });
+  const store = openStore({ file: path.join(dir, 'memory.sqlite'), now: () => new Date(at).toISOString(), elapsed: monotonicClock });
   t.after(() => store.close());
 
   /** @type {number[]} */
@@ -397,7 +398,7 @@ test('a moment it cannot read is not taken as proof a review is alive', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-unreadable-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-  const store = openStore({ file: path.join(dir, 'memory.sqlite'), now: () => new Date().toISOString() });
+  const store = openStore({ file: path.join(dir, 'memory.sqlite'), now: () => new Date().toISOString(), elapsed: monotonicClock });
   t.after(() => store.close());
 
   for (let i = 0; i < REVIEW_IS_DUE_AFTER.memories; i += 1) {

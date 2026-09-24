@@ -26,6 +26,7 @@ import { normaliseForComparison } from '../src/text.js';
 import { openStore, searchMemories } from '../src/store.js';
 import { submit } from '../src/gate.js';
 import { sandboxEnv } from './helpers.js';
+import { monotonicClock } from '../src/config.js';
 
 const MIGRATE = path.join(import.meta.dirname, '..', 'scripts', 'migrate.mjs');
 const OWNER = 'local';
@@ -43,7 +44,7 @@ function workspace(t) {
   const file = path.join(home, '.nosyparker', 'memory.sqlite');
   fs.mkdirSync(path.dirname(file), { recursive: true });
 
-  const store = openStore({ file, now: () => new Date().toISOString() });
+  const store = openStore({ file, now: () => new Date().toISOString(), elapsed: monotonicClock });
   const inScript = (/** @type {string} */ text, /** @type {number} */ zero) =>
     text.replace(/[0-9]/gu, (d) => String.fromCodePoint(zero + Number(d)));
 
@@ -682,7 +683,7 @@ test('after the migration, the two scripts find the same memories', (t) => {
   });
   assert.equal(run.status, 0, `the migration failed: ${run.stderr.slice(0, 300)}`);
 
-  const store = openStore({ file, now: () => new Date().toISOString() });
+  const store = openStore({ file, now: () => new Date().toISOString(), elapsed: monotonicClock });
   t.after(() => store.close());
 
   /** @param {string} term @returns {string[]} */

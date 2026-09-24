@@ -28,6 +28,7 @@ import {
 import { getMemory, getPass, listDecisions, listMemories, openStore, searchMemories } from '../src/store.js';
 import { OWNER, temporaryStore } from './helpers.js';
 import { messyStore, NOW, WRITTEN } from './messy-store.js';
+import { monotonicClock } from '../src/config.js';
 
 /**
  * Every memory and the state it is in, as something two moments can be
@@ -346,7 +347,7 @@ test('a review killed partway through leaves a store that opens and is consisten
   fs.writeFileSync(script, [
     "import { beginReview, review } from '" + new URL('../src/gate.js', import.meta.url).href + "';",
     "import { openStore } from '" + new URL('../src/store.js', import.meta.url).href + "';",
-    `const store = openStore({ file: ${JSON.stringify(file)}, now: () => ${JSON.stringify(NOW)} });`,
+    `const store = openStore({ file: ${JSON.stringify(file)}, now: () => ${JSON.stringify(NOW)}, elapsed: () => performance.now() });`,
     `const pass = beginReview(store, { owner: ${JSON.stringify(OWNER)}, reviewer: 'doomed' }).pass_id;`,
     `review(store, { owner: ${JSON.stringify(OWNER)}, pass, id: ${messy.timed[0]}, outcome: 'overtaken',`,
     "  reasoning: 'that moment has gone', derivedFrom: [" + messy.timed[0] + '] });',
@@ -359,7 +360,7 @@ test('a review killed partway through leaves a store that opens and is consisten
   // A second connection rather than the fixture's, because what is being
   // checked is the file the killed process left behind, not what this one is
   // holding in memory.
-  const reopened = openStore({ file, now: () => NOW });
+  const reopened = openStore({ file, now: () => NOW, elapsed: monotonicClock });
   t.after(() => reopened.close());
 
   // The finding it completed stands, with its row. Nothing else moved, and

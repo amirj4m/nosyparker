@@ -148,12 +148,14 @@ terminal, leaving a 856 MB search reachable through the `add` command.
 The worst that now fits inside all three is about nine and a half thousand
 dense characters in a single memory, which costs around 91 MB to search.
 
-Two things this does not cover. Time is still unbounded: the per-memory cost is
-multiplied by how many memories match, and a thousand memories at the worst
-allowed shape take 92 seconds for one search. And the two write-side limits are
-enforced at the two entry points rather than in the gate, so `submit` called
-directly as a library function is bounded by neither. There is no such caller
-today; Phase 4's review loop would be one.
+Two things this did not cover when it was written. Time was unbounded: the
+per-memory cost is multiplied by how many memories match and nothing caps how
+many there are, and a thousand memories at the worst allowed shape took 92
+seconds for one search. That is bounded now, by a clock rather than a fourth
+prediction — see *Why a search could not be interrupted, and how it is stopped
+now*. And the two write-side limits were enforced at the two entry points
+rather than in the gate, so `submit` called directly as a library function was
+bounded by neither; they have since moved into the gate.
 
 ## Walking past the repetition rule
 
@@ -213,9 +215,9 @@ own. The disagreement is recorded rather than resolved, because the conclusion
 does not turn on it: at every length measured, by either party's figures, the
 shape passes the repetition rule and only the length rule stops it.
 
-## Why a search cannot be interrupted
+## Why a search could not be interrupted, and how it is stopped now
 
-*Pointed at from `searchMemories` in `src/store.js`.*
+*Pointed at from `searchMemories` and `SEARCH_TIME_LIMIT_MS` in `src/store.js`.*
 
 `node:sqlite` exposes no interrupt and no progress handler. Its whole surface is
 `open`, `close`, `prepare`, `exec`, `function`, `location`, `aggregate`, the
@@ -223,28 +225,65 @@ session calls and the extension calls. The SQLite underneath is 3.51.3 and has
 both in C. The binding is synchronous, so nothing else in the process runs while
 a search finishes.
 
-`iterate()` is the only in-process lever and `ORDER BY rank` defeats it: the
-first row arrives at 979 ms of a 993 ms query, so stopping after five rows still
-costs 988 ms. Doing the ranking ourselves gives byte-identical ordering and
-moves the first row to 436 ms, because `bm25` wants its global statistics up
-front — better, and still not abandonable.
+**What was true until 24 September 2026.** `iterate()` was the only in-process
+lever and `ORDER BY rank` defeated it: the first row arrived at 979 ms of a
+993 ms query, so stopping after five rows still cost 988 ms. Doing the ranking
+ourselves gave byte-identical ordering and moved the first row to 436 ms —
+better, and still not abandonable, because nothing in the process could act
+between rows. Ordinary stores answered fast: 112 ms and 175 ms for 2,000
+memories at 36 MB. Memory was bounded by the three limits above, at around
+91 MB for the worst single memory they allow. Time was not: a thousand
+memories at that shape took 92 seconds for one search, and it could not be
+stopped once it started. There was no bound on time because nothing predicted
+it — a query with 43 million total occurrences answered in 7 ms while another
+with 105 million took 1094 ms — and a limit built on a prediction would refuse
+ordinary searches on large stores while still allowing slow ones.
 
-What it costs today. Ordinary stores answer fast — 112 ms and 175 ms for 2,000
-memories at 36 MB. Memory is bounded by the three limits above, at around
-91 MB for the worst single memory they allow. Time is not: a thousand memories
-at that shape take 92 seconds for one search, and it cannot be stopped once it
-starts.
+**The lever that was there.** `function` is on the list above, and a function
+SQLite calls per row can throw. Measured before it was relied on: a throw from
+a user function ends the statement it was called from, the connection stays
+usable, and inside an explicit transaction the transaction is still open and
+commits afterwards. So a per-row function that reads a clock and throws past a
+deadline stops a search *between* documents. What it cannot do is stop one
+inside a document, and that is fine: the write-side limits bound what one
+document costs, at 40 to 80 ms for the worst shape they allow.
 
-There is no bound on time because nothing predicts it. A query with 43 million
-total occurrences answers in 7 ms while another with 105 million takes 1094 ms,
-since an AND across selective terms stops early and a single dense term does
-not. A limit built on that number would refuse ordinary searches on large
-stores while still allowing slow ones.
+**Why that did not work under `ORDER BY rank`, and what does.** Measured on
+twenty worst-shape memories with a 999-character query: with `ORDER BY rank`
+the per-row function was first called at 1,627 ms of a 1,628 ms search — after
+every document had been matched — and the whole search cost about twice what
+the same query cost unordered (874 ms). Selecting `rank` as a column with no
+`ORDER BY` streams: first call at 68 ms, and the total is below the ordered
+form. So the store selects `rank` as a column and sorts in JavaScript by rank
+and then by id, which is the order the rows arrive in and the order SQLite's
+stable sorter kept. Checked on seven queries over three thousand memories with
+thousands of ties: identical to `ORDER BY rank` on every one.
 
-Fixing the interruption means dropping relevance ordering, or moving search into
-a process that can be killed. Both change what search is. If real use shows the
-residual matters, that is the moment — and these numbers are the argument for
-revisiting it.
+**The limit itself is a clock, not a prediction.** `SEARCH_TIME_LIMIT_MS` is
+ten seconds. It refuses the searches that actually took too long and no others,
+so the three failed predictions in *Bounding what a search can cost* are not
+tried a fourth time. Ordinary searches are two orders of magnitude under it.
+A stopped search is a refusal in a sentence — nothing was returned, add a word
+that narrows it — never a shorter answer, which is the rule search has always
+had. The overrun past the limit is one document's cost.
+
+**Where the clock comes from, and why it is not in `store.js`.** The oldest
+rule here is that no code on the memory path reads a clock, and a test refuses
+`Date`, `performance.now`, `process.hrtime` and `Temporal` in every module that
+can reach the store. The search clock does not bend that rule; it is handed in
+at the door. `openStore` now takes `elapsed` beside `now`: a function from
+`config.js` returning milliseconds from a clock that only goes forward, which
+is a count from nowhere in particular and cannot be compared with a memory's
+date by any arithmetic. Both are required, so a caller cannot open a store
+whose searches never stop by forgetting — the shape of defect this project has
+had three times with a bound at an entrance. Tests hand in a clock they
+control, which is what makes the deadline testable without timing.
+
+Three things are still true. A search inside one document cannot be stopped.
+The binding still has no interrupt, so a process-level abort is still the only
+way to stop a document, and nothing here does that. And the MCP server still
+cannot stop a search for a client that has gone; what it can now count on is
+that the search stops itself.
 
 ## What Phase 2 learned about where a bound belongs  [record]
 
@@ -1406,6 +1445,28 @@ works, and a line there is a line people learn to skip.
 Entries written by 0.0.6 and earlier have no record and get no line. Comparing
 against a record that was never taken would be a guess about somebody's
 machine, and this project does not print those. One `setup` writes the record.
+
+### Search time, bounded by a clock rather than a fourth prediction
+
+The brief was to investigate, report options, and change nothing unless
+something small and safe existed. The whole argument is in *Why a search could
+not be interrupted, and how it is stopped now*, which the code points at; this
+is the record of what the options were.
+
+Rejected: moving search into a child process that can be killed — a redesign
+of the one hot path, for a problem that has never happened in real use.
+Rejected: dropping relevance ordering to make `iterate()` abandonable — it
+changes what search returns. Rejected: a fourth attempt at predicting cost —
+three are recorded above and each admitted an 800 MB search while refusing
+ordinary ones.
+
+Taken, because it measured small and safe: rank as a column with the sort done
+here, which is a pure speed-up with byte-identical results and is what lets
+rows arrive one at a time; and a per-row clock function that stops a search
+between documents after ten seconds, with the clock handed in at the door so
+that `store.js` still names none. The MCP tests that measure abandoned
+searches still hold, on a search that is now faster. Whether ten seconds is
+the right number is the owner's to change and lives in one constant.
 
 ## What we are, and the one thing to leave room for  [record]
 

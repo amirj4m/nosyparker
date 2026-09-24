@@ -23,7 +23,7 @@ import { checkDocumentation } from '../src/documentation.js';
 import { BROKEN, diagnose, interpreterIn, NOT_ASKABLE, reportDiagnosis, SOUND } from '../src/doctor.js';
 import { DatabaseSync } from 'node:sqlite';
 import { beginReview, closeReview, review, submit, undoReview } from '../src/gate.js';
-import { LOCAL_OWNER } from '../src/config.js';
+import { LOCAL_OWNER, monotonicClock } from '../src/config.js';
 import { listMemories, openStore } from '../src/store.js';
 import { clientById } from '../src/clients.js';
 import { defaultLogPath, openLog } from '../src/log.js';
@@ -497,7 +497,7 @@ test('a review left open is reported, and is not called a fault', (t) => {
   const { io, home, printed } = machine(t);
   const file = path.join(home, '.nosyparker', 'memory.sqlite');
 
-  const store = openStore({ file, now: () => '2026-08-18T09:00:00.000Z' });
+  const store = openStore({ file, now: () => '2026-08-18T09:00:00.000Z', elapsed: monotonicClock });
   beginReview(store, { owner: LOCAL_OWNER, reviewer: 'an agent that then stopped' });
   store.close();
 
@@ -519,7 +519,7 @@ test('a closed review is not an open one', (t) => {
   const { io, home } = machine(t);
   const file = path.join(home, '.nosyparker', 'memory.sqlite');
 
-  const store = openStore({ file, now: () => '2026-08-18T09:00:00.000Z' });
+  const store = openStore({ file, now: () => '2026-08-18T09:00:00.000Z', elapsed: monotonicClock });
   const started = beginReview(store, { owner: LOCAL_OWNER, reviewer: 'an agent' });
   closeReview(store, { owner: LOCAL_OWNER, pass: /** @type {number} */ (started.pass_id) });
   store.close();
@@ -540,7 +540,7 @@ test('a closed review is not an open one', (t) => {
  */
 function reviewedStore(file, count, archive) {
   let clock = Date.parse('2026-08-18T09:00:00.000Z');
-  const store = openStore({ file, now: () => new Date(clock).toISOString() });
+  const store = openStore({ file, now: () => new Date(clock).toISOString(), elapsed: monotonicClock });
 
   try {
     for (let n = 1; n <= count; n += 1) {
@@ -621,7 +621,7 @@ test('a review that has been put back is not something to tell anybody about', (
 
   reviewedStore(file, 20, 20);
 
-  const store = openStore({ file, now: () => '2026-08-19T09:00:00.000Z' });
+  const store = openStore({ file, now: () => '2026-08-19T09:00:00.000Z', elapsed: monotonicClock });
   undoReview(store, { owner: LOCAL_OWNER, pass: 1 });
   store.close();
 
@@ -638,7 +638,7 @@ test('when there are more reviews than it will show, it says how many it left ou
   // five would be the shape `listDecisions` refuses to have: a caller unable to
   // tell a complete answer from a shortened one.
   let clock = Date.parse('2026-08-18T09:00:00.000Z');
-  const store = openStore({ file, now: () => new Date(clock).toISOString() });
+  const store = openStore({ file, now: () => new Date(clock).toISOString(), elapsed: monotonicClock });
   for (let n = 1; n <= 7; n += 1) {
     clock += 1000;
     const id = /** @type {number} */ (

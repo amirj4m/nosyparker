@@ -25,7 +25,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 
 import { submit } from '../src/gate.js';
 import { openStore } from '../src/store.js';
-import { LOCAL_OWNER } from '../src/config.js';
+import { LOCAL_OWNER, monotonicClock } from '../src/config.js';
 
 const CLI = path.join(import.meta.dirname, '..', 'src', 'cli.js');
 
@@ -43,7 +43,7 @@ function loudStore(t) {
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
   const file = path.join(dir, 'memory.sqlite');
-  const store = openStore({ file, now: () => new Date().toISOString() });
+  const store = openStore({ file, now: () => new Date().toISOString(), elapsed: monotonicClock });
   for (let n = 0; n < 300; n += 1) {
     submit(store, { owner: LOCAL_OWNER, text: `memory number ${n} about the meeting on floor ${n % 40} in ۲۰۲۶` });
   }
