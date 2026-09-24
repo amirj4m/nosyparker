@@ -44,3 +44,31 @@ jobs:
       # a type error is the kind of thing the suite cannot always see.
       - run: npm run typecheck
       - run: npm test
+
+  # The same suite on the two platforms nobody has watched this program on.
+  # Not a gate yet: `continue-on-error` keeps a red column here from failing
+  # the commit, because a failure on a platform this has never been run on is a
+  # finding about that platform, and PLATFORMS.md is where findings go. The
+  # column exists so that the findings arrive on every push instead of never.
+  other-platforms:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: node --version
+
+      - run: npm ci
+
+      - run: npm run typecheck
+      - run: npm test
