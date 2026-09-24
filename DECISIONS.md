@@ -1353,6 +1353,19 @@ paragraph to name its client's primary path: eighteen of twenty-two paragraphs
 do not, on purpose, because for most clients the path is the least interesting
 thing about them and `--print-config` prints it.
 
+### A constant nothing read, and the flag that would have said so
+
+`AROSE` in `review-due.js` listed the two verdicts that mean a memory arrived,
+beside a query in `store.js` that spells the same two out, and nothing read it.
+It was found by a person reading the file. Removing it is one line; the
+decision is the flag turned on with it. `noUnusedLocals` in `tsconfig.json`
+makes the typecheck refuse a name that is declared and never read, and it
+found four more the moment it was on — two imports in `doctor.js`, one in each
+of two test files — which is the difference between a tidy-up and a mechanism.
+`noUnusedParameters` was tried and left off: the names it objected to are
+parameters kept to make a signature read correctly, and renaming them with an
+underscore to satisfy a flag is a cost with nothing on the other side of it.
+
 ## What we are, and the one thing to leave room for  [record]
 
 **We are not a place. We are a gate that decides.** The storage is a SQLite file

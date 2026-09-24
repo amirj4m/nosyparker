@@ -238,3 +238,15 @@ test('every commit runs the suite and the typechecker, on a Node that has node:s
       + `${OLDEST_SUPPORTED.major}.${OLDEST_SUPPORTED.minor} or newer`,
   );
 });
+
+test('the typecheck refuses a name that is declared and never read', () => {
+  // `AROSE` sat in review-due.js from the day the file was written: a list of
+  // the two verdicts that mean a memory arrived, defined beside the query that
+  // spells them out again, read by nothing. It was found by a person reading
+  // the file, which is not a mechanism. With this flag the typechecker is one,
+  // and turning it on found four more — two imports in `doctor.js` and one in
+  // each of two test files — in the same minute.
+  const tsconfig = JSON.parse(fs.readFileSync(path.join(ROOT, 'tsconfig.json'), 'utf8'));
+  assert.equal(tsconfig.compilerOptions.noUnusedLocals, true,
+    'a declared-and-unused name would pass the typecheck again');
+});

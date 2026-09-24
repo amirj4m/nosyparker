@@ -70,9 +70,6 @@ export const REVIEW_IS_DUE_AFTER = {
  */
 export const AN_OPEN_REVIEW_IS_ALIVE_FOR_MINUTES = 30;
 
-/** The verdicts that mean a new memory arrived. `superseded` records the new one. */
-const AROSE = ['stored', 'superseded'];
-
 /**
  * @typedef {object} Standing
  * @property {'quiet'|'in-progress'|'overdue'} state

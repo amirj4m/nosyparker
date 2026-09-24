@@ -12,7 +12,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
-import { fileURLToPath } from 'node:url';
 
 import {
   beginReview,

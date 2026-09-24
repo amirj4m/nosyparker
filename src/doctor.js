@@ -66,7 +66,7 @@
 
 import fs from 'node:fs';
 
-import { configPathFor, expandPath, fillTokens, invocation, loadClients, surfacePath } from './clients.js';
+import { expandPath, invocation, loadClients, surfacePath } from './clients.js';
 import { detect, NOT_INSTALLED } from './detect.js';
 import { hasEntry, insertEntry, stripComments, withoutBom, withoutTrailingCommas } from './edit.js';
 import { checkDocumentation } from './documentation.js';
