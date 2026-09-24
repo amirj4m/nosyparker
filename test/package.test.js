@@ -22,6 +22,8 @@ import test from 'node:test';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+import { OLDEST_SUPPORTED } from '../src/node-version.js';
+
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 /**
@@ -196,4 +198,43 @@ test('the one change that can reach a public registry is held by something', () 
 
   // And the publish step has to come after them, not beside them.
   assert.ok(yaml.indexOf('- name: publish') > yaml.indexOf('that version must not already be published'));
+});
+
+test('every commit runs the suite and the typechecker, on a Node that has node:sqlite', () => {
+  // The suite ran in two places before `test.yml` existed: on a laptop, and in
+  // `publish.yml` on the way to the registry. Neither is a commit. This holds
+  // the workflow to the three things it is for — that it fires on every push
+  // and every pull request, that it runs both checks, and that the Node it
+  // runs them on is one `engines` would accept — so that a tidy-up which
+  // narrowed the trigger to one branch, or dropped the typecheck, or pinned an
+  // older Node, fails here rather than being noticed when something else breaks.
+  //
+  // Read as text, like the publish check above and for the same reason.
+  const yaml = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'test.yml'), 'utf8');
+
+  const triggers = /^on:\n((?:[ \t]+.*\n)+)/mu.exec(yaml);
+  assert.ok(triggers, 'the test workflow has no `on:` block');
+  for (const event of ['push', 'pull_request']) {
+    assert.match(triggers[1], new RegExp(`^\\s+${event}:`, 'mu'),
+      `the test workflow does not run on ${event}`);
+  }
+
+  for (const step of ['npm ci', 'npm run typecheck', 'npm test']) {
+    assert.ok(yaml.includes(`- run: ${step}`), `the test workflow lost its "${step}" step`);
+  }
+
+  // Whatever Node the runner is asked for has to be one this program starts
+  // on. The floor is read from the code rather than restated here.
+  const asked = /^\s*node-version:\s*['"]?([\d.]+)['"]?\s*$/mu.exec(yaml);
+  assert.ok(asked, 'the test workflow does not name a Node version');
+  const [major, minor = 0] = asked[1].split('.').map(Number);
+  assert.ok(
+    major > OLDEST_SUPPORTED.major
+      || (major === OLDEST_SUPPORTED.major && minor >= OLDEST_SUPPORTED.minor)
+      // A bare major means "the newest of that line", which is at least the
+      // floor when the major is the floor's own.
+      || (major === OLDEST_SUPPORTED.major && !asked[1].includes('.')),
+    `the test workflow asks for Node ${asked[1]}, and this program needs `
+      + `${OLDEST_SUPPORTED.major}.${OLDEST_SUPPORTED.minor} or newer`,
+  );
 });

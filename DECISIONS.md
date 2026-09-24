@@ -1242,6 +1242,32 @@ handling the card himself.** This is recorded so that the next person does not
 discover it and panic, and does not quietly rewrite history or deprecate a
 published version without asking him first. Do neither.
 
+## Phase 1, 24 September 2026: what a cold read found, and what was done  [record]
+
+A session that started from nothing but the repository read it end to end and
+listed what it found. This section records each item that was then acted on,
+in the order it was done, one commit each. Where an item was investigated and
+left alone, that is written here too, with the reason, so the next reader does
+not redo the investigation.
+
+### Nothing ran the tests on a commit
+
+`.github/workflows/` held `drift.yml` and `publish.yml`. The suite ran on a
+laptop, and inside the publish job on the way to the registry — and the publish
+job has never fired: the repository has no tags and no releases, so every
+version on npm went out by hand. Five hundred tests, and not one had ever been
+run against a commit by anything other than a person choosing to.
+
+`test.yml` now runs `npm ci`, the typecheck and the suite on every push and
+every pull request, on Node 22 — the line `engines` names for `node:sqlite` and
+the one the suite has been watched passing on. No matrix yet, deliberately: a
+red column from a Node major this project has never been run on would be a
+finding about that Node, not about the commit that triggered it, and it should
+arrive as its own change once this one is green. A test in `package.test.js`
+holds the workflow to its three properties — the two triggers, the two checks,
+and a Node the program starts on — read from the file as text, the same way the
+publish workflow's condition is held.
+
 ## What we are, and the one thing to leave room for  [record]
 
 **We are not a place. We are a gate that decides.** The storage is a SQLite file

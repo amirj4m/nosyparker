@@ -1,0 +1,46 @@
+# The suite and the typechecker, on every push and every pull request.
+#
+# Until this existed the five hundred tests ran in two places: on a developer's
+# laptop, and inside `publish.yml` on the way to the registry. Neither is a
+# commit. The publish job has never fired — every version on npm went out by
+# hand — so nothing has ever run the suite against a commit that a person did
+# not choose to run it against. For a project whose defence against its own
+# history of defects is the suite, that was the largest gap there was.
+#
+# Node 22 and nothing else, on purpose. `engines` says 22.5 or newer because
+# `node:sqlite` arrived there, and 22 is the line the suite has been watched
+# passing on. A matrix across newer majors is worth having and is a separate
+# decision: a red column from a Node this project has never been run on would
+# be a finding, not a failure of the commit that happened to trigger it.
+#
+# `npm ci`, not `npm install`. The lockfile is the contract, and a run that
+# quietly resolved something newer would be testing a tree nobody committed.
+name: test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: node --version
+
+      - run: npm ci
+
+      # Both, and the typecheck first because it is the faster of the two and
+      # a type error is the kind of thing the suite cannot always see.
+      - run: npm run typecheck
+      - run: npm test
