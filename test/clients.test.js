@@ -30,6 +30,7 @@ import {
   PLATFORMS,
   provenance,
   surfacePath,
+  whetherRead,
 } from '../src/clients.js';
 
 const VALUES = { name: 'nosyparker', command: '/usr/bin/node', serverPath: '/srv/mcp-server.js' };
@@ -651,6 +652,14 @@ test('Kiro is written where Kiro reads, and the file it does not read is marked 
   assert.equal(inherited.rootKey, 'servers');
   assert.equal(inherited.loaded, false);
   assert.equal(provenance(inherited), 'measured on Linux');
+
+  // The claim is data, and the sentence a document has to carry is built
+  // from it — the same instrument as `provenance`, for the same reason: the
+  // prose version of this claim in CLIENTS.md contradicted the table for four
+  // weeks and nothing could compare the two.
+  assert.equal(whetherRead(inherited, kiro), 'Kiro does not read ~/.config/Kiro/User/mcp.json');
+  assert.equal(whetherRead(clientById('cursor').alsoRemoveFrom[0], clientById('cursor')), null,
+    'a surface the table has not measured makes no claim');
 
   // And nothing in the row still says to use the command that writes the
   // dead file.

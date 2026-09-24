@@ -157,6 +157,39 @@ export function provenance(surface) {
 }
 
 /**
+ * The one sentence a document has to carry about a file the client never opens.
+ *
+ * `provenance` above turned "which platforms has anybody watched" from prose
+ * into flags and a generated sentence. This does the same for a second claim
+ * that went wrong the same way: CLIENTS.md said whether Kiro read its inherited
+ * file "was never established" for four weeks after the table had recorded, in
+ * `cannotProve` and a trap, that it had been established and Kiro does not.
+ * Both were prose, so nothing could compare them.
+ *
+ * Now the measurement is `loaded: false` on the surface, this builds the
+ * sentence from it, and a check requires CLIENTS.md to carry that sentence word
+ * for word. Flipping the flag changes the required sentence and the document
+ * goes red until it agrees; hedging the document leaves the sentence missing and
+ * it goes red the same way. Nothing a person can write around it satisfies it.
+ *
+ * Null when the row makes no claim, which is every surface but one today: an
+ * absent `loaded` is a file the client's own command wrote for itself, and
+ * whether the client then reads it is not something this table has measured.
+ *
+ * @param {any} surface
+ * @param {any} client
+ * @returns {string|null}
+ */
+export function whetherRead(surface, client) {
+  if (surface.loaded !== false) return null;
+
+  const platform = PLATFORMS.find((candidate) => surfacePath(surface, candidate) !== null);
+  if (platform === undefined) return null;
+
+  return `${client.name} does not read ${surfacePath(surface, platform)}`;
+}
+
+/**
  * Fill the tokens in a row's entry.
  *
  * The tokens are `{{name}}`, `{{command}}` and `{{serverPath}}`, and they are

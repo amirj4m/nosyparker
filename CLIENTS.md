@@ -132,14 +132,14 @@ configuration from memory and will overwrite changes made while it is open.
 MCP configuration files. Setup writes `~/.kiro/settings/mcp.json` directly,
 because that is the one Kiro's agent reads: measured on 2026-08-27 by putting a
 server into both files under different names and opening Kiro, that one
-connected within four seconds, and the one Kiro inherited from VS Code —
-`~/.config/Kiro/User/mcp.json` on Linux, which Kiro's own `kiro --add-mcp`
-writes — started nothing at all. Setup used `--add-mcp` until 24 September
-2026, so a machine set up before then has an entry in the inherited file that
-does nothing; `nosyparker doctor` says so, and `nosyparker uninstall` takes it
-out. That second path is measured on Linux; the macOS and Windows locations of
-either file were not established, so on those two setup reports Kiro as a
-client it has no path for.
+connected within four seconds. Kiro does not read `~/.config/Kiro/User/mcp.json`,
+the Linux file it inherited from VS Code and the one its own `kiro --add-mcp`
+writes — a server placed there started nothing at all. Setup used `--add-mcp`
+until 24 September 2026, so a machine set up before then has an entry in the
+inherited file that does nothing; `nosyparker doctor` says so, and
+`nosyparker uninstall` takes it out. That second path is measured on Linux; the
+macOS and Windows locations of either file were not established, so on those
+two setup reports Kiro as a client it has no path for.
 
 **Claude Desktop.** Anthropic's desktop app. Officially macOS and Windows; the
 Linux build is a community one and uses the same layout. Close it before running

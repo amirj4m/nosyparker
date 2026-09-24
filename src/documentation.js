@@ -19,8 +19,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { invocation, loadClients, provenance, surfacePath } from './clients.js';
+import { invocation, loadClients, provenance, surfacePath, whetherRead } from './clients.js';
 import { OLDEST_SUPPORTED } from './node-version.js';
+import { PLATFORMS } from './clients.js';
 
 /**
  * @typedef {object} Check
@@ -539,6 +540,60 @@ export function checkDocumentation(root = repositoryRoot(), workingNotes = []) {
         .filter((title) => !title.endsWith('[record]'))
         .filter((title) => !code.includes(title.replaceAll('`', '')))
         .map((title) => `"${title}" is pointed at from nowhere and is not marked a record`);
+    })()),
+
+    check('CLIENTS.md says which second file its client never reads, in the table\'s words', (() => {
+      // The Kiro contradiction, closed the way the provenance one was. The
+      // document hedged — "whether it reads the inherited one was never
+      // established" — while the row had recorded the measurement in two
+      // places, and every check here compared names, counts and tiers, none of
+      // which had moved. A claim is not a name, and this is the first check
+      // about one: the claim is a boolean on the surface, the sentence is
+      // generated from it, and the document has to carry the sentence exactly.
+      //
+      // Backticks are dropped before comparing, because a path in prose is
+      // written in code font and the sentence is not about typography.
+      const said = clientsMd.replaceAll('`', '').replaceAll(/\s+/gu, ' ');
+      const wrong = [];
+
+      for (const client of clients) {
+        for (const surface of client.alsoRemoveFrom ?? []) {
+          const sentence = whetherRead(surface, client);
+          if (sentence !== null && !said.includes(sentence)) {
+            wrong.push(`CLIENTS.md does not say "${sentence}"`);
+          }
+        }
+      }
+
+      return wrong;
+    })()),
+
+    check('CLIENTS.md names every second file the table carries for a client', (() => {
+      // The other half. A surface that is in the table and not in the document
+      // is a file uninstall will edit that nobody was told about, and a claim
+      // check above cannot fire on a file the document never mentions.
+      //
+      // Named in the client's own paragraph, on the platform the document
+      // discusses — the first the surface has a path for — and with the same
+      // whitespace flattening as the path check below, since these wrap.
+      const wrong = [];
+
+      for (const client of clients) {
+        const paragraph = paragraphFor(client).replaceAll(/\s*\n\s*/gu, '');
+        const surfaces = [
+          ...(client.alsoRemoveFrom ?? []).map((/** @type {any} */ surface) =>
+            surfacePath(surface, PLATFORMS.find((platform) => surfacePath(surface, platform) !== null) ?? 'linux')),
+          ...(client.extraConfigPaths ?? []).map((/** @type {any} */ extra) => extra.path),
+        ];
+
+        for (const file of surfaces) {
+          if (file !== null && !paragraph.includes(file)) {
+            wrong.push(`${client.id} has a second file, ${file}, that its paragraph never names`);
+          }
+        }
+      }
+
+      return wrong;
     })()),
 
     check('CLIENTS.md does not claim a firmer basis than a row has', (() => {

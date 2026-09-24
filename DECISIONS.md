@@ -1318,6 +1318,41 @@ person with Kiro open should run `setup` and read `~/.kiro/logs/<stamp>/mcp.log`
 for the `Connected` line, which is what turns this from a row built on one
 measurement into a row built on two.
 
+### A document that hedges what the table has measured
+
+CLIENTS.md said, of Kiro's inherited file, that "whether it reads the inherited
+one was never established". The table had said since 2026-08-27 that it had
+been established, in `cannotProve` and in a trap. Twenty-three documentation
+checks ran on every commit and every `doctor`, and none moved, because every
+one of them compares a name, a count, a tier or a command — facts with one
+spelling — and this was a claim, in two prose forms that nothing could hold
+side by side.
+
+The fix is the one this project reached the third time it tried to check a
+claim about provenance: **the claim becomes a boolean on the row, the sentence
+a person reads is generated from the boolean, and the document has to carry
+that sentence word for word.** `loaded: false` on a second surface is the
+boolean; `whetherRead` in `clients.js` builds "Kiro does not read
+~/.config/Kiro/User/mcp.json" from it — the Linux path, the only one the
+surface has; a check requires CLIENTS.md to contain
+exactly that, with code font stripped. Flip the flag and the required sentence
+changes, so the document goes red until it agrees. Soften the document and the
+sentence goes missing, so it goes red the same way. The mutation test puts the
+old hedge back and confirms it is noticed.
+
+A second check pairs with it: every second file the table carries for a client
+— `alsoRemoveFrom`, `extraConfigPaths` — has to be named in that client's
+paragraph. A file `uninstall` edits that the document never mentions is a file
+nobody was told about, and a claim check cannot fire on a file the document
+does not name.
+
+Two things this deliberately does not do. It does not check that a document
+never *mentions* a hedge — that is matching English against a pattern, which
+has passed for the wrong reason three times here. And it does not require every
+paragraph to name its client's primary path: eighteen of twenty-two paragraphs
+do not, on purpose, because for most clients the path is the least interesting
+thing about them and `--print-config` prints it.
+
 ## What we are, and the one thing to leave room for  [record]
 
 **We are not a place. We are a gate that decides.** The storage is a SQLite file

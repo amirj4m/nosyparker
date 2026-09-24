@@ -33,13 +33,13 @@ test('every document agrees with the program', () => {
   }
 });
 
-test('there are twenty-three of them, and each says what it is checking', () => {
+test('there are twenty-five of them, and each says what it is checking', () => {
   // Counted so that a check cannot be quietly dropped, and each one's sentence
   // is what `doctor` prints, so an empty one would be a blank line in front of
   // somebody trying to work out what is wrong.
   const checks = checkDocumentation();
 
-  assert.equal(checks.length, 23);
+  assert.equal(checks.length, 25);
   for (const check of checks) assert.ok(check.what.length > 10, `a check with no sentence: ${check.what}`);
 });
 
@@ -85,6 +85,13 @@ test('a document that stops being true is noticed', (t) => {
     ['README.md', 'actions.log', 'actions-log'],
     ['CLIENTS.md', '**Continue**, **Warp**', '**Cline**, **Continue**, **Warp**'],
     ['DECISIONS.md', 'where a bound belongs  [record]', 'where a bound belongs'],
+    // The Kiro hedge, put back. The table says the file is not read; a document
+    // that goes soft on that is what sat in CLIENTS.md for four weeks.
+    ['CLIENTS.md', 'Kiro does not read `~/.config/Kiro/User/mcp.json`',
+      'whether Kiro reads `~/.config/Kiro/User/mcp.json` was never established'],
+    // And a second file dropped from its paragraph, so a surface uninstall
+    // edits is one the document never mentions.
+    ['CLIENTS.md', '`~/.codeium/windsurf/mcp_config.json`', 'the other one'],
   ];
   // And the one that is about the program rather than a document. Until 0.0.2
   // this mutation added a usage string naming a command nobody had; the command
