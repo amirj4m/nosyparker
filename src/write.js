@@ -133,6 +133,22 @@ export function writeToClient(client, options) {
   const request = editRequest(client, options);
 
   try {
+    // Nothing to write is nothing to refuse. A file that already holds exactly
+    // the entry this run would put there is a wired client, and reading it to
+    // find that out is safe whatever the application is doing — the hazard the
+    // quit rule guards against is a *write* being overwritten from memory.
+    // Before this the running check came first, and a second `setup` with
+    // Claude Desktop open put a client that was wired and identical under
+    // "Not done", told the person to quit an application for nothing, and
+    // disagreed with `doctor`, which read the same file and said it was fine.
+    if (client.write.method === 'file') {
+      const before = readOrEmpty(options.configPath);
+      if (before !== '' && insertEntry(before, request) === before) {
+        log(options).record('wrote', { client: client.id, path: options.configPath, outcome: UNCHANGED });
+        return result('file', options.configPath, null, UNCHANGED, null);
+      }
+    }
+
     const running = client.writeRequiresQuit === undefined || options.machine === undefined
       ? false
       : anyRunning(client.writeRequiresQuit.processes, options.machine);

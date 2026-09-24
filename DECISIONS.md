@@ -1468,6 +1468,33 @@ that `store.js` still names none. The MCP tests that measure abandoned
 searches still hold, on a search that is now faster. Whether ten seconds is
 the right number is the owner's to change and lives in one constant.
 
+### The owner's first run after Phase 1, and what it turned out to be
+
+He ran `nosyparker setup` and `nosyparker doctor` and pasted both. Three
+things looked wrong and were checked against the code rather than assumed.
+
+**It was 0.0.6.** The `nosyparker` on his PATH is the global install from
+27 August: 22 documentation checks, no `stale.js`, Kiro's row still written
+through `--add-mcp`. So nothing in that output came from Phase 1 — Kiro under
+"written, but unconfirmed", doctor saying Kiro "writes this file with its own
+command", and no line about a stale interpreter are all the previous version
+doing what it did. Item 6 was silent because the code that says it did not
+exist in that binary, and his manifest has no `wroteWith` on any of its
+seventeen rows for the same reason. The Phase 1 row for Kiro is file-written at
+`~/.kiro/settings/mcp.json` on Linux; it has not run on his machine yet.
+
+**Setup and doctor disagreed about Claude Desktop, and setup was wrong.** His
+file already held exactly the entry setup writes. Doctor read it and said
+sound. Setup checked whether the application was running *before* it looked at
+the file, refused, put a wired client under "Not done" and told him to quit
+Claude Desktop and run it again — for a write that would have changed nothing.
+That is the same code in HEAD, so it is fixed here: for a file-written client,
+`writeToClient` reads the file first, and a file that already says what this
+run would say is `unchanged` whatever the application is doing. Reading is
+safe; the quit rule exists because a *write* is overwritten from memory. An
+entry that is there and stale — a moved interpreter — still waits for the
+quit, because that one is a write.
+
 ## What we are, and the one thing to leave room for  [record]
 
 **We are not a place. We are a gate that decides.** The storage is a SQLite file

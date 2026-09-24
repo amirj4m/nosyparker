@@ -1277,3 +1277,27 @@ test('setup writes down what each entry was written with, and uninstall crosses 
   assert.equal(staleWiring({ backupDir: io.backupDir, interpreter: '/elsewhere/node', serverPath: '/srv/mcp-server.js' }), null,
     'after uninstall there is nothing to go stale');
 });
+
+test('setup and doctor agree about a wired client whose application happens to be open', (t) => {
+  // Setup once, with Claude Desktop closed; then again with it open. The
+  // second report has to count it as wired and leave it out of "Not done" and
+  // out of the quit instruction, because the file already says what setup
+  // would say and doctor — reading that same file — reports it as sound.
+  const { io, printed, home } = machine(t, { files: ['.config/Claude/claude_desktop_config.json'] });
+  fs.writeFileSync(path.join(home, '.config', 'Claude', 'claude_desktop_config.json'), '{"preferences": {}}\n');
+
+  report(io, install(io));
+  assert.match(printed(), /1 of 1 clients on this machine are wired up/u);
+
+  const open = { ...io, out: () => {}, machine: { ...io.machine, processes: () => ['claude-desktop'] } };
+  let again = '';
+  report({ ...open, out: (/** @type {string} */ text) => { again += text; } }, install(open));
+
+  assert.match(again, /1 of 1 clients on this machine are wired up/u);
+  assert.doesNotMatch(again, /Not done/u);
+  // The restart list still names it, correctly: an entry it has not read yet is
+  // an entry it has to be restarted for. What must be gone is the instruction
+  // to quit it in order to finish an install that is already finished.
+  assert.doesNotMatch(again, /Quit Claude Desktop and run this again/u);
+  assert.match(again, /Written, but unconfirmed — Claude Desktop/u);
+});

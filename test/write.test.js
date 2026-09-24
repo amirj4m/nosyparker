@@ -533,6 +533,37 @@ test('a client that would overwrite our write is not written to while it runs', 
   assert.equal(fs.existsSync(space.backupDir), false);
 });
 
+test('a running client whose file already holds the entry is wired, not "not done"', (t) => {
+  // The owner's machine on 24 September 2026: Claude Desktop open, its file
+  // holding exactly the entry setup writes, and setup reporting it under "Not
+  // done — quit it and run this again" while doctor read the same file and
+  // called it sound. Nothing needed writing, so nothing needed the quit.
+  const space = workspace(t);
+  const configPath = space.config('claude_desktop_config.json');
+  fs.writeFileSync(configPath, '{"preferences": {}}\n');
+
+  const opts = options({ configPath, backupDir: space.backupDir }, { machine: machineRunning(['firefox']) });
+  assert.equal(writeToClient(clientById('claude-desktop'), opts).outcome, WRITTEN);
+  const after = fs.readFileSync(configPath, 'utf8');
+
+  const again = writeToClient(clientById('claude-desktop'), options({
+    configPath,
+    backupDir: space.backupDir,
+  }, { machine: machineRunning(['claude-desktop']) }));
+
+  assert.equal(again.outcome, UNCHANGED, again.error ?? '');
+  assert.equal(fs.readFileSync(configPath, 'utf8'), after, 'the file was touched while the app ran');
+
+  // And an entry that is there but stale — a different interpreter — still
+  // waits for the quit, because that one would be a write.
+  const moved = writeToClient(clientById('claude-desktop'), options({
+    configPath,
+    backupDir: space.backupDir,
+  }, { command: '/somewhere/else/node', machine: machineRunning(['claude-desktop']) }));
+  assert.equal(moved.outcome, NOT_WRITTEN);
+  assert.equal(fs.readFileSync(configPath, 'utf8'), after);
+});
+
 test('the same client is written to happily when it is not running', (t) => {
   const space = workspace(t);
   const configPath = space.config('claude_desktop_config.json');
