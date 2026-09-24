@@ -90,6 +90,149 @@ In order, each small:
 
 None of that changes what ships. It is a day of test work.
 
+## The two sessions, prepared
+
+Both sessions use one script, `scripts/platform-check.mjs`, which reads and
+prints and never writes: what the table claims about the machine it is on,
+whether the machine agrees, and after `setup` whether each entry landed. It
+is not in the package. The paid or evening hours go on running things and
+reading output; nothing has to be worked out live.
+
+The sequence is the same on both platforms:
+
+```
+git clone https://github.com/amirj4m/nosyparker.git && cd nosyparker && npm ci
+npm test                                        # first finding: does the suite pass here
+node scripts/platform-check.mjs --template > results.md   # the table to fill in
+node scripts/platform-check.mjs                 # what is here, where each row would write
+npm install -g nosyparker                       # the registry copy, not the checkout
+nosyparker setup --print-config                 # the shape it would write, writes nothing
+nosyparker setup                                # writes; read the three groups
+node scripts/platform-check.mjs --after-setup   # did each entry land, does it name a real Node
+#   open each application, ask the agent something only the shared memory knows, fill the table
+nosyparker doctor
+nosyparker uninstall
+node scripts/platform-check.mjs --after-uninstall
+```
+
+`--print-config` before `setup` is the step that settles claim 1 for a row
+without writing: the path it prints is compared with where the installed
+application actually keeps its MCP settings, which its own settings screen or
+first launch shows. Install the registry copy rather than linking the
+checkout, so the entries name a path a stranger would have.
+
+Put nothing real in the store — the sentence to store is "the test phrase is
+purple giraffe", and the question to ask each agent is "what is the test
+phrase?". Use a throwaway user account on Windows if the machine is shared.
+
+### macOS: a rented machine, once
+
+**Providers that bill for a day rather than a month**, at the time of writing
+— confirm prices before paying, they move:
+
+- **Scaleway Apple silicon** (Mac mini M2 or M4): hourly rate with a
+  24-hour minimum per instance, in the region of €3–6 for the mandatory
+  day. SSH and VNC out of the box, a current macOS image, no account
+  commitment beyond the day. The cheapest realistic option and the one to
+  try first.
+- **AWS EC2 Mac** (`mac2`, `mac2-m2`): a dedicated host with a 24-hour
+  minimum allocation, roughly $16–21 for that day at on-demand rates, plus
+  the usual AWS account setup and a VNC session to configure. Fine if he
+  already lives in AWS; otherwise more setup than Scaleway for more money.
+- **MacinCloud** pay-as-you-go: about a dollar an hour but sold as a prepaid
+  block (around $30 for 30 hours), with a web or RDP desktop. Reasonable if
+  a GUI with no setup matters more than the price.
+- **MacStadium** and the like: monthly. Not for this.
+- **A GitHub Actions macOS runner** is free for a public repository and is
+  already running the suite. It cannot do this session: it has no signed-in
+  applications and no screen, and every row below needs one or both. It is
+  the right tool for claim 2 automation later, not for this.
+
+**Expect: one day's rent, three to four hours of his time**, most of it
+installing fourteen applications and signing in to them, not running our
+commands. A cloud Mac is a bare machine; everything the table names has to be
+put on it first. Prepare on his own machine beforehand: the list of accounts
+and API keys he will sign in with, in a password manager, so that the paid
+hour is not spent on password resets.
+
+**Which of the fourteen macOS rows this can close.** All fourteen have a path
+in the table, and all fourteen applications install on a fresh Mac with a
+screen. Claim 1 (the path) and claim 2 (the write lands) close for every row
+that is installed and opened once — no account is needed for an application
+to create its settings directory. Claim 3 (the agent loads it) needs the
+agent to run, which needs an account or a key:
+
+| row | install with | needs, for claim 3 | claim 3 checkable by |
+|---|---|---|---|
+| `claude-code` | `npm i -g @anthropic-ai/claude-code` | Anthropic account or key | `claude mcp list` — the program asks |
+| `gemini-cli` | `npm i -g @google/gemini-cli` | Google account or API key | `gemini mcp list` — the program asks; trust the folder first |
+| `codex-cli` | `npm i -g @openai/codex` | OpenAI account or key | `codex mcp list` — the program asks |
+| `goose` | `brew install block-goose-cli` | any LLM key | `goose mcp list` — the program asks |
+| `opencode` | `brew install opencode` | any LLM key | `opencode mcp list` — the program asks |
+| `copilot-cli` | `npm i -g @github/copilot` | GitHub Copilot subscription | ask the agent |
+| `amazon-q` | `brew install --cask amazon-q` | AWS Builder ID | ask the agent |
+| `vscode` | `brew install --cask visual-studio-code` | GitHub account for Copilot Chat | ask the agent; check the four `chat.mcp` settings |
+| `cursor` | `brew install --cask cursor` | Cursor account | ask the agent; the second surface is inferred here too |
+| `claude-desktop` | `brew install --cask claude` | Anthropic sign-in — it starts no server before | ask the agent; quit it before setup |
+| `kimi-code` | its installer | Moonshot account | ask the agent |
+| `continue` | VS Code extension | any LLM key | ask the agent |
+| `warp` | `brew install --cask warp` | Warp account | ask the agent |
+| `junie` | a JetBrains IDE + the Junie plugin | JetBrains account and AI licence | ask the agent |
+
+So the honest count: **fourteen paths closable, and claim 3 for as many of
+the fourteen as he has accounts for** — on Linux he has seventeen clients
+wired, so most. Five of the fourteen answer the program directly, which is
+worth doing first because they need no window. The eight rows with no macOS
+path at all (`kiro`, `lmstudio`, `roo-code`, `devin-desktop`, `zed`, `cline`,
+`hermes`, `openclaw`) can only gain a path if he installs them and notes
+where each writes; Zed, LM Studio, Kiro, Windsurf, Cline and Roo all exist on
+macOS, so a longer session could add up to six rows. That is a bonus, not
+the goal.
+
+Order on the day: `npm test` and the script first (ten minutes, and if the
+suite fails on macOS that is finding one); then the five command-checkable
+rows; then the GUI applications in the order above; `doctor`; `uninstall`;
+the script's last mode; fill the table; cancel the machine.
+
+### Windows: his own machine, tonight
+
+Twelve rows carry a Windows path: `claude-code`, `gemini-cli`, `codex-cli`,
+`goose`, `copilot-cli`, `vscode`, `cursor`, `claude-desktop`, `kimi-code`,
+`continue`, `warp`, `junie`. The install commands are the npm ones above,
+`winget install` for VS Code, Cursor, Warp and Claude, Goose's Windows
+installer, and a JetBrains IDE for Junie. The same account list applies.
+
+Three things are known to be different on Windows and are the findings to
+watch for, beyond the paths themselves:
+
+- **The suite.** Run `npm test` first. The runner's first real Windows run
+  failed 62 tests, mostly harness assumptions, and three real things listed
+  above. Whatever his machine does is recorded verbatim, pass or fail.
+- **Is-it-running.** The program asks `ps`, which Windows lacks, and answers
+  "unknown" — so Claude Desktop will be written to while it is open, and the
+  application may overwrite the entry at its next settings write. Quit Claude
+  Desktop before `setup`, and note whether the entry survives its restart.
+- **The `nosyparker.cmd` shim.** Whether `nosyparker` on PATH is npm's `.cmd`
+  wrapper, and whether the sentences the program prints name the command a
+  person can actually type.
+
+The eight rows with no Windows path — `opencode`, `kiro`, `lmstudio`,
+`roo-code`, `amazon-q`, `devin-desktop`, `zed`, `cline` — are reported by
+setup as clients it has no path for. Any of them he already has installed on
+that machine is a row he can add tonight by noting where it keeps its MCP
+configuration; the script says which ones it found.
+
+**Expect: two to three hours, no money.** Most of the time is installing and
+signing in to whichever of the twelve are not already on the machine.
+
+### What comes back
+
+The filled `results.md` table, pasted into this file under a dated heading;
+the row edits (`lastVerified`, `configPaths`, `inferred`/`measuredOn`) as one
+commit per platform; and the `npm test` output from each machine, verbatim,
+whether or not it passed. The runner columns are turned into gates once each
+platform's harness work is done and the sheet says the paths are right.
+
 ## The run sheet: what needs a person and a real machine
 
 One person, one machine per platform, the applications installed. Use a
