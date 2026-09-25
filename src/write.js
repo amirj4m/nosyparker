@@ -414,9 +414,19 @@ function holdsNothing(text, format) {
  * @returns {WriteResult}
  */
 function writeThroughCli(client, options, request) {
+  // Where it was looked for, because "could not be found" alone sends somebody
+  // to check a PATH that may be fine: on Windows the command Claude Code most
+  // often has is the one inside Claude Desktop's own directory, which no PATH
+  // holds. Why this does not fall back to editing the file, for the one client
+  // somebody will ask that about, is in DECISIONS.md under
+  // "Claude Code is written through its own command or not at all".
   if (options.clientCommand === null) {
+    const names = (client.detect.commands ?? []).map((/** @type {string} */ name) => `\`${name}\``).join(' or ');
+    const places = client.detect.commandFallbacks ?? [];
     return result('cli', options.configPath, null, FAILED,
-      `${client.name} is installed but its own command could not be found, and this client is only written through it.`);
+      `${client.name} is installed but its own command could not be found, and this client is only written through it. `
+      + `Looked for ${names} on PATH${places.length === 0 ? '' : ` and at ${places.join(', ')}`}. `
+      + 'Put the command on PATH and run this again.');
   }
 
   // No copy: the entry goes in through the application's own published
@@ -767,17 +777,108 @@ export function readOrEmpty(file) {
 
 /**
  * @param {string[]} argv
+ * @param {string} [platform]
  * @returns {{status: number|null, stdout: string, stderr: string}}
  */
-export function runCommand(argv) {
+export function runCommand(argv, platform = process.platform) {
   const [command, ...rest] = argv;
-  const ran = spawnSync(command, rest, { encoding: 'utf8', timeout: 30_000 });
+  const options = { encoding: /** @type {const} */ ('utf8'), timeout: 30_000 };
+
+  let ran;
+  if (isBatchFile(command, platform)) {
+    let line;
+    try {
+      line = batchCommandLine(command, rest);
+    } catch (error) {
+      return { status: null, stdout: '', stderr: sentence(error) };
+    }
+    ran = spawnSync(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', line], {
+      ...options,
+      windowsVerbatimArguments: true,
+      windowsHide: true,
+    });
+  } else {
+    ran = spawnSync(command, rest, { ...options, windowsHide: true });
+  }
 
   return {
     status: ran.error ? null : ran.status,
     stdout: ran.stdout ?? '',
     stderr: ran.error ? ran.error.message : (ran.stderr ?? ''),
   };
+}
+
+/**
+ * Whether this is a `.cmd` or `.bat`, which Windows runs only through cmd.exe.
+ *
+ * @param {string} command
+ * @param {string} platform
+ * @returns {boolean}
+ */
+export function isBatchFile(command, platform) {
+  return platform === 'win32' && /\.(?:cmd|bat)$/iu.test(command);
+}
+
+/** Everything cmd.exe gives a meaning to, outside quotes or in. */
+const CMD_META = /([()\][%!^"`<>&|;, *?=])/gu;
+
+/**
+ * One line for `cmd.exe /d /s /c` that runs a batch file with exactly these
+ * arguments, or a refusal.
+ *
+ * Most of the clients this writes to are installed on Windows as batch files:
+ * npm's shim for Codex, Gemini and every other global package is `codex.cmd`,
+ * and VS Code's `code` is `bin\code.cmd`. Node will not start one of those
+ * without a shell — since 20.12.2 it refuses with EINVAL rather than risk the
+ * argument injection in CVE-2024-27980 — and `shell: true` is that injection,
+ * because it joins the arguments with spaces and hands them to cmd.exe as they
+ * are. One of ours is a JSON blob full of quotes, and every one of them carries
+ * a path from somebody's home directory, which may hold `&` or `%`.
+ *
+ * So the line is built here, and every argument goes through two parsers in
+ * turn. First the C runtime's, which is how the program at the end of the shim
+ * splits its command line: wrap in quotes, double the backslashes that come
+ * before a quote or the end, escape each quote with one. Then cmd.exe's, twice
+ * over. Once for the `/c` line itself, and once more because the batch file
+ * hands its arguments on with `%*`, which cmd reads again as if typed: every
+ * character cmd treats specially is prefixed with `^`, then the result is
+ * prefixed again, so that one layer of carets is left for the second reading.
+ * The quotes are escaped with the rest, which keeps cmd from ever thinking it
+ * is inside a string — the thing a quote inside JSON otherwise does to it.
+ *
+ * `%` is safe by the same carets. In a `/c` line cmd expands `%NAME%` before it
+ * looks at carets, but what it would look up is `NAME^^^`, which does not
+ * exist, and an undefined name on a command line is left as written.
+ *
+ * What cannot be carried at all is refused: a line break ends a cmd line
+ * whatever surrounds it, and there is nothing to escape it with. None of our
+ * arguments has one; a refusal is still better than a truncated command.
+ * DECISIONS.md, "Starting a client's command on Windows".
+ *
+ * @param {string} command an absolute path to a `.cmd` or `.bat`
+ * @param {string[]} args
+ * @returns {string}
+ */
+export function batchCommandLine(command, args) {
+  for (const value of [command, ...args]) {
+    if (/[\r\n\0]/u.test(value)) {
+      throw new Error('An argument with a line break in it cannot be passed through cmd.exe, so the command was not run.');
+    }
+  }
+
+  const escaped = [
+    // The command is read by cmd once, to find the file; nothing reads it again.
+    `"${command}"`.replace(CMD_META, '^$1'),
+    ...args.map((arg) => {
+      const quoted = `"${arg
+        .replace(/(\\*)"/gu, '$1$1\\"')
+        .replace(/(\\*)$/u, '$1$1')}"`;
+      return quoted.replace(CMD_META, '^$1').replace(CMD_META, '^$1');
+    }),
+  ];
+
+  // `/s` takes the outer pair of quotes off and leaves the rest alone.
+  return `"${escaped.join(' ')}"`;
 }
 
 /**

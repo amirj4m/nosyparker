@@ -46,7 +46,8 @@
           "claude"
         ],
         "commandFallbacks": [
-          "~/.config/Claude/claude-code/*/claude"
+          "~/.config/Claude/claude-code/*/claude",
+          "%APPDATA%/Claude/claude-code/*/claude.exe"
         ],
         "paths": [
           "~/.config/Claude/claude-code",

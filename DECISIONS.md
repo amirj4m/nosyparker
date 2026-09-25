@@ -397,6 +397,108 @@ having recorded the whitespace inside it, and the cheap alternative — collapsi
 any empty object we find — is guessing at somebody's formatting rather than
 restoring it.
 
+## Starting a client's command on Windows
+
+*Pointed at from `windowsSpellings` in `src/detect.js` and `batchCommandLine`
+in `src/write.js`.*
+
+The first real `setup` on Windows 11, on 25 September 2026, failed every client
+written through its own command and none written by file. Codex said `spawnSync
+…\npm\codex ENOENT`, VS Code the same about `…\bin\code`, and Claude Code was
+not found at all. Two causes, one in each half.
+
+**Finding the command.** `onPath` asked whether `<dir>\codex` existed, and on
+Windows it does: npm puts `codex`, `codex.cmd` and `codex.ps1` side by side,
+and the first is a POSIX shell script for Git Bash. VS Code's `bin\` has the
+same pair. So detection found a file Windows cannot run, and `spawnSync` said
+ENOENT because there is no executable by that name. Claude Code's native
+install is `claude.exe`, and the bare name matched nothing. A command prompt
+never runs the extension-less file; it tries each extension in PATHEXT in
+order, within each directory, and that is what `onPath` now does on Windows.
+PATHEXT is narrowed to `.com`, `.exe`, `.bat` and `.cmd`: `.js`, `.vbs` and the
+rest of the default list mean Windows Script Host, and choosing an interpreter
+on somebody's behalf is not detection.
+
+**Running it.** An `.exe` is started directly, as before. A `.cmd` or `.bat`
+cannot be: Node has refused them without a shell since 20.12.2, with EINVAL,
+because of CVE-2024-27980 — and `shell: true` is the vulnerability rather than
+the fix, since it joins the arguments with spaces and lets cmd.exe read them.
+One of our arguments is VS Code's JSON entry, which is full of quotes, and every
+one of them holds a path out of somebody's home directory, which may hold `&`,
+`%`, `^` or `(x86)`.
+
+The options were three. `cross-spawn` does this correctly and is already in the
+tree, under the MCP SDK; taking it as a dependency for one function is the trade
+"Which SQLite driver" declines, and importing it without declaring it is worse.
+Reading the shim to find the script behind it and running that with our own
+Node is how some tools avoid cmd.exe entirely, and it would be parsing three
+vendors' batch files and trusting the parse. So the command line is built here,
+by the rules cross-spawn uses, in thirty lines with a test that runs a real
+batch file.
+
+Each argument is quoted by the C runtime's rules, which is how the program at
+the end of the shim reads its command line. Then every character cmd.exe gives
+a meaning to — quotes included, so it never believes it is inside a string —
+is prefixed with a caret, twice: once for the `/c` line, and once because the
+shim passes its arguments on as `%*`, which cmd reads a second time. `%NAME%`
+survives because what cmd would look up is `NAME^^^`, which is never defined.
+A line break cannot be carried by cmd.exe at all, so an argument holding one is
+refused and the command is not run.
+
+The test proves both halves on Windows and would fail without either. With the
+old direct spawn it gets EINVAL; with the carets applied once instead of twice,
+the shim receives different arguments from the ones sent. It passes the JSON,
+an empty string, trailing backslashes and embedded quotes through two shims —
+one shaped like VS Code's, one copied from what `npm install -g` wrote — from
+inside directories named with `(x86)`, `%TEMP%` and `!`, and for VS Code's
+shape `&` and `^` as well.
+
+What it does not settle. npm's own shim fails in a directory whose name holds
+`&` or `^`, run bare from cmd.exe with no arguments and nothing of ours
+involved: its `SET dp0=%~dp0` is unquoted. That is npm's, and a person with such
+a prefix would find every global command broken, not only this one. And a
+client whose batch file reads its arguments some other way than passing `%*` on
+would see one layer of carets too many. None of the four shims looked at does
+that — npm's, VS Code's, and the `npm.cmd` and `npx.cmd` Node ships.
+
+## Claude Code is written through its own command or not at all
+
+*Pointed at from `writeThroughCli` in `src/write.js`.*
+
+When `claude` could not be found on that Windows machine, `setup` changed
+nothing and said so. The obvious suggestion was a fallback: write the entry
+into `~/.claude.json` ourselves, since that path was verified. It was
+considered and declined, and the reasons are the row's, not new ones.
+
+`~/.claude.json` is Claude Code's live state file. It holds the OAuth account,
+the machine id and every project's history, and the row records that the
+application rewrites it constantly. An entry spliced in while it does so can
+read back correctly, report success, and be gone at the next save, which is
+the green tick with a shelf life that "What Phase 3 refuses to write, and why"
+exists to refuse. For the two clients measured doing that, the refusal names a
+process to quit; for Claude Code nobody has established which processes would
+have to be gone, and that would be a guess. And editing
+a file means copying it first, which here means putting a credential store into
+`~/.nosyparker/backups/` to guard against an edit its owner documents as not
+supported. `uninstall` already declines the same edit for the same reasons.
+
+What was done instead is what made the fallback look necessary go away. On
+that machine Claude Code was installed — inside Claude Desktop, at
+`%APPDATA%\Claude\claude-code\<version>\claude.exe`, the Windows twin of the
+Linux path the row already listed and for the same reason: nothing puts it on
+PATH. That path is now a fallback in the row, measured on 25 September 2026 by
+running it (`2.1.281 (Claude Code)`) and by `resolveCommand` returning it. A
+native install's `claude.exe` and an npm install's `claude.cmd` on PATH are
+found by the PATHEXT change above.
+
+And the refusal now says where it looked — the names on PATH and each fallback
+path — and to put the command on PATH, beside the existing pointer to
+`setup --print-config claude-code`, which prints the `claude mcp add` line to
+run by hand. Not added: the copy the VS Code extension carries under
+`~/.vscode/extensions/anthropic.claude-code-<version>-<platform>/`. One was seen
+on that machine and nobody has run it, and the single `*` the fallbacks allow
+matches every extension in that directory rather than the ones with that prefix.
+
 ## A new entrance goes into `doctor` in the same commit
 
 *Pointed at from `diagnose` in `src/doctor.js`.*

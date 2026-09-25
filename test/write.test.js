@@ -276,6 +276,22 @@ test('a client whose own command cannot be found says that, and writes nothing',
 
   assert.equal(written.outcome, FAILED);
   assert.match(/** @type {string} */ (written.error), /its own command could not be found/u);
+  assert.match(/** @type {string} */ (written.error), /Looked for `code` on PATH\. Put the command on PATH/u);
+  assert.equal(fs.existsSync(configPath), false);
+});
+
+test('and says each place it looked, for a client that has more than PATH', (t) => {
+  // "Not found" alone sent somebody to check a PATH that was fine: Claude Code
+  // was on the machine, inside Claude Desktop, where no PATH has it.
+  const space = workspace(t);
+  const configPath = space.config('.claude.json');
+
+  const written = writeToClient(clientById('claude-code'), options({ configPath, backupDir: space.backupDir }));
+
+  assert.equal(written.outcome, FAILED);
+  for (const place of clientById('claude-code').detect.commandFallbacks) {
+    assert.ok(/** @type {string} */ (written.error).includes(place), place);
+  }
   assert.equal(fs.existsSync(configPath), false);
 });
 
