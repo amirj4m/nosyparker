@@ -35,10 +35,24 @@ import { monotonicClock } from '../src/config.js';
 
 const SERVER = path.join(import.meta.dirname, '..', 'src', 'mcp-server.js');
 
+/**
+ * The clients each test connected, so its store can be deleted after them.
+ *
+ * @type {WeakMap<import('node:test').TestContext, Client[]>}
+ */
+const clientsOf = new WeakMap();
+
 /** @param {import('node:test').TestContext} t @returns {string} */
 function storeFile(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-overdue-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  // The servers first, then the folder: Windows will not delete a file a
+  // running server has open, and the EPERM skipped every later hook, the close
+  // included, leaving servers running and this file never finishing. The
+  // longer account is at `freshStoreFile` in mcp.test.js.
+  t.after(async () => {
+    await Promise.all((clientsOf.get(t) ?? []).map((client) => client.close()));
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
+  });
   return path.join(dir, 'memory.sqlite');
 }
 
@@ -50,6 +64,7 @@ async function connect(t, file) {
     args: [SERVER],
     env: { ...process.env, NOSYPARKER_STORE: file },
   }));
+  clientsOf.set(t, [...(clientsOf.get(t) ?? []), client]);
   t.after(() => client.close());
   return client;
 }
@@ -337,7 +352,6 @@ test('a review that keeps working is never called abandoned', (t) => {
   // written at second one is a test that proves the opposite of what it says.
   // It did, first time round.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-heartbeat-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
   const START = Date.parse('2026-05-01T00:00:00.000Z');
   let at = START;
@@ -346,6 +360,8 @@ test('a review that keeps working is never called abandoned', (t) => {
 
   const store = openStore({ file: path.join(dir, 'memory.sqlite'), now: () => new Date(at).toISOString(), elapsed: monotonicClock });
   t.after(() => store.close());
+  // After the close, or Windows refuses to delete the open file.
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10 }));
 
   /** @type {number[]} */
   const ids = [];
@@ -396,10 +412,11 @@ test('a moment it cannot read is not taken as proof a review is alive', (t) => {
   // and this whole addition exists because silence that looks like health is
   // the expensive failure. So an unreadable gap counts as forever idle.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-unreadable-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
   const store = openStore({ file: path.join(dir, 'memory.sqlite'), now: () => new Date().toISOString(), elapsed: monotonicClock });
   t.after(() => store.close());
+  // After the close, or Windows refuses to delete the open file.
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10 }));
 
   for (let i = 0; i < REVIEW_IS_DUE_AFTER.memories; i += 1) {
     submit(store, { owner: OWNER, text: `a thing worth keeping, number ${i}` });
