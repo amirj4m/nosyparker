@@ -342,7 +342,6 @@ test('a message too large for the connection says so instead of dying quietly', 
   // but it used to close without a word, and a session that simply ends is
   // the hardest kind of failure to diagnose.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-mcp-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
   const transport = new StdioClientTransport({
     command: process.execPath,
@@ -352,7 +351,9 @@ test('a message too large for the connection says so instead of dying quietly', 
   });
   const client = new Client({ name: 'nosyparker-test', version: '0' });
   await client.connect(transport);
+  // In this order for the reason `freshStoreFile` gives.
   t.after(() => client.close());
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10 }));
 
   let said = '';
   transport.stderr?.on('data', (chunk) => {
@@ -435,6 +436,13 @@ test('two agents on the same store read each other, in both directions', async (
  * @type {WeakMap<Client, number>}
  */
 const serverPids = new WeakMap();
+
+/**
+ * The clients each test connected, so its store can be deleted after them.
+ *
+ * @type {WeakMap<import('node:test').TestContext, Client[]>}
+ */
+const clientsOf = new WeakMap();
 
 test('a whole review, over the protocol, and then undone', async (t) => {
   const agent = await connect(t, freshStoreFile(t));
@@ -579,7 +587,9 @@ async function connect(t, file) {
   if (transport.pid !== null) serverPids.set(client, transport.pid);
 
   // Closing the client stops the server process it started, so no test leaves
-  // one behind holding the file.
+  // one behind holding the file. `freshStoreFile` closes it too, before it
+  // deletes the store; closing twice is harmless.
+  clientsOf.set(t, [...(clientsOf.get(t) ?? []), client]);
   t.after(() => client.close());
   return client;
 }
@@ -614,7 +624,19 @@ function text(result) {
  */
 function freshStoreFile(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nosyparker-mcp-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  // The servers first, then the folder. Hooks run in the order they were
+  // registered, and this one is registered before any server exists — so on
+  // Windows, which will not delete a file a running process has open, it
+  // failed with EPERM, and a hook that throws skips every hook after it. The
+  // client was never closed, its server was left running, and in the test
+  // with a memory watch the watch's timer was never stopped either: the file
+  // never finished and `npm test` stalled there. Linux deletes an open file
+  // without complaint, which is why this was only ever seen on Windows.
+  t.after(async () => {
+    await Promise.all((clientsOf.get(t) ?? []).map((client) => client.close()));
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
+  });
   return path.join(dir, 'memory.sqlite');
 }
 
