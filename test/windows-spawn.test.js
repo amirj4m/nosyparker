@@ -74,6 +74,18 @@ test('on Windows a bare name finds its .exe', () => {
   assert.equal(resolveCommand(clientById('claude-code'), windows([`${bin}\\claude.exe`], [bin])), `${bin}\\claude.exe`);
 });
 
+test('on Windows Claude Code is found inside Claude Desktop, where no PATH has it', () => {
+  // Where it was on the machine that found this, and the reason `claude` was
+  // "not found": Claude Desktop keeps its own copy per version and puts none of
+  // them on PATH, exactly as it does on Linux.
+  const bundled = 'C:\\Users\\p\\AppData\\Roaming\\Claude\\claude-code\\2.1.281\\claude.exe';
+
+  // Separators normalised only so the answer reads the same when the suite runs
+  // on a POSIX host describing this machine.
+  const found = resolveCommand(clientById('claude-code'), windows([bundled], ['C:\\Windows\\System32']));
+  assert.equal(found?.replaceAll('/', '\\'), bundled);
+});
+
 test('PATHEXT order is kept, and only what can be started is tried', () => {
   const dir = 'C:\\tools';
   const machine = (/** @type {string[]} */ files) => windows(files, [dir], ['.JS', '.CMD', '.EXE']);
