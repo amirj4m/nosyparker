@@ -461,6 +461,44 @@ client whose batch file reads its arguments some other way than passing `%*` on
 would see one layer of carets too many. None of the four shims looked at does
 that — npm's, VS Code's, and the `npm.cmd` and `npx.cmd` Node ships.
 
+## Claude Code is written through its own command or not at all
+
+*Pointed at from `writeThroughCli` in `src/write.js`.*
+
+When `claude` could not be found on that Windows machine, `setup` changed
+nothing and said so. The obvious suggestion was a fallback: write the entry
+into `~/.claude.json` ourselves, since that path was verified. It was
+considered and declined, and the reasons are the row's, not new ones.
+
+`~/.claude.json` is Claude Code's live state file. It holds the OAuth account,
+the machine id and every project's history, and the row records that the
+application rewrites it constantly. An entry spliced in while it does so can
+read back correctly, report success, and be gone at the next save, which is
+the green tick with a shelf life that "What Phase 3 refuses to write, and why"
+exists to refuse. For the two clients measured doing that, the refusal names a
+process to quit; for Claude Code nobody has established which processes would
+have to be gone, and that would be a guess. And editing
+a file means copying it first, which here means putting a credential store into
+`~/.nosyparker/backups/` to guard against an edit its owner documents as not
+supported. `uninstall` already declines the same edit for the same reasons.
+
+What was done instead is what made the fallback look necessary go away. On
+that machine Claude Code was installed — inside Claude Desktop, at
+`%APPDATA%\Claude\claude-code\<version>\claude.exe`, the Windows twin of the
+Linux path the row already listed and for the same reason: nothing puts it on
+PATH. That path is now a fallback in the row, measured on 25 September 2026 by
+running it (`2.1.281 (Claude Code)`) and by `resolveCommand` returning it. A
+native install's `claude.exe` and an npm install's `claude.cmd` on PATH are
+found by the PATHEXT change above.
+
+And the refusal now says where it looked — the names on PATH and each fallback
+path — and to put the command on PATH, beside the existing pointer to
+`setup --print-config claude-code`, which prints the `claude mcp add` line to
+run by hand. Not added: the copy the VS Code extension carries under
+`~/.vscode/extensions/anthropic.claude-code-<version>-<platform>/`. One was seen
+on that machine and nobody has run it, and the single `*` the fallbacks allow
+matches every extension in that directory rather than the ones with that prefix.
+
 ## A new entrance goes into `doctor` in the same commit
 
 *Pointed at from `diagnose` in `src/doctor.js`.*

@@ -414,9 +414,19 @@ function holdsNothing(text, format) {
  * @returns {WriteResult}
  */
 function writeThroughCli(client, options, request) {
+  // Where it was looked for, because "could not be found" alone sends somebody
+  // to check a PATH that may be fine: on Windows the command Claude Code most
+  // often has is the one inside Claude Desktop's own directory, which no PATH
+  // holds. Why this does not fall back to editing the file, for the one client
+  // somebody will ask that about, is in DECISIONS.md under
+  // "Claude Code is written through its own command or not at all".
   if (options.clientCommand === null) {
+    const names = (client.detect.commands ?? []).map((/** @type {string} */ name) => `\`${name}\``).join(' or ');
+    const places = client.detect.commandFallbacks ?? [];
     return result('cli', options.configPath, null, FAILED,
-      `${client.name} is installed but its own command could not be found, and this client is only written through it.`);
+      `${client.name} is installed but its own command could not be found, and this client is only written through it. `
+      + `Looked for ${names} on PATH${places.length === 0 ? '' : ` and at ${places.join(', ')}`}. `
+      + 'Put the command on PATH and run this again.');
   }
 
   // No copy: the entry goes in through the application's own published
