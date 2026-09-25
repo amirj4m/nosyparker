@@ -56,6 +56,8 @@ export const INSTALLED_PATH_UNKNOWN = 'installed-path-unknown';
  * @property {string|undefined} [appData]
  * @property {string} [cwd]
  * @property {string[]} pathDirs directories to look in for a command
+ * @property {string[]} [pathExt] on Windows, the extensions a bare command is
+ *   tried with, in order; the four runnable ones when absent
  * @property {(file: string) => boolean} exists
  * @property {(dir: string) => string[]} readdir returns [] when the directory is not there
  * @property {() => string[]|null} processes running process names, or null if they cannot be listed
@@ -108,6 +110,7 @@ export function thisMachine(overrides = {}) {
     appData: process.env.APPDATA,
     cwd: process.cwd(),
     pathDirs: (process.env.PATH ?? '').split(path.delimiter).filter(Boolean),
+    pathExt: process.env.PATHEXT?.split(';').filter(Boolean),
     exists: (file) => fs.existsSync(file),
     readdir: (dir) => {
       try {
@@ -207,11 +210,51 @@ export function resolveCommand(client, machine, evidence) {
  * @returns {string|null}
  */
 function onPath(name, machine) {
+  const windows = machine.platform === 'win32';
+  const spellings = windows ? windowsSpellings(name, machine) : [name];
+  const join = windows ? path.win32.join : path.join;
+
   for (const dir of machine.pathDirs) {
-    const candidate = path.join(dir, name);
-    if (machine.exists(candidate)) return candidate;
+    for (const spelling of spellings) {
+      const candidate = join(dir, spelling);
+      if (machine.exists(candidate)) return candidate;
+    }
   }
   return null;
+}
+
+/** What Windows will start without a shell's help, and a batch file with one. */
+const RUNNABLE_ON_WINDOWS = ['.com', '.exe', '.bat', '.cmd'];
+
+/**
+ * The names Windows would try for a bare command, in the order it tries them.
+ *
+ * Never the bare name itself. npm puts three files beside each other for every
+ * global command — `codex`, `codex.cmd` and `codex.ps1` — and the first is a
+ * POSIX shell script for Git Bash and Cygwin. It exists, so asking whether
+ * `codex` exists said yes, and handing that path to `spawnSync` failed with
+ * ENOENT on every machine that had Codex: Windows cannot run it. VS Code's
+ * `bin/code` is the same shape. A command prompt never runs the extension-less
+ * file either; it tries PATHEXT, and so does this.
+ *
+ * PATHEXT is narrowed to the four kinds that can be run at all without an
+ * interpreter chosen by us — `.js` and `.vbs` are in the default list and mean
+ * Windows Script Host, which is not a thing to start on somebody's behalf.
+ * DECISIONS.md, "Starting a client's command on Windows".
+ *
+ * @param {string} name
+ * @param {Machine} machine
+ * @returns {string[]}
+ */
+function windowsSpellings(name, machine) {
+  const has = path.extname(name).toLowerCase();
+  if (RUNNABLE_ON_WINDOWS.includes(has)) return [name];
+
+  const listed = (machine.pathExt ?? RUNNABLE_ON_WINDOWS)
+    .map((extension) => extension.toLowerCase())
+    .filter((extension) => RUNNABLE_ON_WINDOWS.includes(extension));
+
+  return [...new Set(listed)].map((extension) => name + extension);
 }
 
 /**
