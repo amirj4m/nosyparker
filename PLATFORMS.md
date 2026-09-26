@@ -12,6 +12,96 @@ It is not in the package (`package.json`'s `files` list), and a test holds
 that: it is a working document, not something a person who installed a memory
 store should find on their disk.
 
+The status paragraph above is as of 24 September. The first real Windows
+machine has since been run; what it established is in the next section, and
+what is left is in `HANDOFF.md`.
+
+## Windows — first real-machine run, 2026-09-25/26
+
+Windows 11 Pro 10.0.26200, Node 24.14.1, the owner's own machine. The
+applications were installed with winget, npm and the VS Code marketplace, and
+setup was run from `main` after PR #1 merged. `nosyparker` on PATH on that
+machine is npm's shim over a **junction to the repository checkout**, not a
+copy from the registry, so it runs whatever branch is checked out and reports
+itself as 0.0.8.
+
+**Claim 1, the path, measured on six rows.** Each file below exists on the
+machine, is the file the client uses, and holds our entry after `setup`:
+
+| row | Windows path | how it got there | what was established beyond the file |
+|---|---|---|---|
+| `claude-code` | `~/.claude.json` | `claude mcp add`, through Claude Desktop's bundled `claude.exe` | `claude mcp list`: the server started and connected (claim 3) |
+| `codex-cli` | `~/.codex/config.toml` | `codex mcp add`, through npm's `codex.cmd` | `codex mcp list --json`: parsed, holds our entry, enabled. It never starts the command, so this is not claim 3 |
+| `vscode` | `%APPDATA%\Code\User\mcp.json` | `code --add-mcp`, through `bin\code.cmd` | nothing: there is no command to ask |
+| `copilot-cli` | `~/.copilot/mcp-config.json` | our splice | nothing: there is no command to ask |
+| `gemini-cli` | `~/.gemini/settings.json` | our splice | `gemini mcp list` reports it cannot use the server, because the folder is untrusted (see below) |
+| `cursor` | `~/.cursor/mcp.json` | our splice | nothing: there is no command to ask |
+
+`kimi-code` was written as well, to `~/.kimi-code/mcp.json`. Kimi loads no
+server before sign-in, so nothing past the file is known.
+
+**The systemic defect it found, and the fix.** Before PR #1, every row written
+through its own command failed and every row written by file succeeded:
+Codex and VS Code with `spawnSync … ENOENT`, Claude Code with "its own command
+could not be found". There were two causes. Detection took npm's and VS
+Code's extension-less POSIX script for the command. And Node will not start a
+`.cmd` without a shell. The fix is in DECISIONS.md, "Starting a client's
+command on Windows", and "Claude Code is written through its own command or
+not at all". The owner's count went from 1 of 7 clients working to 6 of 7.
+
+`doctor` on 26 September, after setup:
+
+- **Working, as far as it can tell:** Claude Code (connected) and Codex CLI
+  (enabled).
+- **Written, not askable:** GitHub Copilot CLI, VS Code, Cursor and Kimi Code.
+- **Broken:** Gemini CLI. The entry is written; Gemini disables every MCP
+  server in a folder it does not trust. That is Gemini's policy and not a
+  path or write defect. `/permissions trust` in the working folder, or a
+  `TRUST_FOLDER` line in `~/.gemini/trustedFolders.json`, lifts it.
+
+**Not found by setup, and why:**
+
+- **Claude Desktop, installed with winget.** The row's `detect.paths` names
+  only Linux and macOS locations, so on Windows it can never be detected,
+  whatever is installed. That is a table gap, not a machine problem. winget
+  installed it as an MSIX package. `%APPDATA%\Claude\claude_desktop_config.json`
+  exists, and so does
+  `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude_desktop_config.json`.
+  Both have the same two keys and the same timestamp. Which one the
+  application reads is not established, and MSIX file virtualisation is why
+  that is a real question. Measure it before adding a detection path.
+- **Warp and Continue.** Both are installed, but `~/.warp` and `~/.continue`
+  do not exist yet. Neither application has been opened, so there is nothing
+  to detect by. This is expected, not a defect.
+- **Goose and Junie** were not installed. Goose's installer and a JetBrains
+  IDE could not be run unattended.
+
+**New Windows findings for the table and the code, not yet acted on:**
+
+- `doctor` says of every JSON entry that it "has no interpreter in it that
+  this can read". It says that for Claude Code, Copilot, VS Code, Cursor, Kimi
+  and Gemini alike, so the check that the entry's interpreter still exists
+  never runs on Windows. It is probably a path-shape assumption, and it is
+  unexamined.
+- The next-step sentences the program prints name `node <checkout>\src\cli.js`
+  rather than `nosyparker`, and the documentation check "the program and the
+  README name the same command to run next" fails because of it. This is the
+  `nosyparker.cmd` question from the Windows session below, half answered. It
+  was seen with a junction install; a registry install has not been tried.
+
+**The suite on that machine.** `npm test` on `main`: 573 tests, 500 pass,
+72 fail, 1 skipped, in 54 seconds. Before PR #1 it never finished: temporary
+stores were deleted before the server using them was closed, Windows refused
+with EPERM, and node:test skipped the hooks that would have closed it. The 72
+are the harness assumptions listed below, still standing. Nine files still
+fail on that same delete-before-close order: `cli`, `concurrency`, `doctor`,
+`migrate`, `purge`, `review-damage`, `search`, `store-guarantees` and `write`.
+They finish, but they are part of the 72. `test/windows-spawn.test.js`,
+11 tests, passes, and it is the only file that runs real `.cmd` shims.
+
+The row edits this run justifies — `lastVerified` for the six measured rows —
+have not been made; see `HANDOFF.md`.
+
 ## What the question is, per row
 
 A row makes three claims about a platform, and they are separate:
